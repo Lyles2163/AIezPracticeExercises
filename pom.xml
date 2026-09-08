@@ -20,6 +20,8 @@
     <modules>
         <module>UserModule</module>
         <module>PracticeModule</module>
+        <module>AuthorizationModule</module>
+        <module>GatewayModule</module>
     </modules>
 
 
