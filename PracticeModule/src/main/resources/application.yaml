@@ -1,9 +1,9 @@
 server:
-  port: 8101
+  port: 8100
 
 spring:
   application:
-    name: UserModuleServer
+    name: PracticeModuleServer
   cloud:
     sentinel:
       transport:
@@ -17,7 +17,7 @@ spring:
         file-extension: yaml
   config:
     import:
-      - optional:nacos:UserModuleServer.yaml
+      - optional:nacos:PracticeModuleServer.yaml
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
@@ -47,3 +47,4 @@ seata:
     type: file
   config:
     type: file
+

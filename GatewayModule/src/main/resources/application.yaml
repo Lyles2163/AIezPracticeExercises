@@ -1,0 +1,15 @@
+server:
+  port: 8102
+
+spring:
+  cloud:
+    gateway:
+      routes: # ? ?????????
+        - id: A_route
+          uri: lb://a-server  # ??? uri??? url
+          predicates:
+            - Path=/A/**
+        - id: B_route
+          uri: lb://b-server  # ??? uri??? url
+          predicates:
+            - Path=/B/**
