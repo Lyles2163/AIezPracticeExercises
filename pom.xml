@@ -22,6 +22,7 @@
         <module>PracticeModule</module>
         <module>AuthorizationModule</module>
         <module>GatewayModule</module>
+        <module>AuthModule</module>
     </modules>
 
 

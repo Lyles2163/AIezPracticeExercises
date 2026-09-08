@@ -11,7 +11,6 @@
     </parent>
 
 
-    <groupId>org.leon</groupId>
     <artifactId>UserModule</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>UserModule</name>
@@ -99,6 +98,16 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
+<!--        <dependency>-->
+<!--            <groupId>com.baomidou</groupId>-->
+<!--            <artifactId>mybatis-plus-spring</artifactId>-->
+<!--            <version>3.5.17</version>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>com.baomidou</groupId>-->
+<!--            <artifactId>mybatis-plus-extension</artifactId>-->
+<!--            <version>3.5.12</version>-->
+<!--        </dependency>-->
     </dependencies>
 
     <build>
