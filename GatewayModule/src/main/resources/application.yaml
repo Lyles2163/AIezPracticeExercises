@@ -4,12 +4,15 @@ server:
 spring:
   cloud:
     gateway:
-      routes: # ? ?????????
-        - id: A_route
-          uri: lb://a-server  # ??? uri??? url
+      routes:
+        - id: user-service-route
+          # 重点：这里使用 lb (LoadBalance) 前缀加上你的服务名
+          uri: lb://UserModuleServer
           predicates:
-            - Path=/A/**
-        - id: B_route
-          uri: lb://b-server  # ??? uri??? url
-          predicates:
-            - Path=/B/**
+            - Path=/user/**
+
+  config:
+    import: nacos:gateway-module.yaml   # 改成你实际的 Data ID
+    nacos:
+      config:
+        server-addr: 127.0.0.1:8848     # 改成你实际的 Nacos 地址
