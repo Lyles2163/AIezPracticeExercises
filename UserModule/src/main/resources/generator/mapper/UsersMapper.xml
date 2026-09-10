@@ -2,9 +2,9 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="generator.mapper.UsersDevMapper">
+<mapper namespace="org.leon.usermodule.mapper.UsersMapper">
 
-    <resultMap id="BaseResultMap" type="generator.pojo.UsersDev">
+    <resultMap id="BaseResultMap" type="org.leon.usermodule.pojo.Users">
             <id property="id" column="id" />
             <result property="username" column="username" />
             <result property="password_hash" column="password_hash" />

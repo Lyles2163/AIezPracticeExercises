@@ -47,3 +47,4 @@ seata:
     type: file
   config:
     type: file
+

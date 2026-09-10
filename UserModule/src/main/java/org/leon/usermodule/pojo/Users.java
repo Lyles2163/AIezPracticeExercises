@@ -14,7 +14,7 @@ import lombok.Data;
  */
 @TableName(value ="users_dev")
 @Data
-public class UsersDev implements Serializable {
+public class Users implements Serializable {
     /**
      * 用户唯一编号
      */
@@ -77,7 +77,7 @@ public class UsersDev implements Serializable {
         if (getClass() != that.getClass()) {
             return false;
         }
-        UsersDev other = (UsersDev) that;
+        Users other = (Users) that;
         return (this.getId() == null ? other.getId() == null : this.getId().equals(other.getId()))
             && (this.getUsername() == null ? other.getUsername() == null : this.getUsername().equals(other.getUsername()))
             && (this.getPassword_hash() == null ? other.getPassword_hash() == null : this.getPassword_hash().equals(other.getPassword_hash()))
