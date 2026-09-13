@@ -1,6 +1,11 @@
 server:
   port: 8103
 
+leon:
+  jwt:
+    secret: "LeonSecretKeyForJWTInEzPracticeExercises2026IsVeryLongAndComplexNow"
+    expiration: 7200000 # 2小时，单位毫秒
+
 spring:
   application:
     name: AuthModuleServer
