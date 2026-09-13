@@ -2,12 +2,17 @@ server:
   port: 8100
 
 
+
+jwt:
+  # 开发环境默认值，生产必须用环境变量覆盖
+  secret: ${JWT_SECRET:5p2O6Ziz6LaF57qn5peg5pWM5biFNjY2}
+  expiration-ms: ${JWT_EXPIRATION_MS:43200000}
+
 spring:
   cloud:
     gateway:
       routes:
         - id: user-service-route
-          # 重点：这里使用 lb (LoadBalance) 前缀加上你的服务名
           uri: lb://UserModuleServer
           predicates:
             - Path=/user/**
