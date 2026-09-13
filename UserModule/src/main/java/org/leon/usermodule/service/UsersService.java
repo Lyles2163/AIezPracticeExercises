@@ -13,4 +13,6 @@ import java.util.List;
 public interface UsersService extends IService<Users> {
 
     List<Users> selectAll();
+
+    void deleteById(Integer id);
 }

@@ -23,6 +23,7 @@
         <module>AuthorizationModule</module>
         <module>GatewayModule</module>
         <module>AuthModule</module>
+        <module>CommonJwt</module>
     </modules>
 
 

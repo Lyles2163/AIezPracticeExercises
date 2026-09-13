@@ -25,6 +25,11 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
     public List<Users> selectAll() {
         return usersMapper.selectList(null);
     }
+
+    @Override
+    public void deleteById(Integer id) {
+        usersMapper.deleteById(id);
+    }
 }
 
 
