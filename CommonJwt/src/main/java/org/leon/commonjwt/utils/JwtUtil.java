@@ -36,6 +36,13 @@ public class JwtUtil {
         return createToken(claims);
     }
 
+    public String generateToken2(Long userId, String username, String userRole) {
+        Map<String,Object> claims =new HashMap<>();
+        claims.put("userId", userId);
+        claims.put("username", username);
+        claims.put("userRole", userRole);
+        return createToken(claims);
+    }
     /**
      * 内部创建 Token 的通用方法
      */
@@ -59,10 +66,10 @@ public class JwtUtil {
      */
     public Claims getClaimsFromToken(String token) {
         return Jwts.parser()
-                .verifyWith((SecretKey) getSignInKey()) // ✅ 0.12.x 校验密钥的新方法
+                .verifyWith((SecretKey) getSignInKey()) //  0.12.x 校验密钥的新方法
                 .build()
-                .parseSignedClaims(token) // ✅ 解析 SignedClaims
-                .getPayload(); // ✅ 获取 Payload (即 Claims)
+                .parseSignedClaims(token) //  解析 SignedClaims
+                .getPayload(); //  获取 Payload (即 Claims)
     }
 
     /**
@@ -92,4 +99,6 @@ public class JwtUtil {
         byte[] keyBytes = Decoders.BASE64.decode(jwtConfig.getSecret());
         return Keys.hmacShaKeyFor(keyBytes);
     }
+
+
 }

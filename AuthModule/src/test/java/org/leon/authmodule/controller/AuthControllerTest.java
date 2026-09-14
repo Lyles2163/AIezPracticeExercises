@@ -2,28 +2,24 @@ package org.leon.authmodule.controller;
 
 import io.jsonwebtoken.Claims;
 import jakarta.annotation.Resource;
-import lombok.extern.slf4j.Slf4j;
-import org.leon.commonjwt.config.JwtConfig;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.HashMap;
 import java.util.Map;
-@Slf4j
-@RestController
-@RequestMapping("/auth")
-public class AuthController {
-    @Autowired
-    private JwtUtil jwtUtil; // 自动注入 CommonJwt 模块的工具类
 
+import static org.junit.jupiter.api.Assertions.*;
+@SpringBootTest
+class AuthControllerTest {
     @Resource
-    private JwtConfig jwtConfig;
+    private JwtUtil jwtUtil;
 
-    @GetMapping("/testLogin")
-    public String testLogin() {
+    @DisplayName("jwt基础生成测试")
+    @Test
+    void testLogin() {
         // 1. 模拟一个用户登录成功，拿到用户ID和用户名
         Long userId = 1001L;
         String username = "testUser";
@@ -35,11 +31,14 @@ public class AuthController {
         // 3. 调用 CommonJwt 模块的工具类生成 Token
         String token = jwtUtil.generateToken(userId, username); // 使用你写的默认方法
         // 如果你想把 Map 传进去，也可以用：jwtUtil.generateToken(claims);
+        System.out.println("生成的jwt为："+token);
 
-        return "登录成功！你的 Token 是：\n" + token;
     }
-    @GetMapping("/testLogin2")
-    public String testLogin2() {
+    @DisplayName("jwt数据自定义生成测试")
+    @Test
+    void testLogin2() {
+
+
         // 1. 模拟一个用户登录成功，拿到用户ID和用户名
         Long userId = 1001L;
         String username = "testUser";
@@ -54,11 +53,11 @@ public class AuthController {
         // 3. 调用 CommonJwt 模块的工具类生成 Token
         String token2 = jwtUtil.generateToken2(userId, username,userRole); // JWT
         // 如果你想把 Map 传进去，也可以用：jwtUtil.generateToken(claims);
-
-        return "登录成功！你的 Token 是：\n" + token2;
+        System.out.println("自定义生成的jwt为："+token2);
     }
-    @GetMapping("testGetClaimsFromToke")
-    public Claims testGetClaimsFromToke(){
+    @DisplayName("jwt数据解析测试")
+    @Test
+    void testGetClaimsFromToke() {
         // 1. 模拟一个用户登录成功，拿到用户ID和用户名
         Long userId = 1001L;
         String username = "testUser";
@@ -75,7 +74,6 @@ public class AuthController {
         // 如果你想把 Map 传进去，也可以用：jwtUtil.generateToken(claims);
 
         Claims result=jwtUtil.getClaimsFromToken(token2);
-        return  result;
+        System.out.println("解析jwt的信息为："+result);
     }
-
 }
