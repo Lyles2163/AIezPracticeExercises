@@ -2,15 +2,24 @@ package org.leon.authmodule.controller;
 
 import io.jsonwebtoken.Claims;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.leon.authmodule.pojo.RegisterRequest;
+import org.leon.authmodule.pojo.Result;
 import org.leon.commonjwt.config.JwtConfig;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 @Slf4j
 @RestController
@@ -19,8 +28,14 @@ public class AuthController {
     @Autowired
     private JwtUtil jwtUtil; // 自动注入 CommonJwt 模块的工具类
 
+    private final PasswordEncoder passwordEncoder;
+
     @Resource
     private JwtConfig jwtConfig;
+
+    public AuthController(PasswordEncoder passwordEncoder) {
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @GetMapping("/testLogin")
     public String testLogin() {
@@ -77,5 +92,28 @@ public class AuthController {
         Claims result=jwtUtil.getClaimsFromToken(token2);
         return  result;
     }
+
+    @PostMapping("/register")
+    public Result register(@Valid @RequestBody RegisterRequest request) {
+        // ========== 1. 验证码校验（TODO: 对接 Redis 中的验证码） ==========
+        // if (!captchaService.verify(request.getCaptchaKey(), request.getCaptchaCode())) {
+        //     return ResponseEntity.badRequest().body(Map.of("code", 400, "message", "验证码错误"));
+        // }
+
+        // ========== 2. 密码 BCrypt 加密（绝不明文存储！） ==========
+        String encodedPassword = passwordEncoder.encode(request.getPassword());
+
+        // ========== 3. 调用 Service 层保存用户（TODO） ==========
+        // userService.register(request.getUsername(), encodedPassword);
+        // ⚠️ Service 层需捕获 DuplicateKeyException 并返回"用户名已存在"
+
+        log.info("新用户注册成功: {}", request.getUsername()); // ⚠️ 日志绝不打印密码！
+        return Result.success("注册成功");
+    }
+
+
+
+
+
 
 }
