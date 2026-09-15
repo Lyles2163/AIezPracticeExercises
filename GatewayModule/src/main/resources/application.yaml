@@ -17,6 +17,11 @@ spring:
           predicates:
             - Path=/user/**
 
+        - id: auth-service-route
+          uri: lb://AuthModuleServer
+          predicates:
+            - Path=/auth/**
+
   config:
     import: nacos:gateway-module.yaml   # 改成你实际的 Data ID
     nacos:
