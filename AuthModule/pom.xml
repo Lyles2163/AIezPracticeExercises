@@ -61,6 +61,23 @@
 <!--            <groupId>org.springframework.security</groupId>-->
 <!--            <artifactId>spring-security-crypto</artifactId>-->
 <!--         </dependency>-->
+
+        <!-- MyBatis-Plus -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <version>3.5.17</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring</artifactId>
+            <version>3.5.17</version>
+        </dependency>
+
     </dependencies>
 
     <build>

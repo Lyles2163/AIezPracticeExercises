@@ -17,7 +17,7 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // ⬇️ 新增：放行认证相关接口
+    // ⬇ 新增：放行认证相关接口
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
