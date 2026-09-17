@@ -10,7 +10,9 @@ import org.leon.authmodule.pojo.Result;
 * @description 针对表【users_dev(用户核心账号表)】的数据库操作Service
 * @createDate 2026-09-10 15:29:46
 */
-public interface registerService extends IService<RegisterRequest> {
+public interface AuthService extends IService<RegisterRequest> {
 
     Result register(@Valid RegisterRequest request);
+
+    Result Login(RegisterRequest request);
 }

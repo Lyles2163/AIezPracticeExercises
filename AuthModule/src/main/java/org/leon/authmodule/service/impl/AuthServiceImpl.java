@@ -2,13 +2,17 @@ package org.leon.authmodule.service.impl;
 
 
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import org.leon.authmodule.mapper.registerMapper;
+import org.leon.authmodule.mapper.AuthMapper;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
-import org.leon.authmodule.service.registerService;
+import org.leon.authmodule.pojo.Users;
+import org.leon.authmodule.service.AuthService;
+import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 /**
 * @author Administrator
@@ -16,14 +20,16 @@ import org.springframework.stereotype.Service;
 * @createDate 2026-09-10 15:29:46
 */
 @Service
-public class registerServiceImpl extends ServiceImpl<registerMapper, RegisterRequest>
-    implements registerService {
+public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
+    implements AuthService {
     @Autowired
-    private registerMapper registerMapper;
+    private AuthMapper AuthMapper;
+    @Autowired
+    private JwtUtil jwtUtil;
 
     private final PasswordEncoder passwordEncoder;
 
-    public registerServiceImpl(PasswordEncoder passwordEncoder) {
+    public AuthServiceImpl(PasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -38,13 +44,39 @@ public class registerServiceImpl extends ServiceImpl<registerMapper, RegisterReq
         // ========== 2. 密码 BCrypt 加密（绝不明文存储！） ==========
         String encodedPassword = passwordEncoder.encode(request.getPassword());
 
-        registerMapper.register(request.getUsername(),encodedPassword);
+        AuthMapper.register(request.getUsername(),encodedPassword);
 
         // userService.register(request.getUsername(), encodedPassword);
         // ⚠️ Service 层需捕获 DuplicateKeyException 并返回"用户名已存在"
 
 //        log.info("新用户注册成功: {}", request.getUsername()); // ⚠️ 日志绝不打印密码！
         return Result.success("注册成功");
+    }
+
+    @Override
+    public Result Login(RegisterRequest request) {
+        String username =request.getUsername();
+        String password =request.getPassword();
+
+        String encodePassword = passwordEncoder.encode(request.getPassword());
+
+            Users users= AuthMapper.selectByUsername(request.getUsername());
+            if (users==null){
+                //防止用户恶意试探用户名
+                return Result.error("用户名或密码错误");
+            }
+
+            //将用户的密码加密后与数据库中加密的密码做对比
+            boolean isPassword=passwordEncoder.matches(encodePassword,users.getPassword_hash());
+             if(!isPassword){
+                 return Result.error("密码错误");
+             }
+
+
+        String token= jwtUtil.generateToken(users.getId(), users.getUsername());
+
+
+        return Result.success("登录成功");
     }
 }
 

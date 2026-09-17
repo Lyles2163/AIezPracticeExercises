@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="org.leon.authmodule.mapper.registerMapper">
+<mapper namespace="org.leon.authmodule.mapper.AuthMapper">
 
     <resultMap id="BaseResultMap" type="org.leon.authmodule.pojo.RegisterRequest">
             <result property="username" column="username" />
@@ -12,7 +12,9 @@
         INSERT INTO users_dev (username, password_hash)
         VALUES (#{username}, #{encodedPassword})
     </insert>
+    <select id="selectByUsername">
 
+    </select>
 
 
 </mapper>
