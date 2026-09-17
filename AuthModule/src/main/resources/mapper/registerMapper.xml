@@ -9,9 +9,10 @@
             <result property="password" column="password_hash" />
     </resultMap>
     <insert id="register">
-
-
+        INSERT INTO users_dev (username, password_hash)
+        VALUES (#{username}, #{encodedPassword})
     </insert>
+
 
 
 </mapper>
