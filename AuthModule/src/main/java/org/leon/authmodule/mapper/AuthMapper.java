@@ -10,6 +10,5 @@ import org.leon.authmodule.pojo.Users;
 public interface AuthMapper extends BaseMapper<RegisterRequest> {
     void register(String username, String encodedPassword);
 
-    @Select("SELECT * FROM users_dev WHERE username = #{username}")
     Users selectByUsername(String username);
 }

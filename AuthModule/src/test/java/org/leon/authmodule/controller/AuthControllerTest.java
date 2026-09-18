@@ -72,8 +72,8 @@ class AuthControllerTest {
         // 3. 调用 CommonJwt 模块的工具类生成 Token
         String token2 = jwtUtil.generateToken2(userId, username,userRole); // JWT
         // 如果你想把 Map 传进去，也可以用：jwtUtil.generateToken(claims);
-
-        Claims result=jwtUtil.getClaimsFromToken(token2);
+        String token3="eyJhbGciOiJIUzM4NCJ9.eyJ1c2VyUm9sZSI6IjEiLCJ1c2VySWQiOjEwLCJ1c2VybmFtZSI6InRlc3Q5MTgiLCJpYXQiOjE3ODk3MTQ4MzUsImV4cCI6MTc4OTcyMjAzNX0.-FcCkt1SoweC9AtlxVogDwZGW7kmQUz1pVff3h-U4WzICEo1dBqAeUitEEiRRvgI";
+        Claims result=jwtUtil.getClaimsFromToken(token3);
         System.out.println("解析jwt的信息为："+result);
     }
 }

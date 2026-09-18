@@ -4,17 +4,21 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="org.leon.authmodule.mapper.AuthMapper">
 
-    <resultMap id="BaseResultMap" type="org.leon.authmodule.pojo.RegisterRequest">
-            <result property="username" column="username" />
-            <result property="password" column="password_hash" />
+
+    <resultMap id="UserResultMap" type="org.leon.authmodule.pojo.Users">
+        <id property="id" column="id" /> <!-- 如果有 id 字段的话 -->
+        <result property="username" column="username" />
+        <result property="password_hash" column="password_hash" />
     </resultMap>
+
     <insert id="register">
         INSERT INTO users_dev (username, password_hash)
         VALUES (#{username}, #{encodedPassword})
     </insert>
-    <select id="selectByUsername">
 
+    <!-- ⭐ 补全 SQL 并引用 resultMap -->
+    <select id="selectByUsername" resultMap="UserResultMap">
+        SELECT * FROM users_dev WHERE username = #{username}
     </select>
-
 
 </mapper>

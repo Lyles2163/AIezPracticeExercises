@@ -34,6 +34,8 @@ public class Users implements Serializable {
     @TableField(value = "password_hash")
     private String password_hash;
 
+    @TableField(value = "RoleId")
+    private String RoleId;
     /**
      * 账号状态：0禁用，1正常，2冻结，3已注销
      */

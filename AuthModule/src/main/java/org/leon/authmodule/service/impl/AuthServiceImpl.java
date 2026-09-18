@@ -2,6 +2,7 @@ package org.leon.authmodule.service.impl;
 
 
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import io.jsonwebtoken.Claims;
 import org.leon.authmodule.mapper.AuthMapper;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
@@ -12,7 +13,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
 * @author Administrator
@@ -54,11 +57,7 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
     }
 
     @Override
-    public Result Login(RegisterRequest request) {
-        String username =request.getUsername();
-        String password =request.getPassword();
-
-        String encodePassword = passwordEncoder.encode(request.getPassword());
+    public Result login(RegisterRequest request) {
 
             Users users= AuthMapper.selectByUsername(request.getUsername());
             if (users==null){
@@ -67,16 +66,20 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
             }
 
             //将用户的密码加密后与数据库中加密的密码做对比
-            boolean isPassword=passwordEncoder.matches(encodePassword,users.getPassword_hash());
+            boolean isPassword=passwordEncoder.matches(request.getPassword(),users.getPassword_hash());
              if(!isPassword){
                  return Result.error("密码错误");
              }
 
 
-        String token= jwtUtil.generateToken(users.getId(), users.getUsername());
-
-
-        return Result.success("登录成功");
+        String token= jwtUtil.generateToken2(users.getId(), users.getUsername(),users.getRoleId());
+        Map<String,Object> data=new HashMap<>();
+        data.put("token",token);
+        data.put("userName",users.getUsername());
+        Claims result=jwtUtil.getClaimsFromToken(token);
+        data.put("iat",result.getIssuedAt());
+        data.put("exp",result.getExpiration());
+        return Result.success(data);
     }
 }
 

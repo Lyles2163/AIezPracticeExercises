@@ -84,8 +84,10 @@ public class AuthController {
         Claims result=jwtUtil.getClaimsFromToken(token2);
         return  result;
     }
-    public Result Login(@Valid @RequestBody RegisterRequest request){
-        return AuthService.Login(request);
+
+    @PostMapping("/login")
+    public Result login(@Valid @RequestBody RegisterRequest request){
+        return AuthService.login(request);
     }
 
     @PostMapping("/register")
