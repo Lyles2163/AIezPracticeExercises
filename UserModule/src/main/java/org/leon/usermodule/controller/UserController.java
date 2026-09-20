@@ -29,7 +29,7 @@ public class UserController {
         usersService.deleteById(id);
     }
 
-    @GetMapping("selectAll")
+    @PostMapping("selectAll")
     public List<Users> selectAll(){
         return usersService.selectAll();
     }

@@ -87,6 +87,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!--        //自定义jwt-->
+        <dependency>
+            <groupId>org.leon</groupId>
+            <artifactId>CommonJwt</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
 
         <!-- MyBatis-Plus -->
         <dependency>

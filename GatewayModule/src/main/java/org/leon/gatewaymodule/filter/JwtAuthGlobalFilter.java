@@ -2,7 +2,8 @@ package org.leon.gatewaymodule.filter;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.leon.gatewaymodule.utils.JwtUtils;
+import org.leon.commonjwt.utils.JwtUtil;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -30,7 +31,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
 
-    private final JwtUtils jwtUtils;
+
+
+    @Autowired
+    private JwtUtil jwtUtil;
 
     /**
      * 白名单路径（无需鉴权）
@@ -62,18 +66,18 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
         }
 
         // ========== 3. 验证 Token ==========
-        if (!jwtUtils.validateToken(token)) {
+        if (!jwtUtil.validateToken(token)) {
             log.warn("JWT Filter: Token 无效或已过期, path={}", path);
             return unauthorizedResponse(exchange, "无效或过期令牌");
         }
 
         // ========== 4. 解析用户信息并转发 ==========
-        String username = jwtUtils.getUsernameFromToken(token);
+        String username = jwtUtil.getUsernameFromToken(token);
 
         // 构建新请求：添加用户标识头 + 移除原始 Authorization 头
         ServerHttpRequest modifiedRequest = request.mutate()
                 .header("X-User-Name", username)       // 下游服务通过此头获取当前用户
-                .headers(headers -> headers.remove(HttpHeaders.AUTHORIZATION)) // ⚠️ 关键：防止Token泄露到下游
+                .headers(headers -> headers.remove(HttpHeaders.AUTHORIZATION)) // 防止Token泄露到下游
                 .build();
 
         log.debug("JWT Filter: 鉴权通过, user={}, path={}", username, path);
