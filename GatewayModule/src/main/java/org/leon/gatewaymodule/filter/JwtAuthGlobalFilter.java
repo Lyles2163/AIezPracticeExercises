@@ -42,7 +42,7 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
      */
     private static final List<String> WHITE_LIST = List.of(
             "/auth/login",
-            "/auth/testLogin",
+//            "/auth/testLogin",
             "/auth/register",
             "/actuator"
     );

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.leon.practicemodule.mapper.QbQuestionMapper">
+
+    <resultMap id="BaseResultMap" type="org.leon.practicemodule.pojo.QbQuestion">
+            <id property="id" column="id" />
+            <result property="subject_id" column="subject_id" />
+            <result property="owner_id" column="owner_id" />
+            <result property="type" column="type" />
+            <result property="title" column="title" />
+            <result property="answer_json" column="answer_json" />
+            <result property="analysis" column="analysis" />
+            <result property="difficulty" column="difficulty" />
+            <result property="tags_json" column="tags_json" />
+            <result property="status" column="status" />
+            <result property="sort_order" column="sort_order" />
+            <result property="created_at" column="created_at" />
+            <result property="updated_at" column="updated_at" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id,subject_id,owner_id,type,title,answer_json,
+        analysis,difficulty,tags_json,status,sort_order,
+        created_at,updated_at
+    </sql>
+</mapper>

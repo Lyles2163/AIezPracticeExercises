@@ -1,6 +1,7 @@
 server:
   port: 8102
 
+
 spring:
   application:
     name: PracticeModuleServer
@@ -23,7 +24,19 @@ spring:
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
     username: root
     password:
-
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: # 如果有密码填这里，没有就留空或删掉
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
 mybatis:
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.example.a.entity
