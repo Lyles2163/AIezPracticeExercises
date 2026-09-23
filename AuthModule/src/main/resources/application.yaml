@@ -7,6 +7,19 @@ leon:
     expiration: 7200000 # 2小时，单位毫秒
 
 spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      password:            # 没有密码留空
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: 3000ms
   application:
     name: AuthModuleServer
   cloud:

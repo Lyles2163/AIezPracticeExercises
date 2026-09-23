@@ -29,7 +29,7 @@ spring:
       host: 127.0.0.1
       port: 6379
       password: # 如果有密码填这里，没有就留空或删掉
-      database: 0
+      database: 1
       timeout: 5000ms
       lettuce:
         pool:
