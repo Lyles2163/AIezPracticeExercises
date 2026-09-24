@@ -11,15 +11,15 @@ spring:
     redis:
       host: 127.0.0.1
       port: 6379
+      password:
       database: 0
-      password:            # 没有密码留空
       timeout: 5000ms
       lettuce:
         pool:
           max-active: 8
+          max-wait: -1ms
           max-idle: 8
           min-idle: 0
-          max-wait: 3000ms
   application:
     name: AuthModuleServer
   cloud:

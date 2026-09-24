@@ -27,7 +27,6 @@ public class AuthRedisService {
      * @param ttlMillis  过期时间（毫秒，与 JWT 保持一致）
      */
     public void saveLoginInfo(Long userId, String token, Users user, long ttlMillis) {
-        // 脱敏：绝不能把密码哈希塞进 Redis
         Users safeUser = new Users();
         BeanUtils.copyProperties(user, safeUser);
         safeUser.setPassword_hash(null);

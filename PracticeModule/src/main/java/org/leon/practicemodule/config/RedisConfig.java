@@ -15,16 +15,13 @@ public class RedisConfig {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(factory);
 
-        // Key 采用 String 序列化
-        StringRedisSerializer stringSerializer = new StringRedisSerializer();
-        template.setKeySerializer(stringSerializer);
-        template.setHashKeySerializer(stringSerializer);
+        StringRedisSerializer keySer = new StringRedisSerializer();
+        GenericJackson2JsonRedisSerializer valSer = new GenericJackson2JsonRedisSerializer();
 
-        // Value 采用 Jackson JSON 序列化
-        GenericJackson2JsonRedisSerializer jsonSerializer = new GenericJackson2JsonRedisSerializer();
-        template.setValueSerializer(jsonSerializer);
-        template.setHashValueSerializer(jsonSerializer);
-
+        template.setKeySerializer(keySer);
+        template.setHashKeySerializer(keySer);
+        template.setValueSerializer(valSer);
+        template.setHashValueSerializer(valSer);
         template.afterPropertiesSet();
         return template;
     }
