@@ -30,7 +30,7 @@ public class SecurityConfig {
 
 // 3. 配置路由权限（⚠️ 确保这里的大小写与 Controller 中的 @RequestMapping 完全一致！）
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/login", "/auth/register").permitAll() // 统一用小写
+                        .requestMatchers("/auth/login", "/auth/register","/auth/logout").permitAll() // 统一用小写
                         .anyRequest().authenticated()
                 )
 

@@ -20,5 +20,8 @@
     <select id="selectByUsername" resultMap="UserResultMap">
         SELECT * FROM users_dev WHERE username = #{username}
     </select>
+    <select id="selectByUserId" resultType="org.leon.authmodule.pojo.Users">
+        select *from  users_dev where id= #{userId}
+    </select>
 
 </mapper>

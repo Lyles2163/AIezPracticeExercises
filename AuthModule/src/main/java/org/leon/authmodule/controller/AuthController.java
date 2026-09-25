@@ -90,6 +90,19 @@ public class AuthController {
         return AuthService.login(request);
     }
 
+    private String resolveToken(String header){
+        if (header==null||!header.startsWith(("Bearer"))) return null;
+        return header.substring((7));
+    }
+
+    @PostMapping("/logout")
+    public  Result logout(@RequestHeader(value = "Authorization",required = false) String authorization){
+
+        String token =resolveToken(authorization);
+        return AuthService.logout(token);
+    }
+
+
     @PostMapping("/register")
     public Result register(@Valid @RequestBody RegisterRequest request) {
 //         ========== 1. 验证码校验（TODO: 对接 Redis 中的验证码） ==========

@@ -11,4 +11,6 @@ public interface AuthMapper extends BaseMapper<RegisterRequest> {
     void register(String username, String encodedPassword);
 
     Users selectByUsername(String username);
+
+    Users selectByUserId(Long userID);
 }

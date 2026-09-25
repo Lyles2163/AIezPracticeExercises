@@ -2,7 +2,6 @@ package org.leon.authmodule.service.impl;
 
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import io.jsonwebtoken.Claims;
-import jakarta.annotation.Resource;
 import org.leon.authmodule.mapper.AuthMapper;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
@@ -75,4 +74,28 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
         data.put("exp", claims.getExpiration());
         return Result.success(data);
     }
+
+    @Override
+    public Result logout(String token) {
+        //判断redis中是否存在登录用户的token；
+        if (token==null || token.isBlank()){
+            return  Result.error("未携带token");
+        }
+        Long userId ;
+        try {
+            Claims claims=jwtUtil.getClaimsFromToken(token);
+            userId =Long.valueOf(claims.getSubject());
+        } catch (NumberFormatException e) {
+            return Result.success("已退出");
+        }
+        //只删除当前的这个token的对应的登录信息
+        //防止：用户在新设备登录后，旧设备调用logout 将新会话踢掉；
+        if (authRedisService.isTokenValid(userId, token)){
+            authRedisService.deleteLoginInfo(userId);
+        }
+
+        return Result.success("退出成功");
+    }
+
+
 }
