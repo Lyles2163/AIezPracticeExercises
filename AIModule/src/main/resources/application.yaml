@@ -1,0 +1,59 @@
+server:
+  port: 8105
+
+#????nacos
+#leon:
+#  jwt:
+#    secret: "LeonSecretKeyForJWTInEzPracticeExercises2026IsVeryLongAndComplexNow"
+#    expiration: 7200000 # 2???????
+
+
+spring:
+  application:
+    name: AIServer
+  cloud:
+    sentinel:
+      transport:
+        # ??sentinel??????
+        dashboard: 127.0.0.1:8077
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+      config:
+        server-addr: 127.0.0.1:8848
+        file-extension: yaml
+
+  config:
+    import:
+      - optional:nacos:AIServer.yaml
+      - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ezpracticeexercises
+    username: root
+    password:
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.a.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.a.entity
+
+seata:
+  enabled: true
+  tx-service-group: a_group
+  service:
+    vgroup-mapping:
+      a_group: default
+    grouplist:
+      default: 127.0.0.1:8091
+  registry:
+    type: file
+  config:
+    type: file
+

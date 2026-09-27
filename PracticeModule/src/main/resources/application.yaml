@@ -37,16 +37,14 @@ spring:
           max-wait: -1ms
           max-idle: 8
           min-idle: 0
-mybatis:
-  mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.example.a.entity
+
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: org.leon.practicemodule.pojo
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-
-mybatis-plus:
-  mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.example.a.entity
 
 seata:
   enabled: true
