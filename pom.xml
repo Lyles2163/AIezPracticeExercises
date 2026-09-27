@@ -8,6 +8,8 @@
         <version>3.2.4</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
+
+
     <groupId>org.leon</groupId>
     <artifactId>ezPracticeExercises</artifactId>
     <version>0.0.1-SNAPSHOT</version>
@@ -23,6 +25,7 @@
         <module>AuthorizationModule</module>
         <module>GatewayModule</module>
         <module>AuthModule</module>
+        <module>AIModule</module>
         <module>CommonJwt</module>
     </modules>
 
