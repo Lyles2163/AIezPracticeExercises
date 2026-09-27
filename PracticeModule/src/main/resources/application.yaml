@@ -19,6 +19,7 @@ spring:
   config:
     import:
       - optional:nacos:PracticeModuleServer.yaml
+      - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
