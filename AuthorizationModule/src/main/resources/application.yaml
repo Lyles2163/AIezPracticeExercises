@@ -18,3 +18,4 @@ spring:
   config:
     import:
       - optional:nacos:AuthorizationModuleServer.yaml
+      - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true

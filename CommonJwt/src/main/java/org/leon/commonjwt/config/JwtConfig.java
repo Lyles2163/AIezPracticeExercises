@@ -18,7 +18,7 @@ public class JwtConfig {
     private String secret = "LeonSecretKeyForJWTInEzPracticeExercises2026IsVeryLongAndComplexNow";
 
     /**
-     * Token 过期时间 (单位：毫秒)，默认 2 小时
+     * Token 过期时间 (单位：毫秒)，默认 24小时
      */
-    private long expiration = 7200000;
+    private long expiration = 86400000;
 }

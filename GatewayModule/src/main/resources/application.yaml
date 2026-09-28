@@ -2,27 +2,31 @@ server:
   port: 8100
 
 
-leon:
-  jwt:
-    secret: "LeonSecretKeyForJWTInEzPracticeExercises2026IsVeryLongAndComplexNow"
-    expiration: 7200000 # 2小时，单位毫秒
+#leon:
+#  jwt:
+#    secret: "LeonSecretKeyForJWTInEzPracticeExercises2026IsVeryLongAndComplexNow"
+#    expiration: 7200000 # 2小时，单位毫秒
 
 spring:
-  cloud:
-    gateway:
-      routes:
-        - id: user-service-route
-          uri: lb://UserModuleServer
-          predicates:
-            - Path=/user/**
-
-        - id: auth-service-route
-          uri: lb://AuthModuleServer
-          predicates:
-            - Path=/auth/**
+#  cloud:
+#    gateway:
+#      routes:
+#        - id: user-service-route
+#          uri: lb://UserModuleServer
+#          predicates:
+#            - Path=/user/**
+#
+#        - id: auth-service-route
+#          uri: lb://AuthModuleServer
+#          predicates:
+#            - Path=/auth/**
 
   config:
-    import: nacos:gateway-module.yaml   # 改成你实际的 Data ID
+    import:
+    - nacos:gateway-module.yaml   # 改成你实际的 Data ID
+    - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+    - nacos:gateway.yaml?group=DEFAULT_GROUP&refreshEnabled=true
     nacos:
       config:
+
         server-addr: 127.0.0.1:8848     # 改成你实际的 Nacos 地址
