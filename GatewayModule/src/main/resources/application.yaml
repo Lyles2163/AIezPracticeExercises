@@ -8,7 +8,7 @@ server:
 #    expiration: 7200000 # 2小时，单位毫秒
 
 spring:
-#  cloud:
+  cloud:
 #    gateway:
 #      routes:
 #        - id: user-service-route

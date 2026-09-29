@@ -10,7 +10,7 @@ server:
 
 spring:
   application:
-    name: AIServer
+    name: AIModuleServer
   cloud:
     sentinel:
       transport:
