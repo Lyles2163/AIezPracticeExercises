@@ -39,6 +39,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 🔥 Spring AI OpenAI 兼容 Starter -->
+        <!-- 适用于 OpenAI、DeepSeek、通义千问等任何兼容 OpenAI API 的服务 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
 
         <!--JWT-->
         <dependency>

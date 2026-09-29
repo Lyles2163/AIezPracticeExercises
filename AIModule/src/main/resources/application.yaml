@@ -11,6 +11,15 @@ server:
 spring:
   application:
     name: AIModuleServer
+
+  ai:
+    openai:
+      api-key: sk-032471b595b942f9913934a812f78cee  # 替换为你的 DeepSeek API Key
+      base-url: https://api.deepseek.com  # DeepSeek 的 OpenAI 兼容地址
+      chat:
+        options:
+          model: deepseek-chat
+          temperature: 0.7
   cloud:
     sentinel:
       transport:
