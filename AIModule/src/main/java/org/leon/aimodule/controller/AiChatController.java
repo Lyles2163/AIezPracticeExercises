@@ -15,12 +15,13 @@ public class AiChatController {
         this.chatClient = chatClientBuilder.build();
     }
 
+
     /**
      * 简单对话接口
      * 示例：GET /ai/chat?message=你好，介绍一下你自己
      */
     @GetMapping("/ai/chat")
-    public String chat(@RequestParam(value = "message", defaultValue = "你好") String message) {
+    public String chat(@RequestParam(value = "message", defaultValue = "你好,你是什么模型") String message) {
         return chatClient.prompt()
                 .user(message)      // 设置用户消息
                 .call()             // 发起同步调用
