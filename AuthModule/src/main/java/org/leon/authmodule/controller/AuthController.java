@@ -2,11 +2,13 @@ package org.leon.authmodule.controller;
 
 import io.jsonwebtoken.Claims;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.service.AuthService;
+import org.leon.authmodule.util.IpUtil;
 import org.leon.commonjwt.config.JwtConfig;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,8 +88,8 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Result login(@Valid @RequestBody RegisterRequest request){
-        return AuthService.login(request);
+    public Result login(@Valid @RequestBody RegisterRequest request, HttpServletRequest servletRequest) {
+        return AuthService.login(request, IpUtil.getClientIp(servletRequest));
     }
 
     private String resolveToken(String header){

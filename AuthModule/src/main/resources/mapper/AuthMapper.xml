@@ -24,4 +24,11 @@
         select *from  users_dev where id= #{userId}
     </select>
 
+    <update id="updateLastLogin">
+        UPDATE users_dev
+        SET last_login_ip = #{ip},
+            last_login_at = NOW()
+        WHERE id = #{userId}
+    </update>
+
 </mapper>

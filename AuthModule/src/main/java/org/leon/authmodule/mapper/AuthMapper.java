@@ -2,6 +2,7 @@ package org.leon.authmodule.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Users;
@@ -13,4 +14,6 @@ public interface AuthMapper extends BaseMapper<RegisterRequest> {
     Users selectByUsername(String username);
 
     Users selectByUserId(Long userID);
+
+    void updateLastLogin(@Param("userId") Long userId, @Param("ip") String ip);
 }

@@ -14,7 +14,7 @@ public interface AuthService extends IService<RegisterRequest> {
 
     Result register(@Valid RegisterRequest request);
 
-    Result login(RegisterRequest request);
+    Result login(RegisterRequest request, String clientIp);
 
 
     Result logout(String token);

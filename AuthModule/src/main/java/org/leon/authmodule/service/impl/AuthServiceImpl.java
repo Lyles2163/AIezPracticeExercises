@@ -48,7 +48,7 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
     }
 
     @Override
-    public Result login(RegisterRequest request) {
+    public Result login(RegisterRequest request, String clientIp) {
         Users users = AuthMapper.selectByUsername(request.getUsername());
         if (users == null) {
             return Result.error("用户名或密码错误");
@@ -59,13 +59,16 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
             return Result.error("密码错误");
         }
 
-        // 1. 生成 JWT
+        // 1. 记录本次登录信息，失败则不签发 token，避免出现"已登录但无记录"
+        AuthMapper.updateLastLogin(users.getId(), clientIp);
+
+        // 2. 生成 JWT
         String token = jwtUtil.generateToken2(users.getId(), users.getUsername(), users.getRoleId());
 
-        // 2. 写入 Redis（token + 用户信息，TTL 与 JWT 一致）
+        // 3. 写入 Redis（token + 用户信息，TTL 与 JWT 一致）
         authRedisService.saveLoginInfo(users.getId(), token, users, jwtExpiration);
 
-        // 3. 返回给前端
+        // 4. 返回给前端
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
         data.put("userName", users.getUsername());
