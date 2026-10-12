@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.leon.authmodule.mapper.AuthMapper;
-import org.leon.authmodule.pojo.RegisterRequest;
+import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.pojo.Users;
 import org.leon.authmodule.service.AuthRedisService;
@@ -56,8 +56,8 @@ class AuthServiceImplLoginIpTest {
         ReflectionTestUtils.setField(authService, "jwtExpiration", 7200000L);
     }
 
-    private RegisterRequest request() {
-        RegisterRequest request = new RegisterRequest();
+    private LoginRequest request() {
+        LoginRequest request = new LoginRequest();
         request.setUsername("test001");
         request.setPassword("password123");
         return request;

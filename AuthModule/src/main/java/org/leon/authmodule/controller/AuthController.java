@@ -3,8 +3,8 @@ package org.leon.authmodule.controller;
 import io.jsonwebtoken.Claims;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.service.AuthService;
@@ -88,7 +88,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Result login(@Valid @RequestBody RegisterRequest request, HttpServletRequest servletRequest) {
+    public Result login(@RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         return AuthService.login(request, IpUtil.getClientIp(servletRequest));
     }
 
@@ -106,7 +106,7 @@ public class AuthController {
 
 
     @PostMapping("/register")
-    public Result register(@Valid @RequestBody RegisterRequest request) {
+    public Result register(@RequestBody RegisterRequest request) {
 //         ========== 1. 验证码校验（TODO: 对接 Redis 中的验证码） ==========
         // if (!captchaService.verify(request.getCaptchaKey(), request.getCaptchaCode())) {
         //     return ResponseEntity.badRequest().body(Map.of("code", 400, "message", "验证码错误"))

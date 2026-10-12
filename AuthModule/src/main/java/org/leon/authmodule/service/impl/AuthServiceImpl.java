@@ -3,6 +3,7 @@ package org.leon.authmodule.service.impl;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import io.jsonwebtoken.Claims;
 import org.leon.authmodule.mapper.AuthMapper;
+import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.pojo.Users;
@@ -18,7 +19,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Service
-public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
+public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
         implements AuthService {
 
     @Autowired
@@ -48,7 +49,7 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, RegisterRequest>
     }
 
     @Override
-    public Result login(RegisterRequest request, String clientIp) {
+    public Result login(LoginRequest request, String clientIp) {
         Users users = AuthMapper.selectByUsername(request.getUsername());
         if (users == null) {
             return Result.error("用户名或密码错误");

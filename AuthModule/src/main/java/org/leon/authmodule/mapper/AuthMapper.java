@@ -4,11 +4,10 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Users;
 
 @Mapper
-public interface AuthMapper extends BaseMapper<RegisterRequest> {
+public interface AuthMapper extends BaseMapper<Users> {
     void register(String username, String encodedPassword);
 
     Users selectByUsername(String username);
