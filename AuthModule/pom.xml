@@ -57,6 +57,13 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
+        <!-- 图形验证码：CaptchaUtil / LineCaptcha，版本与 UserModule 等模块对齐 -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>5.8.25</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
