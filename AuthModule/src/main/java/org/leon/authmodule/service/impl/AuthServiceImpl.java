@@ -2,6 +2,7 @@ package org.leon.authmodule.service.impl;
 
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import io.jsonwebtoken.Claims;
+import lombok.extern.slf4j.Slf4j;
 import org.leon.authmodule.mapper.AuthMapper;
 import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.RegisterRequest;
@@ -13,12 +14,14 @@ import org.leon.authmodule.service.CaptchaService;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
         implements AuthService {
@@ -48,7 +51,19 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
     @Override
     public Result register(RegisterRequest request) {
         String encodedPassword = passwordEncoder.encode(request.getPassword());
-        AuthMapper.register(request.getUsername(), encodedPassword);
+        try {
+            AuthMapper.register(request.getUsername(), encodedPassword, request.getPhone());
+        } catch (DuplicateKeyException e) {
+            // users_dev 上有两个唯一索引（Task 6 Step 1 实测：uk_users_username、uk_users_dev_phone），
+            // 只按"手机号已注册"回话会把重名用户误报成手机号问题。
+            String violated = e.getMostSpecificCause().getMessage();
+            if (violated != null && violated.contains("uk_users_username")) {
+                log.info("[注册] 用户名冲突 username={}", request.getUsername());
+                return Result.error("用户名已存在");
+            }
+            log.info("[注册] 手机号冲突 username={} phone={}", request.getUsername(), request.getPhone());
+            return Result.error("该手机号已注册");
+        }
         return Result.success("注册成功");
     }
 

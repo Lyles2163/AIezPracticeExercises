@@ -943,7 +943,7 @@ git commit -m "feat(login): 图形验证码改为后端真实图片，移除浏�
 - Consumes: 真实表结构（Step 1 才能拿到）
 - Produces: `AuthMapper.register(String username, String encodedPassword, String phone)`；`Users.getPhone()/setPhone()`
 
-- [ ] **Step 1: 先把真实表结构拿到手（这一步不能跳）**
+- [x] **Step 1: 先把真实表结构拿到手（这一步不能跳）**
 
 仓库里零 `.sql`、无 Flyway，`Users.java` 声明的列 ≠ 库里真实存在的列。执行方式二选一，**由用户决定**：
 - (A) 用户在 IDEA Database 面板跑 `SHOW CREATE TABLE ezpracticeexercises.users_dev;` 把结果贴回来；
@@ -951,7 +951,7 @@ git commit -m "feat(login): 图形验证码改为后端真实图片，移除浏�
 
 Expected 输出确认三件事：`status`/`created_at` 是否有默认值（影响 INSERT 是否要带列）、`username` 有没有唯一索引（决定注册重复名的报错形态）、是否**已经存在** phone 列。
 
-- [ ] **Step 2: 把确认后的 DDL 写进仓库第一份迁移文件**
+- [x] **Step 2: 把确认后的 DDL 写进仓库第一份迁移文件**
 
 `db/migration/2026-10-12-add-phone-to-users-dev.sql`：
 
@@ -966,11 +966,11 @@ ALTER TABLE users_dev
 
 > 如果 Step 1 发现库里已有 `phone` 列或已有同名索引，就只补 `ADD UNIQUE KEY`，别把 ALTER 跑成报错。
 
-- [ ] **Step 3: 执行 DDL**
+- [x] **Step 3: 执行 DDL**
 
 由用户在 IDEA Database 面板执行上面这条 SQL（或授权我执行）。执行后回一句 `SHOW CREATE TABLE` 结果确认列已存在。
 
-- [ ] **Step 4: `Users` 加字段**
+- [x] **Step 4: `Users` 加字段**
 
 `Users.java` 在 `last_login_ip` 字段之后加：
 
@@ -984,7 +984,7 @@ ALTER TABLE users_dev
 
 `equals`/`hashCode`/`toString` 是 MyBatis-Plus 生成器产出的手写方法，里面逐字段列举——**三处都要加 `phone`**，否则 equals 会忽略新字段（这是这份生成代码的既有毛病，不要扩大解释，只补这一处）。
 
-- [ ] **Step 5: Mapper 与 XML 支持写 phone**
+- [x] **Step 5: Mapper 与 XML 支持写 phone**
 
 `AuthMapper.java:12` 改成：
 
@@ -1005,7 +1005,7 @@ ALTER TABLE users_dev
     </insert>
 ```
 
-- [ ] **Step 6: Service 传 phone，并处理唯一键冲突**
+- [x] **Step 6: Service 传 phone，并处理唯一键冲突**
 
 `AuthServiceImpl.register` 改成：
 
@@ -1027,7 +1027,7 @@ ALTER TABLE users_dev
 import 加 `org.springframework.dao.DuplicateKeyException` 与 `lombok.extern.slf4j.Slf4j`（类上加 `@Slf4j`）。
 本步骤**先不加短信码校验**，那是 Task 10；此时注册链路仍不含验证码，保持"每步可独立编译通过"。
 
-- [ ] **Step 7: 编译 + 回归**
+- [x] **Step 7: 编译 + 回归**
 
 ```bash
 "$MVN" -o -pl AuthModule -am test -Dtest=AuthServiceImplLoginIpTest,CaptchaServiceImplTest \
@@ -1035,7 +1035,7 @@ import 加 `org.springframework.dao.DuplicateKeyException` 与 `lombok.extern.sl
 ```
 Expected: 全绿（这两个测试类不涉及 register，必须不受影响）。
 
-- [ ] **Step 8: 手工验一次注册写库**
+- [x] **Step 8: 手工验一次注册写库**
 
 起 AuthModule，POST 一个带 phone 的注册：
 ```bash
@@ -1045,7 +1045,7 @@ curl -s -X POST http://127.0.0.1:8103/auth/register -H 'Content-Type: applicatio
 Expected: `{"code":1,...,"data":"注册成功"}`；再查库 `SELECT username, phone FROM users_dev WHERE username='phonetest01';` 应看到 `13800001234`。
 重复同一个 phone 再注册一次 → `{"code":0,"msg":"该手机号已注册"}`，**不是 500**。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add db/migration AuthModule/src/main/java/org/leon/authmodule/pojo/Users.java \
@@ -1054,6 +1054,28 @@ git add db/migration AuthModule/src/main/java/org/leon/authmodule/pojo/Users.jav
         AuthModule/src/main/java/org/leon/authmodule/service/impl/AuthServiceImpl.java
 git commit -m "feat(auth): users_dev 增加 phone 列并纳入迁移文件管理"
 ```
+
+#### Task 6 执行记录（2026-10-12，用户授权由我执行 DDL）
+
+Step 1 走的是计划里的 (B) 方案：无 `mysql` 客户端，用 `mysql-connector-j-8.3.0` + JDK 21 单文件源码模式跑
+`SHOW CREATE TABLE users_dev`。实测结论（MySQL 9.1.0，11 行存量数据）：
+
+- **没有** `phone` 列，也没有 `uk_users_dev_phone` → 计划里的 ALTER 原样可用；
+- `status` 默认 1、`created_at`/`updated_at` 默认 `CURRENT_TIMESTAMP` → INSERT 只写三列是安全的；
+- **`username` 上已有唯一索引 `uk_users_username`** —— 这一点改变了 Step 6 的写法。
+
+**对计划的一处偏离（必要）**：Step 6 原本把 `DuplicateKeyException` 一律回成"该手机号已注册"。
+既然 `username` 也是唯一索引，重名用户会被误报成手机号问题，所以实现改成从
+`e.getMostSpecificCause().getMessage()` 里认索引名：撞 `uk_users_username` 回"用户名已存在"，其余回"该手机号已注册"。
+这正是 Step 1 留给 Step 6 的决策点，不是额外加功能。
+
+Step 8 用测试代替了手工 curl（避免依赖重启中的 JVM），并额外补了计划里没有的两个测试文件：
+- `AuthServiceImplRegisterTest`（Mockito，3 例）：phone 作为第三个参数写库、两种唯一键各自的回话；
+- `AuthMapperRegisterTest`（`@SpringBootTest` 连真库，2 例）：真实 INSERT 后 `SELECT ... phone` 读回 `13800001234`（id=19），
+  同手机号换用户名再注册 → `DuplicateKeyException` 且信息含 `uk_users_dev_phone`；`@AfterEach` 删掉自插的行。
+
+实测：`mvn -o -pl AuthModule -am test` → **Tests run: 25, Failures: 0**（23 + 本任务 2）；
+迁移后 `SHOW CREATE TABLE` 有 `phone varchar(20) NULL` + `UNIQUE KEY uk_users_dev_phone`，`SELECT COUNT(*)` 迁移前后都是 11，存量行未受影响。
 
 ---
 

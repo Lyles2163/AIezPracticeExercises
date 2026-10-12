@@ -66,6 +66,12 @@ public class Users implements Serializable {
     @TableField(value = "last_login_ip")
     private String last_login_ip;
 
+    /**
+     * 手机号，注册时经短信验证码校验后写入
+     */
+    @TableField(value = "phone")
+    private String phone;
+
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 
@@ -88,7 +94,8 @@ public class Users implements Serializable {
             && (this.getCreated_at() == null ? other.getCreated_at() == null : this.getCreated_at().equals(other.getCreated_at()))
             && (this.getUpdated_at() == null ? other.getUpdated_at() == null : this.getUpdated_at().equals(other.getUpdated_at()))
             && (this.getLast_login_at() == null ? other.getLast_login_at() == null : this.getLast_login_at().equals(other.getLast_login_at()))
-            && (this.getLast_login_ip() == null ? other.getLast_login_ip() == null : this.getLast_login_ip().equals(other.getLast_login_ip()));
+            && (this.getLast_login_ip() == null ? other.getLast_login_ip() == null : this.getLast_login_ip().equals(other.getLast_login_ip()))
+            && (this.getPhone() == null ? other.getPhone() == null : this.getPhone().equals(other.getPhone()));
     }
 
     @Override
@@ -103,6 +110,7 @@ public class Users implements Serializable {
         result = prime * result + ((getUpdated_at() == null) ? 0 : getUpdated_at().hashCode());
         result = prime * result + ((getLast_login_at() == null) ? 0 : getLast_login_at().hashCode());
         result = prime * result + ((getLast_login_ip() == null) ? 0 : getLast_login_ip().hashCode());
+        result = prime * result + ((getPhone() == null) ? 0 : getPhone().hashCode());
         return result;
     }
 
@@ -120,6 +128,7 @@ public class Users implements Serializable {
         sb.append(", updated_at=").append(updated_at);
         sb.append(", last_login_at=").append(last_login_at);
         sb.append(", last_login_ip=").append(last_login_ip);
+        sb.append(", phone=").append(phone);
         sb.append(", serialVersionUID=").append(serialVersionUID);
         sb.append("]");
         return sb.toString();

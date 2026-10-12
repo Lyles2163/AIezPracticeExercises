@@ -12,8 +12,8 @@
     </resultMap>
 
     <insert id="register">
-        INSERT INTO users_dev (username, password_hash)
-        VALUES (#{username}, #{encodedPassword})
+        INSERT INTO users_dev (username, password_hash, phone)
+        VALUES (#{username}, #{encodedPassword}, #{phone})
     </insert>
 
     <!-- ⭐ 补全 SQL 并引用 resultMap -->
