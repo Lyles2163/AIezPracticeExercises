@@ -69,7 +69,7 @@
 - Consumes: 无
 - Produces: `LoginRequest{getUsername,getPassword,getCaptchaKey,getCaptchaCode}`、`RegisterRequest{getUsername,getPassword,getPhone,getSmsCode}`、`SendSmsRequest{getPhone,getCaptchaKey,getCaptchaCode}`；`AuthService.login(LoginRequest,String)`、`AuthService.register(RegisterRequest)`、`AuthMapper extends BaseMapper<Users>`
 
-- [ ] **Step 1: 跑现存测试，建立"改之前是绿的"基线**
+- [x] **Step 1: 跑现存测试，建立"改之前是绿的"基线**
 
 Run:
 ```bash
@@ -82,7 +82,7 @@ cd F:/AAAJAVA/code/ezPracticeExercises
 Expected: `Tests run: 4, Failures: 0, Errors: 0`。
 **如果这一步就是红的，先停下报告**——后面所有"回归不变"的判断都失去依据。
 
-- [ ] **Step 2: 新建 `LoginRequest`**
+- [x] **Step 2: 新建 `LoginRequest`**
 
 ```java
 package org.leon.authmodule.pojo;
@@ -99,7 +99,7 @@ public class LoginRequest {
 }
 ```
 
-- [ ] **Step 3: 新建 `SendSmsRequest`**
+- [x] **Step 3: 新建 `SendSmsRequest`**
 
 ```java
 package org.leon.authmodule.pojo;
@@ -115,7 +115,7 @@ public class SendSmsRequest {
 }
 ```
 
-- [ ] **Step 4: 重写 `RegisterRequest`（去掉 captcha 字段，加 phone/smsCode）**
+- [x] **Step 4: 重写 `RegisterRequest`（去掉 captcha 字段，加 phone/smsCode）**
 
 覆盖整个文件：
 
@@ -134,7 +134,7 @@ public class RegisterRequest {
 }
 ```
 
-- [ ] **Step 5: `Users` 之外不再让 DTO 当实体：改 Mapper 与 Service 泛型**
+- [x] **Step 5: `Users` 之外不再让 DTO 当实体：改 Mapper 与 Service 泛型**
 
 `AuthMapper.java` 删掉 `import org.leon.authmodule.pojo.RegisterRequest;`，把 `:11` 改成：
 
@@ -157,7 +157,7 @@ public interface AuthService extends IService<Users> {
 
 `AuthServiceImpl.java:21` 改成 `extends ServiceImpl<AuthMapper, Users>`，`:51` 改成 `public Result login(LoginRequest request, String clientIp)`。`register` 签名不变，仍是 `RegisterRequest`。
 
-- [ ] **Step 6: 改 `AuthController` 的入参类型**
+- [x] **Step 6: 改 `AuthController` 的入参类型**
 
 `AuthController.java` 加 `import org.leon.authmodule.pojo.LoginRequest;`，`:91` 改成：
 
@@ -179,7 +179,7 @@ public interface AuthService extends IService<Users> {
 
 > 为什么这里顺手去掉了 `@Valid`：`spring-boot-starter-validation` 不在 classpath，`@Valid` 一直是摆设（spec §0 事实 1）。留着它会让读代码的人以为有校验，比没有更糟。`jakarta.validation` 的 import 在 `RegisterRequest` 重写后也一并消失。
 
-- [ ] **Step 7: 同步修测试里构造请求对象的类型**
+- [x] **Step 7: 同步修测试里构造请求对象的类型**
 
 `AuthServiceImplLoginIpTest.java`：`:9` 的 import 换成 `org.leon.authmodule.pojo.LoginRequest`，`request()` 方法体改成：
 
@@ -194,12 +194,12 @@ public interface AuthService extends IService<Users> {
 
 并把三处 `authService.login(request(), CLIENT_IP)` 的形参类型跟着编译器提示走（无需改调用文本）。
 
-- [ ] **Step 8: 跑编译与回归测试**
+- [x] **Step 8: 跑编译与回归测试**
 
 Run: 同 Step 1 命令
 Expected: `BUILD SUCCESS` + `Tests run: 4, Failures: 0`。
 
-- [ ] **Step 9: 用 curl 确认两个接口行为没变**
+- [x] **Step 9: 用 curl 确认两个接口行为没变**
 
 起 `AuthModuleApplication`（IDEA 里跑，或命令行 `"$MVN" -o -pl AuthModule spring-boot:run`），然后：
 
@@ -209,7 +209,7 @@ curl -s -X POST http://127.0.0.1:8103/auth/login -H 'Content-Type: application/j
 ```
 Expected: 返回 `{"code":0,...,"msg":"用户名或密码错误"}` 或 200 出票（取决于该账号是否存在），**但不能是 400/415**——那说明 DTO 改坏了。
 
-- [ ] **Step 10: 提交（先给用户看 `git status --short`）**
+- [x] **Step 10: 提交（先给用户看 `git status --short`）**
 
 ```bash
 git add AuthModule/src/main/java/org/leon/authmodule/pojo \
@@ -236,7 +236,7 @@ git commit -m "refactor(auth): 拆分登录/注册/发码 DTO，Mapper 泛型改
   - `CaptchaService.generate()` → `CaptchaService.CaptchaImage{captchaKey, imageBase64}`
   - `CaptchaService.verifyAndConsume(String captchaKey, String code)` → `boolean`
 
-- [ ] **Step 1: 加 hutool 依赖**
+- [x] **Step 1: 加 hutool 依赖**
 
 `AuthModule/pom.xml` 里 `commons-pool2` 那个 `</dependency>` 之后插入：
 
@@ -255,7 +255,7 @@ Run（联网拉包，首次不能加 `-o`）:
 ```
 Expected: `BUILD SUCCESS`，且 `~/.m2/repository/cn/hutool/hutool-all/5.8.25/` 出现 jar。
 
-- [ ] **Step 2: 写 `AuthCacheKeys`**
+- [x] **Step 2: 写 `AuthCacheKeys`**
 
 ```java
 package org.leon.authmodule.config;
@@ -284,7 +284,7 @@ public final class AuthCacheKeys {
 }
 ```
 
-- [ ] **Step 3: 写失败的测试**
+- [x] **Step 3: 写失败的测试**
 
 `AuthModule/src/test/java/org/leon/authmodule/service/impl/CaptchaServiceImplTest.java`：
 
@@ -391,7 +391,7 @@ class CaptchaServiceImplTest {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认它失败**
+- [x] **Step 4: 跑测试确认它失败**
 
 Run:
 ```bash
@@ -400,7 +400,7 @@ Run:
 ```
 Expected: 编译失败，`找不到符号 CaptchaService` 之类。这是预期的"红"。
 
-- [ ] **Step 5: 写接口**
+- [x] **Step 5: 写接口**
 
 `AuthModule/src/main/java/org/leon/authmodule/service/CaptchaService.java`：
 
@@ -431,7 +431,7 @@ public interface CaptchaService {
 }
 ```
 
-- [ ] **Step 6: 写实现**
+- [x] **Step 6: 写实现**
 
 `AuthModule/src/main/java/org/leon/authmodule/service/impl/CaptchaServiceImpl.java`：
 
@@ -502,12 +502,12 @@ public class CaptchaServiceImpl implements CaptchaService {
 
 > `captcha.createCode()` 这一行是本任务唯一"凭记忆写的 API 细节"：hutool 的 `AbstractCaptcha.setGenerator()` 只赋值字段、不会重新生成码图。Step 7 的测试断言"6 位纯数字"，如果 hutool 这个版本行为不同，测试会立刻红给你看，而不是留下一个"图片显示 abc12 但期望值 123456"的线上谜题。
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: 同 Step 4
 Expected: `Tests run: 5, Failures: 0`。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add AuthModule/pom.xml AuthModule/src/main/java/org/leon/authmodule/config/AuthCacheKeys.java \
@@ -532,7 +532,7 @@ git commit -m "feat(auth): 图形验证码服务，答案一次性存 Redis 并�
 - Consumes: `CaptchaService.generate()`、`CaptchaService.CaptchaImage`
 - Produces: `GET /auth/captcha` → `Result{code:1,data:{captchaKey,imageBase64}}`
 
-- [ ] **Step 1: 写失败测试（MockMvc，走完整 Security 过滤链）**
+- [x] **Step 1: 写失败测试（MockMvc，走完整 Security 过滤链）**
 
 `AuthModule/src/test/java/org/leon/authmodule/controller/CaptchaEndpointTest.java`：
 
@@ -579,7 +579,7 @@ class CaptchaEndpointTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run:
 ```bash
@@ -588,7 +588,7 @@ Run:
 ```
 Expected: 401 或 404（`Status expected:<200> but was:<401>`），因为端点还不存在 / Security 未放行。
 
-- [ ] **Step 3: 加 Controller 方法**
+- [x] **Step 3: 加 Controller 方法**
 
 `AuthController.java` 注入字段区加：
 
@@ -606,7 +606,7 @@ import 加 `org.leon.authmodule.service.CaptchaService;`，在 `login` 方法之
     }
 ```
 
-- [ ] **Step 4: AuthModule SecurityConfig 放行**
+- [x] **Step 4: AuthModule SecurityConfig 放行**
 
 `SecurityConfig.java:33` 改成（两个新路径一次加齐，后面 Task 9 不用再回来改）：
 
@@ -615,7 +615,7 @@ import 加 `org.leon.authmodule.service.CaptchaService;`，在 `login` 方法之
                                 "/auth/captcha", "/auth/sms/send").permitAll() // 统一用小写
 ```
 
-- [ ] **Step 5: 网关白名单放行**
+- [x] **Step 5: 网关白名单放行**
 
 `JwtAuthGlobalFilter.java:43-48` 的 `WHITE_LIST` 改成：
 
@@ -632,12 +632,12 @@ import 加 `org.leon.authmodule.service.CaptchaService;`，在 `login` 方法之
 
 > `WHITE_LIST` 的匹配是 `path.startsWith`（`:113`），所以 `/auth/captcha` 会连带放行 `/auth/captchaXXX`。本设计的实际路径都是 `/auth/captcha`、`/auth/sms/send` 精确前缀，`/auth/captchaXXX` 不存在路由，落到后端也是 404。改成精确匹配需要 `AntPathMatcher`，作为遗留项写在 spec §13，不在本计划处理。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: 同 Step 2
 Expected: `Tests run: 1, Failures: 0`。
 
-- [ ] **Step 7: 真机验一次图能看**
+- [x] **Step 7: 真机验一次图能看**
 
 起 AuthModule（IDEA 或 `"$MVN" -o -pl AuthModule spring-boot:run`）：
 
@@ -650,7 +650,7 @@ Expected: JSON 里 `code:1`、`data.imageBase64` 以 `data:image/png;base64,` �
 # redis-cli 不在 PATH 时，可先用管理插件之外的方式：跳过此断言，Task 5 前端联调时会肉眼验证
 ```
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add AuthModule/src/main/java/org/leon/authmodule/controller/AuthController.java \
@@ -672,7 +672,7 @@ git commit -m "feat(auth): 暴露 /auth/captcha 并在网关与安全配置放�
 - Consumes: `CaptchaService.verifyAndConsume(String,String)`
 - Produces: `login` 在验证码不通过时返回 `Result.error("图形验证码错误或已失效")` 且**不查库、不出票**
 
-- [ ] **Step 1: 给现有测试加"验证码不过则不发票"的失败用例**
+- [x] **Step 1: 给现有测试加"验证码不过则不发票"的失败用例**
 
 `AuthServiceImplLoginIpTest.java` 改动：
 - import 加 `org.leon.authmodule.service.CaptchaService`
@@ -702,7 +702,7 @@ git commit -m "feat(auth): 暴露 /auth/captcha 并在网关与安全配置放�
 
 > 现有 4 个用例为什么要改：`login` 一进去就校验证码，mock 默认返回 `false`，4 个用例会集体变红。这是**预期内的连带修改**，不是回归失败。`verifyCaptchaOk()` 让每个用例显式声明"验证码这关我放过了"，读测试的人一眼看懂剩下断言在验什么。
 
-- [ ] **Step 2: 跑测试确认新用例失败**
+- [x] **Step 2: 跑测试确认新用例失败**
 
 Run:
 ```bash
@@ -711,7 +711,7 @@ Run:
 ```
 Expected: 新用例红（`authMapper.selectByUsername` 被调用了，`Never wanted here` 之类 Mockito 报错）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `AuthServiceImpl.java` 加字段与构造参数（保持现有构造器注入风格）：
 
@@ -730,12 +730,12 @@ Expected: 新用例红（`authMapper.selectByUsername` 被调用了，`Never wan
         }
 ```
 
-- [ ] **Step 4: 跑测试确认全绿**
+- [x] **Step 4: 跑测试确认全绿**
 
 Run: 同 Step 2
 Expected: `Tests run: 5, Failures: 0`（4 个原有 + 1 个新增）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add AuthModule/src/main/java/org/leon/authmodule/service/impl/AuthServiceImpl.java \
@@ -756,7 +756,7 @@ git commit -m "feat(auth): 登录前置校验一次性图形验证码"
 - Consumes: `GET /auth/captcha` → `{captchaKey, imageBase64}`（Task 3）
 - Produces: `fetchCaptcha(): Promise<CaptchaChallenge>`（签名不变，`kind` 恒为 `'image-base64'`，`challenge` 装 base64）；`verifyCaptchaLocal` **不存在**
 
-- [ ] **Step 1: 重写 `auth.ts` 的验证码段**
+- [x] **Step 1: 重写 `auth.ts` 的验证码段**
 
 把 `src/api/auth.ts:68-94`（`// ===================== 验证码（mock） =====================` 到文件末尾）整体替换为：
 
@@ -785,7 +785,7 @@ export async function fetchCaptcha(): Promise<CaptchaChallenge> {
 同时删掉文件顶部注释里"fetchCaptcha / verifyCaptchaLocal 目前是前端 mock"那段（`:4-5`），换成一句：`验证码与登录注册均为真实接口；手机验证码见 sendSmsCode（Task 11 加入）。`
 `CAPTCHA_TTL_MS`、`challenge` 模块级变量、`delay()`、`verifyCaptchaLocal()` 全部删除——`delay` 只被 mock 用过，留着就是死代码。
 
-- [ ] **Step 2: 改 `useLogin.ts` 的 submit 分支**
+- [x] **Step 2: 改 `useLogin.ts` 的 submit 分支**
 
 `:8` import 去掉 `verifyCaptchaLocal`：
 
@@ -818,7 +818,7 @@ import { CAPTCHA_LENGTH, fetchCaptcha, register, type CaptchaChallenge } from '.
 
 > `requestCode`（`:93-106`）一行都不用改：它调的 `fetchCaptcha()` 签名没变，只是返回值从明文数字变成 base64。这正是"预留 API 层"约定的意义。
 
-- [ ] **Step 3: 改 `Login.vue` 把题面换成图片**
+- [x] **Step 3: 改 `Login.vue` 把题面换成图片**
 
 `:95-127` 的 `v-if="isLogin"` 块里：
 - `:99` 的 `开发占位` `<span>` **整行删除**（它已经不成立了）
@@ -853,7 +853,7 @@ import { CAPTCHA_LENGTH, fetchCaptcha, register, type CaptchaChallenge } from '.
               </div>
 ```
 
-- [ ] **Step 4: 加 `.captcha-img` 样式，删 `.captcha-code` 样式**
+- [x] **Step 4: 加 `.captcha-img` 样式，删 `.captcha-code` 样式**
 
 `Login.vue` 的 `<style scoped>` 里，把原 `.captcha-code {...}` 整段替换成：
 
@@ -881,14 +881,14 @@ import { CAPTCHA_LENGTH, fetchCaptcha, register, type CaptchaChallenge } from '.
 }
 ```
 
-- [ ] **Step 5: 类型检查**
+- [x] **Step 5: 类型检查**
 
 ```bash
 cd F:/AAAJAVA/code/EZ_frontend && npm run type-check
 ```
 Expected: 无输出、退出码 0。**如果报 `verifyCaptchaLocal` 未导出**，说明还有调用点没删干净：`grep -rn verifyCaptchaLocal src/` 必须零命中。
 
-- [ ] **Step 6: 起网关 + AuthModule + 前端，肉眼跑一次**
+- [x] **Step 6: 起网关 + AuthModule + 前端，肉眼跑一次**
 
 ```bash
 cd F:/AAAJAVA/code/EZ_frontend && npm run dev
@@ -899,13 +899,34 @@ cd F:/AAAJAVA/code/EZ_frontend && npm run dev
 3. 输对图片上的数字 + 正确密码 → 登录成功进 `/practice`。
 4. **F12 Network 里确认 `/gw/auth/captcha` 响应体不含明文验证码**——这是本任务最重要的安全断言，明文等于没做。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 cd F:/AAAJAVA/code/EZ_frontend
 git add src/api/auth.ts src/composables/useLogin.ts src/views/Login.vue
 git commit -m "feat(login): 图形验证码改为后端真实图片，移除浏览器自造校验"
 ```
+
+---
+
+### 阶段一验收记录（2026-10-12，Task 1–5 已完成）
+
+后端 `mvn -pl AuthModule -am test` 实测：**20 个用例，0 失败**
+（AuthControllerTest 2 / CaptchaEndpointTest 1 / AuthServiceImplLoginIpTest 5 / CaptchaServiceImplTest 5 / IpUtilTest 7）。
+
+真机链路（网关 8100 + AuthModule 8103 + 前端 5173，浏览器真实点击）：
+
+| 断言 | 实测证据 |
+| --- | --- |
+| 点一次"获取验证码"只产生一个 key | 基线 `auth:captcha:*` 计数 0 → 点击后计数 1（`d2a3939e…`，TTL 92s，答案 `867992`） |
+| 页面显示的是真实图片 | `img.captcha-img` 的 `src` 以 `data:image/png;base64,iVBORw0KGgo` 开头，长度 6202 |
+| 响应体不含明文验证码 | `/gw/auth/captcha` 返回 `{code:1, msg, data:{captchaKey, imageBase64}}`，`data` 只有这两个键；整个 JSON 里搜不到任何 6 位数字串 |
+| 答对能登录 | 填入 Redis 里的真答案 → `End` 触发滑动提交 → `/gw/auth/login` 200 → `location.pathname === '/practice'`，`localStorage` 出现 `ez-auth`，顶栏显示 `mqcap01` |
+| 答案一次性消费 | 登录成功后 `EXISTS auth:captcha:d2a3939e…` = 0，`auth:captcha:*` 计数回到 0 |
+| 答错被拒且刷新题面 | 多次实测提示"图形验证码错误或已失效"，前端清空输入并自动重新拉取验证码 |
+| 无验证码不放票 | 用例 `shouldRejectLoginWhenCaptchaInvalid` 覆盖；此前"登录不带验证码也能拿到 token"的洞已封 |
+
+遗留（阶段一不阻塞）：`CaptchaServiceImpl:45` 的 `log.info` 会打印明文答案，注释已标注"上生产必须去掉"，这是教学期肉眼排障用的，阶段四文档里要专门列为上线前必删项。
 
 ---
 
