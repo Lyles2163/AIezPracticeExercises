@@ -42,6 +42,12 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- RabbitMQ：Spring AMQP 起步依赖，提供 RabbitTemplate、@RabbitListener 和队列声明能力 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!--JWT-->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
