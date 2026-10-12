@@ -44,6 +44,8 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
             "/auth/login",
 //            "/auth/logout",
             "/auth/register",
+            "/auth/captcha",
+            "/auth/sms/send",
             "/actuator"
     );
 

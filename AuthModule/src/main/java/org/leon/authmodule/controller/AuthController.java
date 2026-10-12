@@ -8,6 +8,7 @@ import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.service.AuthService;
+import org.leon.authmodule.service.CaptchaService;
 import org.leon.authmodule.util.IpUtil;
 import org.leon.commonjwt.config.JwtConfig;
 import org.leon.commonjwt.utils.JwtUtil;
@@ -27,6 +28,17 @@ public class AuthController {
     private AuthService AuthService;
     
     
+
+    @Autowired
+    private CaptchaService captchaService;
+
+    /**
+     * 取一张图形验证码。答案只存 Redis，响应里不含明文。
+     */
+    @GetMapping("/captcha")
+    public Result captcha() {
+        return Result.success(captchaService.generate());
+    }
 
     @Resource
     private JwtConfig jwtConfig;
