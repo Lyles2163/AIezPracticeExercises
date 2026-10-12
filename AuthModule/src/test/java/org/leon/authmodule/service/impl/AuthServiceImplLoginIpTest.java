@@ -10,6 +10,7 @@ import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.pojo.Users;
 import org.leon.authmodule.service.AuthRedisService;
+import org.leon.authmodule.service.CaptchaService;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -22,6 +23,7 @@ import java.util.Date;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -45,6 +47,9 @@ class AuthServiceImplLoginIpTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private CaptchaService captchaService;
+
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -53,6 +58,7 @@ class AuthServiceImplLoginIpTest {
         ReflectionTestUtils.setField(authService, "AuthMapper", authMapper);
         ReflectionTestUtils.setField(authService, "jwtUtil", jwtUtil);
         ReflectionTestUtils.setField(authService, "authRedisService", authRedisService);
+        ReflectionTestUtils.setField(authService, "captchaService", captchaService);
         ReflectionTestUtils.setField(authService, "jwtExpiration", 7200000L);
     }
 
@@ -61,6 +67,14 @@ class AuthServiceImplLoginIpTest {
         request.setUsername("test001");
         request.setPassword("password123");
         return request;
+    }
+
+    /**
+     * 登录一进来就校图形码，所以每个用例都要显式声明"这一关我放过了"，
+     * 剩下的断言才是在验账号密码与登录记录，而不是被验证码提前拦下。
+     */
+    private void stubCaptchaOk() {
+        when(captchaService.verifyAndConsume(any(), any())).thenReturn(true);
     }
 
     private Users existingUser() {
@@ -80,6 +94,7 @@ class AuthServiceImplLoginIpTest {
     }
 
     private void stubSuccessfulCredentials(Claims claims) {
+        stubCaptchaOk();
         when(authMapper.selectByUsername("test001")).thenReturn(existingUser());
         when(passwordEncoder.matches("password123", "$2a$10$hash")).thenReturn(true);
         when(jwtUtil.generateToken2(10L, "test001", "1")).thenReturn("token-value");
@@ -112,6 +127,7 @@ class AuthServiceImplLoginIpTest {
     @DisplayName("密码错误时不记录登录信息")
     @Test
     void shouldNotRecordLoginInfoWhenPasswordWrong() {
+        stubCaptchaOk();
         when(authMapper.selectByUsername("test001")).thenReturn(existingUser());
         when(passwordEncoder.matches("password123", "$2a$10$hash")).thenReturn(false);
 
@@ -124,11 +140,30 @@ class AuthServiceImplLoginIpTest {
     @DisplayName("用户不存在时不记录登录信息")
     @Test
     void shouldNotRecordLoginInfoWhenUserMissing() {
+        stubCaptchaOk();
         when(authMapper.selectByUsername("test001")).thenReturn(null);
 
         Result result = authService.login(request(), CLIENT_IP);
 
         assertEquals(0, result.getCode());
         verify(authMapper, never()).updateLastLogin(anyLong(), any());
+    }
+
+    @DisplayName("图形验证码不通过时：不出票、不查库、不更新登录信息")
+    @Test
+    void shouldRejectLoginWhenCaptchaInvalid() {
+        when(captchaService.verifyAndConsume("k1", "000000")).thenReturn(false);
+
+        LoginRequest request = request();
+        request.setCaptchaKey("k1");
+        request.setCaptchaCode("000000");
+
+        Result result = authService.login(request, CLIENT_IP);
+
+        assertEquals(0, result.getCode());
+        assertEquals("图形验证码错误或已失效", result.getMsg());
+        verify(authMapper, never()).selectByUsername(anyString());
+        verify(authMapper, never()).updateLastLogin(anyLong(), any());
+        verify(jwtUtil, never()).generateToken2(anyLong(), any(), any());
     }
 }

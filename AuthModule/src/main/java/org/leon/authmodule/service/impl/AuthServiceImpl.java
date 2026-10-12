@@ -9,6 +9,7 @@ import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.pojo.Users;
 import org.leon.authmodule.service.AuthRedisService;
 import org.leon.authmodule.service.AuthService;
+import org.leon.authmodule.service.CaptchaService;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +32,9 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
     @Autowired
     private AuthRedisService authRedisService;
 
+    @Autowired
+    private CaptchaService captchaService;
+
     /** 直接读配置，避免依赖 JwtConfig 的具体 API */
     @Value("${leon.jwt.expiration:7200000}")
     private long jwtExpiration;
@@ -50,6 +54,12 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
 
     @Override
     public Result login(LoginRequest request, String clientIp) {
+        // 图形码放在最前面：一次登录尝试必须先过人机校验，才轮到查库比对密码。
+        // verifyAndConsume 无论成败都会作废这张图，所以撞库者每次都要重新取一张。
+        if (!captchaService.verifyAndConsume(request.getCaptchaKey(), request.getCaptchaCode())) {
+            return Result.error("图形验证码错误或已失效");
+        }
+
         Users users = AuthMapper.selectByUsername(request.getUsername());
         if (users == null) {
             return Result.error("用户名或密码错误");
