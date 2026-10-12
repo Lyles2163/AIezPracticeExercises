@@ -1410,7 +1410,7 @@ Step 8 没用人眼盯管理界面，而是加了 `CaptchaMqTopologyTest`（`@Sp
 - Consumes: `StringRedisTemplate`、`SmsCodeProducer.sendExpireDelay(SmsExpireEvent)`、`AuthCacheKeys.smsCodeKey(String)`
 - Produces: `SmsSender.send(String phone, String code)`；`SmsCodeConsumer.onSmsSend(SmsSendRequest)`（监听 `auth.sms.send.queue`）
 
-- [ ] **Step 1: 写发送通道接口与 Mock 实现**
+- [x] **Step 1: 写发送通道接口与 Mock 实现**
 
 `service/SmsSender.java`：
 
@@ -1447,7 +1447,7 @@ public class MockSmsSender implements SmsSender {
 }
 ```
 
-- [ ] **Step 2: 写失败的消费者测试**
+- [x] **Step 2: 写失败的消费者测试**
 
 `mq/SmsCodeConsumerTest.java`：
 
@@ -1529,7 +1529,7 @@ class SmsCodeConsumerTest {
 }
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 ```bash
 "$MVN" -o -pl AuthModule -am test -Dtest=SmsCodeConsumerTest \
@@ -1537,7 +1537,7 @@ class SmsCodeConsumerTest {
 ```
 Expected: 编译失败，`找不到符号 SmsCodeConsumer`。
 
-- [ ] **Step 4: 写消费者**
+- [x] **Step 4: 写消费者**
 
 `mq/SmsCodeConsumer.java`：
 
@@ -1592,11 +1592,11 @@ public class SmsCodeConsumer {
 
 > **为什么这里写 SpEL 而不是常量**：`@RabbitListener(queues = ...)` 的注解属性只能放编译期常量，但队列名要拼运行时的 `queueSuffix`（Task 7 的 `@Value`），常量满足不了——用常量名会在测试里绑到**不带后缀**的队列上，而测试声明的是 `-test` 队列，两边各消费一半消息，症状是"测试偶发红"。写成 `"#{smsSendQueue.name}"` 让 Spring 在运行时解析那个 `Queue` Bean，后缀自然跟着配置走。Bean 名 = `@Bean` 方法名 `smsSendQueue`，所以 Task 7 里的方法名不能随便改。同理过期消费者用 `"#{smsExpiredQueue.name}"`。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: 同 Step 2。Expected: `Tests run: 2, Failures: 0`。
 
-- [ ] **Step 6: 端到端手工验一次（不经过 HTTP，直接投消息）**
+- [x] **Step 6: 端到端手工验一次（不经过 HTTP，直接投消息）**
 
 起 AuthModule，在 RabbitMQ 管理界面 Exchanges → `auth.sms.exchange` → Publish message，routing key 填 `sms.send`，payload：
 ```json
@@ -1611,7 +1611,7 @@ Expected 控制台依次出现：
 ```
 **线程名不是 `main`**，这一行就是"异步"的证据。再回管理界面 Queues 看 `auth.sms.expire.delay.queue` 的 Ready 数 = 1（那条消息正在躺 5 分钟）。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add AuthModule/src/main/java/org/leon/authmodule/service/SmsSender.java \
@@ -1620,6 +1620,36 @@ git add AuthModule/src/main/java/org/leon/authmodule/service/SmsSender.java \
         AuthModule/src/test/java/org/leon/authmodule/mq
 git commit -m "feat(auth): 发码消费者生成验证码、写 Redis 并模拟发送"
 ```
+
+#### Task 8 执行记录（2026-10-12）
+
+TDD：Step 3 实测红在 `找不到符号 类 SmsCodeConsumer`，Step 5 转绿 2 例。
+
+**修掉了计划里的三处问题**：
+
+1. Step 2 的 `newConsumer()` 里 `ReflectionTestUtils.setField(consumer, "queueSuffix", "")` 会直接抛
+   `Could not find field` —— Step 4 的消费者根本没有这个字段（只有 `codeTtlMs`），删掉该行。
+2. Step 2 的第二个用例 `assertEquals(SMS_SEND_QUEUE + "", SMS_SEND_QUEUE)` 是恒等式，永远绿，验证不了任何东西。
+   换成反射读 `@RabbitListener` 注解，断言队列名确实是 `"#{smsSendQueue.name}"`——
+   这样谁改回硬编码常量（就是那段 SpEL 说明担心的"两边各消费一半、测试偶发红"）会立刻红。
+3. Step 6 的"去管理界面手动 Publish 再盯控制台"换成 `SmsCodeFlowE2ETest`（连真 Broker + 真 Redis）。
+   控制台日志不能当验收证据，断言才行。
+
+`SmsCodeFlowE2ETest` 实测拿到的三条证据（计划 Step 6 预期的日志序列原样出现，且被断言锁住）：
+
+```
+[发码消费者] traceId=e2e-1 phone=13800005678 线程=org.springframework.amqp.rabbit.RabbitListenerEndpointContainer#0-1
+【模拟短信】13800005678 的登录/注册验证码是 526753（...）
+[过期生产者] traceId=e2e-1 phone=13800005678
+```
+
+- 线程名不是 `main` → 异步成立；测试线程只发了一条消息、从没写 Redis，Redis 里却出现了码；
+- 断言 `auth:sms:code:13800005678` 值为 6 位数字、TTL 在 300 秒内；
+- 断言延迟队列 `messages_ready` 比投递前 +1，且 `consumers: 0` → 过期事件确实躺进延迟队列等人来吃死信。
+
+跑完后 Broker 实况：`auth.sms.send.queue` ready=0、`auth.sms.expire.delay.queue` ready=2 consumers=0、
+`auth.sms.expired.queue` ready=0；`auth:sms:*` 在 Redis 已被 `@AfterEach` 清干净。
+全量 `mvn -o -pl AuthModule -am test` → **Tests run: 33, Failures: 0**。
 
 ---
 
