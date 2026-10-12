@@ -42,6 +42,12 @@ spring:
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
     username: root
     password:
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -49,3 +55,10 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+auth:
+  sms:
+    # 验证码有效期；队列 TTL 是创建参数，改这个值必须同时改 auth.sms.queue-suffix，
+    # 否则 Broker 上同名旧队列参数不一致会报 PRECONDITION_FAILED。
+    code-ttl-ms: 300000
+    queue-suffix: ""

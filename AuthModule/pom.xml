@@ -64,6 +64,12 @@
             <version>5.8.25</version>
         </dependency>
 
+        <!-- RabbitMQ：手机验证码异步投递与延迟过期 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>

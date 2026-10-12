@@ -1094,7 +1094,7 @@ Step 8 用测试代替了手工 curl（避免依赖重启中的 JVM），并额�
 - Consumes: `RabbitTemplate`（Boot 自动配置）
 - Produces: `SmsCodeProducer.sendSmsCode(SmsSendRequest)`、`SmsCodeProducer.sendExpireDelay(SmsExpireEvent)`；常量 `CaptchaMqConfig.SMS_EXCHANGE/SMS_SEND_QUEUE/SMS_SEND_KEY/SMS_EXPIRE_DELAY_QUEUE/SMS_EXPIRE_DELAY_KEY/SMS_EXPIRE_DLX/SMS_EXPIRED_QUEUE/SMS_EXPIRED_KEY`
 
-- [ ] **Step 1: 加依赖与连接配置**
+- [x] **Step 1: 加依赖与连接配置**
 
 `AuthModule/pom.xml` hutool 块之后：
 
@@ -1124,7 +1124,7 @@ auth:
     queue-suffix: ""
 ```
 
-- [ ] **Step 2: 写两个消息体**
+- [x] **Step 2: 写两个消息体**
 
 `pojo/mq/SmsSendRequest.java`：
 
@@ -1166,7 +1166,7 @@ public class SmsExpireEvent {
 }
 ```
 
-- [ ] **Step 3: 写失败的 Producer 测试**
+- [x] **Step 3: 写失败的 Producer 测试**
 
 `mq/SmsCodeProducerTest.java`（纯 Mockito，不起 Spring）：
 
@@ -1215,7 +1215,7 @@ class SmsCodeProducerTest {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认失败**
+- [x] **Step 4: 跑测试确认失败**
 
 ```bash
 "$MVN" -o -pl AuthModule -am test -Dtest=SmsCodeProducerTest \
@@ -1223,7 +1223,7 @@ class SmsCodeProducerTest {
 ```
 Expected: 编译失败，`找不到符号 CaptchaMqConfig` / `SmsCodeProducer`。
 
-- [ ] **Step 5: 写拓扑配置**
+- [x] **Step 5: 写拓扑配置**
 
 `config/CaptchaMqConfig.java`：
 
@@ -1323,7 +1323,7 @@ public class CaptchaMqConfig {
 
 > 三个 `@Bean` 方法之间直接互相调用（`smsSendBinding()` 里调 `smsSendQueue()`），这是 `@Configuration` 默认 CGLIB 代理保证的——代理会让 `smsSendQueue()` 返回同一个单例 Bean 而不是新建对象。写成方法参数注入也对，但项目现有风格是直接调用，保持一致。
 
-- [ ] **Step 6: 写 Producer**
+- [x] **Step 6: 写 Producer**
 
 `mq/SmsCodeProducer.java`：
 
@@ -1359,18 +1359,18 @@ public class SmsCodeProducer {
 }
 ```
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: 同 Step 4
 Expected: `Tests run: 2, Failures: 0`。
 
-- [ ] **Step 8: 起服务，去管理界面核对拓扑形状**
+- [x] **Step 8: 起服务，去管理界面核对拓扑形状**
 
 起 AuthModule，打开 `http://localhost:15672`（guest/guest）→ Exchanges → `auth.sms.exchange` → Binding 标签页。
 Expected: **看到 2 条绑定**：`sms.send → auth.sms.send.queue`、`sms.expire → auth.sms.expire.delay.queue`。再看 Queues，`auth.sms.expire.delay.queue` 的 Features 列应显示 `ttl 300000`、`dlx auth.sms.expire.dlx`。
 这一步是"拓扑对不对"的唯一权威检查，别用"启动没报错"代替。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add AuthModule/pom.xml AuthModule/src/main/resources/application.yaml \
@@ -1378,6 +1378,23 @@ git add AuthModule/pom.xml AuthModule/src/main/resources/application.yaml \
         AuthModule/src/test/java/org/leon/authmodule/mq
 git commit -m "feat(auth): 手机验证码 MQ 拓扑（延迟队列 + 死信交换机）与生产者"
 ```
+
+#### Task 7 执行记录（2026-10-12）
+
+TDD 走全：Step 4 实测红在 `找不到符号 类 CaptchaMqConfig`，Step 7 转绿 2 例。
+
+Step 8 没用人眼盯管理界面，而是加了 `CaptchaMqTopologyTest`（`@SpringBootTest` + `RabbitAdmin#initialize()`
+强制声明，再用 15672 管理 HTTP API 反查 Broker 的说法）3 例，对应计划里"唯一权威检查"那句：
+
+| 断言 | Broker 实测返回 |
+| --- | --- |
+| `auth.sms.exchange` 恰好 2 条绑定 | `sms.expire -> auth.sms.expire.delay.queue`、`sms.send -> auth.sms.send.queue` |
+| 延迟队列参数 | `x-message-ttl: 300000`、`x-dead-letter-exchange: auth.sms.expire.dlx`、`x-dead-letter-routing-key: sms.expired` |
+| 延迟队列没有消费者 | `consumers: 0`（有消费者消息就永远不会变死信） |
+| 死信交换机 → 过期队列 | 1 条绑定 `sms.expired -> auth.sms.expired.queue` |
+
+副作用要记一笔：AuthModule 引入 amqp 之后，本模块所有 `@SpringBootTest` 都需要本机 Broker 起着才能跑
+（`guest/guest` 只允许 localhost），全量 `mvn -o -pl AuthModule -am test` → **Tests run: 30, Failures: 0**。
 
 ---
 
