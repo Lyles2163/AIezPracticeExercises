@@ -21,7 +21,7 @@ class SmsCodeProducerTest {
     @DisplayName("发码消息投到 auth.sms.exchange 的 sms.send 路由键")
     @Test
     void sendSmsCodeUsesSendRoutingKey() {
-        SmsSendRequest payload = new SmsSendRequest("13800001234", "trace-1");
+        SmsSendRequest payload = new SmsSendRequest("13631155285", "trace-1");
 
         new SmsCodeProducer(rabbitTemplate).sendSmsCode(payload);
 

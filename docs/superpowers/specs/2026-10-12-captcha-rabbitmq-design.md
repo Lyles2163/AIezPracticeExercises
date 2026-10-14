@@ -3,7 +3,6 @@
 日期：2026-10-12
 范围：`AuthModule`（后端主战场）、`EZ_frontend`（前端）、`GatewayModule` 与 Nacos（放行配置）、MySQL（改表）
 状态：待用户评审
-作者：与 Qoder 协作产出，所有现状结论均带文件行号证据
 
 ---
 

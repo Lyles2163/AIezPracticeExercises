@@ -34,7 +34,7 @@ public class JwtUtil {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("JWT Secret 未配置 (leon.jwt.secret)");
         }
-        // ⬅️ 统一使用 UTF-8 编码派生密钥（与 generateToken 保持一致）
+        // 统一使用 UTF-8 编码派生密钥（与 generateToken 保持一致）
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (keyBytes.length < 32) {
             log.warn("⚠️ JWT 密钥长度仅 {} 字节，建议至少 32 字节(256位)以保证安全性", keyBytes.length);
@@ -101,10 +101,6 @@ public class JwtUtil {
 
     public Claims getClaimsFromToken(String token) {
         return parseClaims(token); // ⬅️ 复用统一解析方法，不再单独创建 parser
-    }
-
-    public Long getUserIdFromToken(String token) {
-        return getClaimsFromToken(token).get("userId", Long.class);
     }
 
     public String getUsernameFromToken(String token) {
