@@ -25,10 +25,33 @@ public class SpringAmqpTest {
     }
 
 
+
+
     @Test
     void testSendexchange(){
         String exchangeName = "test.fanout";
         String message = "Hello, test.fanout";
         rabbitTemplate.convertAndSend(exchangeName, "", message);
     }
+
+    @Test
+    void testSendexchangeDirect(){
+        String exchangeName = "test.direct";
+        String message = "Hello, test.direct，这个是红色的消息";
+        rabbitTemplate.convertAndSend(exchangeName, "red", message);
+    }
+
+    @Test
+    void testSendexchangeDirect2(){
+        String exchangeName = "test.direct";
+        String message = "Hello, test.direct，这个是蓝色的消息";
+        rabbitTemplate.convertAndSend(exchangeName, "blue", message);
+    }
+    @Test
+    void testSendexchangeDirect3(){
+        String exchangeName = "test.direct";
+        String message = "Hello, test.direct，这个是黄色的消息";
+        rabbitTemplate.convertAndSend(exchangeName, "yellow", message);
+    }
+
 }
