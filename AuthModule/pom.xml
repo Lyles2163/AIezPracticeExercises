@@ -85,6 +85,13 @@
 <!--            <artifactId>spring-security-crypto</artifactId>-->
 <!--         </dependency>-->
 
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-xml</artifactId>
+        </dependency>
+
+
+
         <!-- MyBatis-Plus -->
         <dependency>
             <groupId>com.baomidou</groupId>
