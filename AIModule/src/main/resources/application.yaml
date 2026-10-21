@@ -20,6 +20,13 @@ spring:
         options:
           model: deepseek-chat
           temperature: 0.7
+      embedding:
+        # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek
+        api-key: ${DASHSCOPE_API_KEY:}
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        options:
+          model: text-embedding-v3
+          dimensions: 1024
   cloud:
     sentinel:
       transport:
@@ -41,6 +48,35 @@ spring:
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
     username: root
     password:
+
+
+rag:
+  analyzer: ik                     # 安装 IK 失败时改 cjk
+  admin-names: ${RAG_ADMIN_NAMES:}
+  elasticsearch:
+    uris: ${ES_URIS:https://127.0.0.1:9200}
+    username: ${ES_USERNAME:elastic}
+    password: ${ELASTIC_PASSWORD:}
+    ca-cert-path: ${ES_CA_CERT:F:/ES/elasticsearch-9.5.4/config/certs/http_ca.crt}
+  index:
+    auto-create: true
+    kb-alias: ai_kb_chunk
+    kb-physical: ai_kb_chunk_v1
+    question-alias: ai_question
+    question-physical: ai_question_v1
+  embedding:
+    dimensions: 1024
+    batch-size: 10
+    concurrency: 4
+  search:
+    top-k-default: 6
+    top-k-max: 20
+    rrf-rank-constant: 60
+    rank-window-size: 50
+    knn-k: 20
+    num-candidates: 100
+    knn-similarity: 0.55
+  async: poll
 
 
 mybatis:
