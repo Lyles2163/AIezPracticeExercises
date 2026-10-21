@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.leon.usermodule.pojo.mq.LoginEvent;
 import org.leon.usermodule.pojo.vo.ProcessedLogin;
+import org.leon.usermodule.pojo.vo.UserProfileVO;
 
 import java.util.List;
 
@@ -14,7 +15,8 @@ class RecentLoginStoreTest {
     private static ProcessedLogin item(long userId) {
         LoginEvent event = new LoginEvent(userId, "u" + userId, "trace-" + userId,
                 "127.0.0.1", 1_700_000_000_000L, "abcdef123456");
-        return new ProcessedLogin(event, 1_700_000_000_001L);
+        return new ProcessedLogin(event, 1_700_000_000_001L,
+                new UserProfileVO(userId, "u" + userId, "1", 1, "13800000000", null, "127.0.0.1"));
     }
 
     @DisplayName("最新的一条排在最前")
