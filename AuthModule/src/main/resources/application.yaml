@@ -65,3 +65,6 @@ auth:
     # 否则 Broker 上同名旧队列参数不一致会报 PRECONDITION_FAILED。
     code-ttl-ms: 300000
     queue-suffix: ""
+  internal:
+    # UserModule 调 /auth/internal/** 时携带的共享令牌，两端必须一致
+    token: "dev-internal-token"

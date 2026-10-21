@@ -34,6 +34,8 @@ public class SecurityConfig {
                                 "/auth/captcha", "/auth/sms/send").permitAll() // 统一用小写
                         // 仅教学演示：生产环境必须删除 AuthDemoController 并移除本行
                         .requestMatchers("/auth/demo/**").permitAll()
+                        // 内部接口由 InternalApiAuthFilter 校验 X-Internal-Token
+                        .requestMatchers("/auth/internal/**").permitAll()
                         .anyRequest().authenticated()
                 )
 

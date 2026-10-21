@@ -62,3 +62,8 @@ seata:
   config:
     type: file
 
+auth:
+  internal:
+    # 与 AuthModule 的 auth.internal.token 必须一致
+    token: "dev-internal-token"
+
