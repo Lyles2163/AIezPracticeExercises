@@ -4,13 +4,16 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.leon.authmodule.mapper.AuthMapper;
+import org.leon.authmodule.mq.LoginEventPublisher;
 import org.leon.authmodule.pojo.LoginRequest;
 import org.leon.authmodule.pojo.RegisterRequest;
 import org.leon.authmodule.pojo.Result;
 import org.leon.authmodule.pojo.Users;
+import org.leon.authmodule.pojo.mq.LoginSuccessEvent;
 import org.leon.authmodule.service.AuthRedisService;
 import org.leon.authmodule.service.AuthService;
 import org.leon.authmodule.service.CaptchaService;
+import org.leon.authmodule.util.TokenFingerprint;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -37,6 +41,9 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
 
     @Autowired
     private CaptchaService captchaService;
+
+    @Autowired
+    private LoginEventPublisher loginEventPublisher;
 
     /** 直接读配置，避免依赖 JwtConfig 的具体 API */
     @Value("${leon.jwt.expiration:7200000}")
@@ -94,7 +101,17 @@ public class AuthServiceImpl extends ServiceImpl<AuthMapper, Users>
         // 3. 写入 Redis（token + 用户信息，TTL 与 JWT 一致）
         authRedisService.saveLoginInfo(users.getId(), token, users, jwtExpiration);
 
-        // 4. 返回给前端
+        // 5. 发布登录事件。MQ 是"尽力而为"：Broker 不可用绝不能把登录搞挂。
+        String traceId = UUID.randomUUID().toString();
+        try {
+            loginEventPublisher.publish(new LoginSuccessEvent(
+                    users.getId(), users.getUsername(), traceId, clientIp,
+                    System.currentTimeMillis(), TokenFingerprint.of(token)));
+        } catch (Exception e) {
+            log.error("[登录事件] 发布失败，登录继续。userId={} traceId={}", users.getId(), traceId, e);
+        }
+
+        // 6. 返回给前端
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
         data.put("userName", users.getUsername());
