@@ -6,6 +6,7 @@ import org.leon.usermodule.config.RabbitMqDemoConfig;
 import org.leon.usermodule.pojo.mq.UserRegisterMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
@@ -18,7 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * 运行前提：本机 RabbitMQ 已启动（默认 127.0.0.1:5672，guest/guest）
  */
 @Slf4j
-@SpringBootTest
+@SpringBootTest(properties = "seata.enabled=false")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class RabbitMqDemoTest {
 
     @Autowired
