@@ -40,6 +40,14 @@ spring:
     listener:
       simple:
         prefetch: 1   # 预取值，即一次只处理一个消息
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000
+          multiplier: 2
+          max-interval: 10000
+        # 重试耗尽后必须拒绝而不是重回队首，否则死信永远为空并无限重消费
+        default-requeue-rejected: false
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
