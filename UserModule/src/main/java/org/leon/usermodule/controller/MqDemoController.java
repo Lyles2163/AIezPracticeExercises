@@ -2,6 +2,7 @@ package org.leon.usermodule.controller;
 
 import lombok.extern.slf4j.Slf4j;
 import org.leon.usermodule.config.RabbitMqDemoConfig;
+import org.leon.usermodule.mq.RecentLoginStore;
 import org.leon.usermodule.mq.UserRegisterProducer;
 import org.leon.usermodule.pojo.Result;
 import org.leon.usermodule.pojo.mq.UserRegisterMessage;
@@ -21,9 +22,11 @@ import java.time.LocalDateTime;
 public class MqDemoController {
 
     private final UserRegisterProducer producer;
+    private final RecentLoginStore recentLoginStore;
 
-    public MqDemoController(UserRegisterProducer producer) {
+    public MqDemoController(UserRegisterProducer producer, RecentLoginStore recentLoginStore) {
         this.producer = producer;
+        this.recentLoginStore = recentLoginStore;
     }
 
     @GetMapping("/register")
@@ -39,5 +42,10 @@ public class MqDemoController {
         UserRegisterMessage message = new UserRegisterMessage(10087L, username, LocalDateTime.now());
         producer.send(message, "user.delete.phone");
         return Result.success("这条消息没有任何队列绑定，Broker 会直接丢弃，日志里不会有消费者输出");
+    }
+
+    @GetMapping("/login/recent")
+    public Result loginRecent() {
+        return Result.success(recentLoginStore.recent());
     }
 }

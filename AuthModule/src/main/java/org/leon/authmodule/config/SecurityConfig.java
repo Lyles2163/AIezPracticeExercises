@@ -32,6 +32,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/login", "/auth/register", "/auth/logout",
                                 "/auth/captcha", "/auth/sms/send").permitAll() // 统一用小写
+                        // 仅教学演示：生产环境必须删除 AuthDemoController 并移除本行
+                        .requestMatchers("/auth/demo/**").permitAll()
                         .anyRequest().authenticated()
                 )
 
