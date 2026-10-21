@@ -2,7 +2,7 @@
 
 日期：2026-10-19
 范围：AuthModule（登录方 / 数据方）+ UserModule（消费方）
-状态：待评审
+状态：已实现（2026-10-21，见 §14）
 
 ---
 
@@ -401,3 +401,37 @@ catch (FeignException.NotFound e) {
 | RabbitTemplate + `correlationId` + reply queue 手写 RPC | 用 MQ 模拟请求-响应，等于自己重造 Feign 且更难，本场景没有需要它理由 |
 | 消费端新建 `user_login_stat` 表落库 | 要动 DDL，超出本次范围；环形队列 + 查询端点已足够观察 |
 | `spring.main.allow-bean-definition-overriding=true` 绕过重名 | 掩盖重复定义而不是解决，上一轮已经踩过一次 |
+
+---
+
+## 14. 实现完成记录（2026-10-21）
+
+**范围与提交**：实现计划 `docs/superpowers/plans/2026-10-19-login-feign-mq.md` 中的 12 个任务全部完成，按 4 段验收；提交 `0b3e1b1..d0a6809`，全部在 `dev`。
+
+**验收证据**
+
+| 项目 | 实测结果 |
+|---|---|
+| 全量回归 | AuthModule 52 + UserModule 12 个用例，0 失败 |
+| 正常链路 | 触发 → 消费 → `profile.roleId=0`，约 45ms |
+| 404 数据不存在 | 637ms 直接进死信（改造前被 Spring Retry 重试 3 次，约 6.7s） |
+| Feign 服务名错误 | 3 次尝试（间隔约 3.6s / 4.0s）后进死信；AuthModule 触发端点两次均 200 |
+| 消费者离线 | 5 条消息堆积，消费者启动后全部处理、主队列深度归 0 |
+| AuthModule 下线 | UserModule 仍能正常启动，只在真正调用 Feign 时失败 |
+
+**实现差异（相对本文档/计划）**
+
+1. `AmqpRejectAndDontRequeueException` 默认仍会被 Spring Retry 重试；新增 `UserModule/config/LoginRetryConfig.java` 的 `RabbitRetryTemplateCustomizer` 才实现 404 立即死信。
+2. `TypePrecedence.INFERRED` 提前到 Task 7 完成，否则消费端无法反序列化生产端类型。
+3. `InternalUserController` 显式 `produces=application/json`；classpath 中的 Jackson XML 会在无 Accept 头时抢占内容协商。
+4. `SecurityConfig` 需放行 `/auth/demo/**` 与 `/auth/internal/**`；前者原计划漏写，否则演示端点 401。
+5. 设计 §10.2 实验 C 的启动顺序已修正：消费者在线而 AuthModule 离线时会重试/死信，不会"等待"；正确演示顺序记录在实验文档。
+6. 两个 MQ 全上下文测试使用 `@DirtiesContext(AFTER_CLASS)` + `seata.enabled=false`，避免缓存上下文争抢队列与 Seata 静态状态报错。
+
+**运行入口**
+
+- 正常/404 演示：`GET http://127.0.0.1:8103/auth/demo/login-event?userId=1`
+- 观察消费结果：`GET http://127.0.0.1:8101/user/mq/login/recent`
+- 内部接口：`GET http://127.0.0.1:8103/auth/internal/users/{userId}`，请求头 `X-Internal-Token: dev-internal-token`
+
+**详细实验记录**：`docs/superpowers/specs/2026-10-19-login-feign-mq-experiments.md`。
