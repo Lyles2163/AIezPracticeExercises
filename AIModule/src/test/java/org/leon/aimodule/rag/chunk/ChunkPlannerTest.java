@@ -6,6 +6,8 @@ import org.leon.aimodule.rag.parse.ChunkDraft;
 import org.leon.aimodule.rag.parse.ParsedDoc;
 import org.leon.aimodule.rag.parse.ParsedPage;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -67,6 +69,31 @@ class ChunkPlannerTest {
         assertTrue(chunks.size() >= 2);
         assertTrue(chunks.stream().allMatch(c -> tokenCounter.count(c.content()) <= ChunkPlanner.BUDGET_TOKENS),
                 "每个切片的实际 token 数不得超过预算");
+    }
+
+    @Test
+    @DisplayName("重叠窗口以空白开头时 strip 后仍不超预算")
+    void overlapTailLeadingWhitespaceStillWithinBudget() {
+        List<String> first = new ArrayList<>();
+        for (int i = 0; i < 380; i++) {
+            first.add("the");
+        }
+        first.add("differ");
+        for (int i = 0; i < 59; i++) {
+            first.add("the");
+        }
+        String paragraphA = String.join(" ", first);
+        String paragraphC = String.join(" ", Collections.nCopies(439, "the"));
+        ParsedDoc doc = new ParsedDoc("boundary.txt", "边界",
+                List.of(new ParsedPage(1, paragraphA + "\n\n" + paragraphC)));
+
+        List<ChunkDraft> chunks = planner.plan(doc);
+
+        assertTrue(chunks.size() >= 2);
+        // 重叠尾巴以 " differ"（1 token）开头，strip 后变成 "differ"（2 token）：预算必须按 strip 后计数
+        assertTrue(chunks.stream().allMatch(c -> tokenCounter.count(c.content()) <= ChunkPlanner.BUDGET_TOKENS),
+                "重叠窗口 strip 后实际 token 数不得超过预算: " + chunks.stream()
+                        .map(c -> c.seq() + "=" + tokenCounter.count(c.content())).toList());
     }
 
     @Test

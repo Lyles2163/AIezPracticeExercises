@@ -37,7 +37,7 @@ public class ChunkPlanner {
 
         for (Segment segment : segments) {
             // 按拼接后的实际文本计 token，避免段落分隔符被漏算
-            if (!window.isEmpty() && joinedTokens(window, segment) > BUDGET_TOKENS) {
+            if (!window.isEmpty() && joinedTokens(join(window), segment) > BUDGET_TOKENS) {
                 drafts.add(toDraft(drafts.size() + 1, window));
                 window = overlapWindow(drafts.get(drafts.size() - 1), segment);
             }
@@ -140,14 +140,19 @@ public class ChunkPlanner {
         if (tail.isBlank()) {
             return new ArrayList<>();
         }
-        if (tokenCounter.count(tail + JOIN_SEPARATOR + next.text()) > BUDGET_TOKENS) {
+        if (joinedTokens(tail, next) > BUDGET_TOKENS) {
             return new ArrayList<>();
         }
         return new ArrayList<>(List.of(new Segment(tail, next.pageNo(), next.chapterPath())));
     }
 
-    private int joinedTokens(List<Segment> window, Segment next) {
-        return tokenCounter.count(join(window) + JOIN_SEPARATOR + next.text());
+    /**
+     * 预算守卫按写盘时完全相同的文本计数：toDraft 会 strip 拼接结果，
+     * 而 strip 并非 token 单调（如 " differ" 1 token → "differ" 2 token），
+     * 所以这里必须先 strip 再计数，否则以空白开头的重叠尾巴会让预算溢出。
+     */
+    private int joinedTokens(String joinedHead, Segment next) {
+        return tokenCounter.count((joinedHead + JOIN_SEPARATOR + next.text()).strip());
     }
 
     private String join(List<Segment> window) {
