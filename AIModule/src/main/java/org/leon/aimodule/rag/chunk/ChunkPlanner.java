@@ -5,7 +5,9 @@ import org.leon.aimodule.rag.parse.ParsedDoc;
 import org.leon.aimodule.rag.parse.ParsedPage;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -63,7 +65,9 @@ public class ChunkPlanner {
                 }
                 String chapter = headings.isEmpty() ? null : String.join(" → ", headings);
                 for (String piece : splitToBudget(text)) {
-                    result.add(new Segment(piece, page.pageNo(), chapter));
+                    for (String canonical : canonicalPieces(piece)) {
+                        result.add(new Segment(canonical, page.pageNo(), chapter));
+                    }
                 }
             }
         }
@@ -119,6 +123,37 @@ public class ChunkPlanner {
         return pieces;
     }
 
+    /**
+     * 硬切与句切片段可能以空白开头（按 token 解码常带前导空格），
+     * 而 strip 并非 token 单调（如 " differ" 1 token → "differ" 2 token），
+     * 所以片段在计数与入窗前统一 strip；strip 后仍超预算的继续硬切，直到每段都不超预算。
+     */
+    private List<String> canonicalPieces(String piece) {
+        List<String> result = new ArrayList<>();
+        Deque<String> pending = new ArrayDeque<>();
+        pending.addLast(piece);
+        while (!pending.isEmpty()) {
+            String text = pending.removeFirst().strip();
+            if (text.isEmpty()) {
+                continue;
+            }
+            if (tokenCounter.count(text) <= BUDGET_TOKENS) {
+                result.add(text);
+                continue;
+            }
+            List<String> parts = tokenCounter.hardSplit(text, BUDGET_TOKENS);
+            if (parts.size() <= 1) {
+                // 已无法再切，保留原文防止死循环
+                result.add(text);
+                continue;
+            }
+            for (int i = parts.size() - 1; i >= 0; i--) {
+                pending.addFirst(parts.get(i));
+            }
+        }
+        return result;
+    }
+
     private boolean isHeading(String text) {
         return text.length() <= 80 && HEADING.matcher(text).matches();
     }
@@ -136,7 +171,8 @@ public class ChunkPlanner {
     }
 
     private List<Segment> overlapWindow(ChunkDraft last, Segment next) {
-        String tail = tokenCounter.tail(last.content(), OVERLAP_TOKENS);
+        // 尾巴由 token 解码而来，可能以空格开头；先 strip 再入窗，保证窗口内容无边界空白
+        String tail = tokenCounter.tail(last.content(), OVERLAP_TOKENS).strip();
         if (tail.isBlank()) {
             return new ArrayList<>();
         }

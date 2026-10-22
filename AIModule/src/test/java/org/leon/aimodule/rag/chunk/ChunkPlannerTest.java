@@ -97,6 +97,53 @@ class ChunkPlannerTest {
     }
 
     @Test
+    @DisplayName("硬切片以空白开头时 strip 后仍不超预算")
+    void hardSplitPieceLeadingWhitespaceWithinBudget() {
+        List<String> words = new ArrayList<>();
+        for (int i = 0; i < 500; i++) {
+            words.add("the");
+        }
+        words.add("differ");
+        for (int i = 0; i < 499; i++) {
+            words.add("the");
+        }
+        ParsedDoc doc = new ParsedDoc("hard-split.txt", "硬切",
+                List.of(new ParsedPage(1, String.join(" ", words))));
+
+        List<ChunkDraft> chunks = planner.plan(doc);
+
+        assertTrue(chunks.size() >= 2);
+        // 第二个硬切片以 " differ"（1 token）开头，strip 后变成 "differ"（2 token）：预算必须按 strip 后计数
+        assertTrue(chunks.stream().allMatch(c -> tokenCounter.count(c.content()) <= ChunkPlanner.BUDGET_TOKENS),
+                "硬切片 strip 后实际 token 数不得超过预算: " + chunks.stream()
+                        .map(c -> c.seq() + "=" + tokenCounter.count(c.content())).toList());
+    }
+
+    @Test
+    @DisplayName("句子片段以空白开头时 strip 后仍不超预算")
+    void sentencePieceLeadingWhitespaceWithinBudget() {
+        StringBuilder paragraph = new StringBuilder();
+        for (int i = 0; i < 450; i++) {
+            paragraph.append("the ");
+        }
+        paragraph.append("。");
+        paragraph.append(" differ");
+        for (int i = 0; i < 499; i++) {
+            paragraph.append(" the");
+        }
+        ParsedDoc doc = new ParsedDoc("sentence-piece.txt", "句切",
+                List.of(new ParsedPage(1, paragraph.toString())));
+
+        List<ChunkDraft> chunks = planner.plan(doc);
+
+        assertTrue(chunks.size() >= 2);
+        // 句切片段以 " differ"（1 token）开头，strip 后变成 "differ"（2 token）：预算必须按 strip 后计数
+        assertTrue(chunks.stream().allMatch(c -> tokenCounter.count(c.content()) <= ChunkPlanner.BUDGET_TOKENS),
+                "句切片段 strip 后实际 token 数不得超过预算: " + chunks.stream()
+                        .map(c -> c.seq() + "=" + tokenCounter.count(c.content())).toList());
+    }
+
+    @Test
     @DisplayName("单段超预算时按句号切开")
     void splitsOversizedParagraph() {
         String paragraph = "这是一个很长的句子。".repeat(200);
