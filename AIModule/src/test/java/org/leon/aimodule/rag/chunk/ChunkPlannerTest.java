@@ -43,11 +43,30 @@ class ChunkPlannerTest {
 
         List<ChunkDraft> chunks = planner.plan(doc);
         assertTrue(chunks.size() >= 2);
+        assertTrue(chunks.stream().allMatch(c -> tokenCounter.count(c.content()) <= ChunkPlanner.BUDGET_TOKENS),
+                "每个切片的实际 token 数不得超过预算");
 
         String firstTail = chunks.get(0).content();
         firstTail = firstTail.substring(Math.max(0, firstTail.length() - 30));
         assertTrue(chunks.get(1).content().contains(firstTail),
                 "第二个切片开头应包含第一个切片末尾的重叠文本");
+    }
+
+    @Test
+    @DisplayName("预算计入段落间拼接分隔符")
+    void budgetCountsJoinSeparators() {
+        String paragraph = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda";
+        StringBuilder text = new StringBuilder();
+        for (int i = 1; i <= 60; i++) {
+            text.append(paragraph).append("\n\n");
+        }
+        ParsedDoc doc = new ParsedDoc("algo.txt", "算法", List.of(new ParsedPage(1, text.toString())));
+
+        List<ChunkDraft> chunks = planner.plan(doc);
+
+        assertTrue(chunks.size() >= 2);
+        assertTrue(chunks.stream().allMatch(c -> tokenCounter.count(c.content()) <= ChunkPlanner.BUDGET_TOKENS),
+                "每个切片的实际 token 数不得超过预算");
     }
 
     @Test

@@ -22,6 +22,7 @@ public class ChunkPlanner {
     private static final Pattern HEADING = Pattern.compile(
             "^(第[一二三四五六七八九十百千零〇\\d]+[章节篇].{0,48}|\\d+(\\.\\d+){0,3}[\\s、.]\\S.{0,48}|[一二三四五六七八九十]+、\\S.{0,48})$");
     private static final Pattern SENTENCE = Pattern.compile("(?<=[。！？!?；;\\n])|(?<=[.!?]\\s)");
+    private static final String JOIN_SEPARATOR = "\n\n";
 
     private final TokenCounter tokenCounter;
 
@@ -33,16 +34,14 @@ public class ChunkPlanner {
         List<Segment> segments = toSegments(doc);
         List<ChunkDraft> drafts = new ArrayList<>();
         List<Segment> window = new ArrayList<>();
-        int windowTokens = 0;
 
         for (Segment segment : segments) {
-            if (!window.isEmpty() && windowTokens + segment.tokens() > BUDGET_TOKENS) {
+            // 按拼接后的实际文本计 token，避免段落分隔符被漏算
+            if (!window.isEmpty() && joinedTokens(window, segment) > BUDGET_TOKENS) {
                 drafts.add(toDraft(drafts.size() + 1, window));
                 window = overlapWindow(drafts.get(drafts.size() - 1), segment);
-                windowTokens = window.stream().mapToInt(Segment::tokens).sum();
             }
             window.add(segment);
-            windowTokens += segment.tokens();
         }
         if (!window.isEmpty()) {
             drafts.add(toDraft(drafts.size() + 1, window));
@@ -64,7 +63,7 @@ public class ChunkPlanner {
                 }
                 String chapter = headings.isEmpty() ? null : String.join(" → ", headings);
                 for (String piece : splitToBudget(text)) {
-                    result.add(new Segment(piece, tokenCounter.count(piece), page.pageNo(), chapter));
+                    result.add(new Segment(piece, page.pageNo(), chapter));
                 }
             }
         }
@@ -141,23 +140,29 @@ public class ChunkPlanner {
         if (tail.isBlank()) {
             return new ArrayList<>();
         }
-        int tailTokens = tokenCounter.count(tail);
-        if (tailTokens + next.tokens() > BUDGET_TOKENS) {
+        if (tokenCounter.count(tail + JOIN_SEPARATOR + next.text()) > BUDGET_TOKENS) {
             return new ArrayList<>();
         }
-        return new ArrayList<>(List.of(
-                new Segment(tail, tailTokens, next.pageNo(), next.chapterPath())));
+        return new ArrayList<>(List.of(new Segment(tail, next.pageNo(), next.chapterPath())));
+    }
+
+    private int joinedTokens(List<Segment> window, Segment next) {
+        return tokenCounter.count(join(window) + JOIN_SEPARATOR + next.text());
+    }
+
+    private String join(List<Segment> window) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < window.size(); i++) {
+            if (i > 0) {
+                sb.append(JOIN_SEPARATOR);
+            }
+            sb.append(window.get(i).text());
+        }
+        return sb.toString();
     }
 
     private ChunkDraft toDraft(int seq, List<Segment> window) {
-        StringBuilder sb = new StringBuilder();
-        for (Segment segment : window) {
-            if (sb.length() > 0) {
-                sb.append("\n\n");
-            }
-            sb.append(segment.text());
-        }
-        String content = sb.toString().strip();
+        String content = join(window).strip();
         Segment first = window.get(0);
         // 窗口可能跨多个小节，取窗口内最深的章节路径
         String chapterPath = null;
@@ -170,6 +175,6 @@ public class ChunkPlanner {
                 first.pageNo(), null, chapterPath);
     }
 
-    private record Segment(String text, int tokens, Integer pageNo, String chapterPath) {
+    private record Segment(String text, Integer pageNo, String chapterPath) {
     }
 }
