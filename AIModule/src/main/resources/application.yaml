@@ -23,7 +23,7 @@ spring:
       embedding:
         # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek
         api-key: ${DASHSCOPE_API_KEY:}
-        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        base-url: https://dashscope.aliyuncs.com/compatible-mode
         options:
           model: text-embedding-v3
           dimensions: 1024

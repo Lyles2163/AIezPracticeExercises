@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class EmbeddingGatewayLiveTest {
 
     @Test
-    @DisplayName("百炼 text-embedding-v3 返回 1024 维，相近句相似度高于无关句")
+    @DisplayName("百炼 text-embedding-v3 返回 1024 维，相近句高于 0.7、无关句低于 0.55 且两者差值大于 0.2")
     void realDashScope() {
         String apiKey = System.getenv("DASHSCOPE_API_KEY");
         Assumptions.assumeTrue(apiKey != null && !apiKey.isBlank(), "需要 DASHSCOPE_API_KEY");
@@ -50,9 +50,13 @@ class EmbeddingGatewayLiveTest {
         double related = cosine(vectors.get(0), vectors.get(1));
         double unrelated = cosine(vectors.get(0), vectors.get(2));
 
-        System.out.printf("cosine(相近)=%.4f cosine(无关)=%.4f%n", related, unrelated);
+        System.out.printf("cosine(相近)=%.4f cosine(无关)=%.4f 差值=%.4f%n",
+                related, unrelated, related - unrelated);
         assertTrue(related > 0.7, "相近句相似度应 > 0.7，实际 " + related);
-        assertTrue(unrelated < 0.4, "无关句相似度应 < 0.4，实际 " + unrelated);
+        // 0.55 与生产配置 rag.search.knn-similarity 的截断值一致
+        assertTrue(unrelated < 0.55, "无关句相似度应 < 0.55，实际 " + unrelated);
+        assertTrue(related - unrelated > 0.2,
+                "相近句与无关句相似度差值应 > 0.2，实际 " + (related - unrelated));
         gateway.shutdown();
     }
 
