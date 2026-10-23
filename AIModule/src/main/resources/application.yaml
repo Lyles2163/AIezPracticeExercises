@@ -77,6 +77,8 @@ rag:
     num-candidates: 100
     knn-similarity: 0.55
   async: poll
+  dev-seed:
+    enabled: false
 
 
 mybatis:
