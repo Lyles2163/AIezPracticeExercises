@@ -140,7 +140,7 @@ CREATE TABLE ai_message (
 | 取当前用户 | `@RequestHeader("X-User-Name") String userName`，**不碰 Authorization**（网关已剥离） |
 | 返回体 | `Result{code,msg,data}`。仅流式接口 #7 例外 |
 | 归属校验 | 会话不属于本人 / 已软删 → 统一 `code=0, msg="会话不存在"`，不区分"无权限"与"不存在"，避免会话 ID 枚举 |
-| 时间 | VO 里 `createTime`/`updateTime` 为 epoch 毫秒 number。给 AIModule 加一个 `LocalDateTime → 毫秒` 的 Jackson 定制器（已确认不影响 ES 序列化） |
+| 时间 | VO 里 `createTime`/`updateTime` 为 epoch 毫秒 number。**实现方式：VO 字段直接用 `Long`，由 `ChatTime.millis(LocalDateTime)` 显式转换**，不注册全局 Jackson 定制器——少动一处全局状态，RAG 出参零风险（原计划的 `Jackson2ObjectMapperBuilderCustomizer` 方案在写实施计划时被否掉，因为它的唯一收益是"万一有人往 VO 里塞 LocalDateTime"，而那个风险用类型就能消掉） |
 | 分页 | 只用游标，禁 offset 深翻。会话列表游标 = base64(`updateTime,id`)；消息列表游标 = `beforeId` |
 
 ### 4.2 清单
