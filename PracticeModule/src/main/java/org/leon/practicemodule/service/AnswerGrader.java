@@ -34,7 +34,12 @@ public class AnswerGrader {
             case 2 -> new GradeResult(gradeMulti(answerJson, userAnswerJson), false);
             case 3 -> new GradeResult(gradeJudge(answerJson, userAnswerJson), false);
             case 4 -> new GradeResult(gradeBlank(answerJson, userAnswerJson), false);
-            case 5 -> new GradeResult(false, true);
+            case 5 -> {
+                // 不判内容，但必须验语法：qb_user_answer_record.user_answer_json 是 MySQL json 列，
+                // 非法 JSON 落库时直接抛 DataIntegrityViolation（端到端实测），只能在这里挡成 40000
+                parse(userAnswerJson);
+                yield new GradeResult(false, true);
+            }
             default -> throw malformed("未知题型 " + type + "，无法判分");
         };
     }

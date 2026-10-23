@@ -131,10 +131,17 @@ class AnswerGraderTest {
     }
 
     static Stream<Arguments> shortAnswerCases() {
-        // 第二条故意是坏 JSON：简答不解答案体，坏格式也不该炸
         return Stream.of(
-                Arguments.of("\"参考答案：要点一\"", "\"我的作答\""),
-                Arguments.of("\"参考答案：要点一\"", "\"not json"));
+                Arguments.of("\"参考答案：要点一\"", "\"我的作答\""));
+    }
+
+    /**
+     * 简答不判内容，但答案必须是合法 JSON——user_answer_json 是 MySQL json 列，
+     * 放进去非法文本会被驱动层拒绝（段 2 端到端实测：DataIntegrityViolation -> code=0），
+     * 所以这条必须在判分器就挡成 40000。
+     */
+    static Stream<Arguments> shortAnswerRejectsCases() {
+        return Stream.of(Arguments.of("我的作答"), Arguments.of("[\"坏 JSON"));
     }
 
     @ParameterizedTest(name = "简答 {1} -> 不判分等自评")
@@ -143,6 +150,14 @@ class AnswerGraderTest {
         AnswerGrader.GradeResult r = grader.grade(5, answerJson, userAnswerJson, List.of());
         assertFalse(r.correct(), "简答不能自动判对");
         assertTrue(r.needSelfJudge());
+    }
+
+    @ParameterizedTest(name = "简答非法 JSON {0} -> 40000")
+    @MethodSource("shortAnswerRejectsCases")
+    void shortAnswerRejectsIllegalJson(String userAnswerJson) {
+        PracticeException e = assertThrows(PracticeException.class,
+                () -> grader.grade(5, "\"参考答案：要点一\"", userAnswerJson, List.of()));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
     }
 
     static Stream<Arguments> unknownTypeCases() {
