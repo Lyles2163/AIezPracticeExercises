@@ -61,7 +61,7 @@ AIModule/src/main/java/org/leon/aimodule/chat/
   web/ChatConversationController.java     #1–#6
   web/ChatStreamController.java           #7、#8
   web/ChatExceptionHandler.java           @RestControllerAdvice(basePackages="org.leon.aimodule.chat")
-AIModule/src/main/resources/sql/ai_chat_schema.sql
+db/migration/2026-10-23-ai-chat-conversation.sql
 AIModule/src/test/java/org/leon/aimodule/chat/...   （镜像主包结构）
 ```
 
@@ -515,7 +515,7 @@ git commit -m "新增对话模块配置绑定与 effort 参数解析：档位只
 ### Task 2: 建表 DDL（关卡 G1）
 
 **Files:**
-- Create: `AIModule/src/main/resources/sql/ai_chat_schema.sql`
+- Create: `db/migration/2026-10-23-ai-chat-conversation.sql`
 
 **Interfaces:**
 - Consumes: Task 1 的 `ChatProperties.defaultModel` / `defaultEffort`（DDL 的列默认值必须与之一致）
@@ -523,7 +523,7 @@ git commit -m "新增对话模块配置绑定与 effort 参数解析：档位只
 
 - [ ] **Step 1: 写 schema 文件**
 
-`AIModule/src/main/resources/sql/ai_chat_schema.sql`（逐字照抄 spec 3.2，含 `effort` 两列）：
+`db/migration/2026-10-23-ai-chat-conversation.sql`（逐字照抄 spec 3.2，含 `effort` 两列）：
 
 ```sql
 -- 仿 ChatGPT 对话子系统：2 张表。无物理外键，一致性在应用层。
@@ -580,7 +580,7 @@ import java.sql.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.stream.*;
-String raw = Files.readString(Path.of("F:/AAAJAVA/code/ezPracticeExercises/AIModule/src/main/resources/sql/ai_chat_schema.sql"));
+String raw = Files.readString(Path.of("F:/AAAJAVA/code/ezPracticeExercises/db/migration/2026-10-23-ai-chat-conversation.sql"));
 String sql = Arrays.stream(raw.split("\n")).filter(l -> !l.trim().startsWith("--")).collect(Collectors.joining("\n"));
 Connection c = DriverManager.getConnection("jdbc:mysql://localhost:3306/ezpracticeexercises?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true", "root", "");
 int n = 0;
@@ -635,7 +635,7 @@ ai_message | uk_conv_client | conversation_id,client_msg_id | nonUnique=0
 - [ ] **Step 5: 提交**
 
 ```bash
-git add AIModule/src/main/resources/sql/ai_chat_schema.sql
+git add db/migration/2026-10-23-ai-chat-conversation.sql
 git commit -m "新增对话子系统两张表 DDL：会话冗余预览、消息带回答归属与幂等唯一键"
 ```
 
@@ -677,7 +677,7 @@ import java.util.stream.*;
 Connection admin = DriverManager.getConnection("jdbc:mysql://localhost:3306?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true","root","");
 admin.createStatement().execute("CREATE DATABASE IF NOT EXISTS ezpracticeexercises_chat_it DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci");
 System.out.println("schema ready");
-String raw = Files.readString(Path.of("F:/AAAJAVA/code/ezPracticeExercises/AIModule/src/main/resources/sql/ai_chat_schema.sql"));
+String raw = Files.readString(Path.of("F:/AAAJAVA/code/ezPracticeExercises/db/migration/2026-10-23-ai-chat-conversation.sql"));
 String sql = Arrays.stream(raw.split("\n")).filter(l -> !l.trim().startsWith("--")).collect(Collectors.joining("\n"));
 admin.createStatement().execute("USE ezpracticeexercises_chat_it");
 int n = 0;
@@ -891,7 +891,7 @@ public interface AiMessageMapper extends BaseMapper<AiMessage> {
 }
 ```
 
-`import org.apache.ibatis.annotations.Select;` 与 `@Select` 是配套的——计数查询用 `@Update` 会在运行期抛 `UnsupportedOperationException: ... not supported for updates`，Step 7 的 `reapOnlyStaleStreaming` 用例第一个撞上。
+`import org.apache.ibatis.annotations.Select;` 与 `@Select` 是配套的。实测纠正（Task 3 执行时验证）：计数查询若误标 `@Update`，MyBatis 走 `PreparedStatementHandler.update()` → `getUpdateCount()`，JDBC 对"结果是 ResultSet"定义返回 **-1**，所以**不会抛异常，而是静默返回 -1**——比抛异常更危险，因为 Task 10 的并发判断会变成 `-1 > 0` 恒假、流永远认为没有并发。`ChatMapperDbIT` 里 `assertEquals(1, mapper.countLiveStreaming(...))` 是唯一能抓住它的断言。
 
 - [ ] **Step 6: 写真库集成测试**
 

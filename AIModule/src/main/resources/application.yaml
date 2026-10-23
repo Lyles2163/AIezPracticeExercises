@@ -44,6 +44,10 @@ spring:
     import:
       - optional:nacos:AIServer.yaml
       - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+      - nacos:AiLocal.properties?group=DEFAULT_GROUP&refreshEnabled=true
+      # 本地密钥文件（已 gitignore，不进 jar），文件里给 EZ_DEEPSEEK_API_KEY 赋值。
+      # 文件不存在时 optional: 静默跳过，此时需靠同名环境变量提供 key，两处只用一个。
+#      - optional:file:F:/AAAJAVA/code/ezPracticeExercises/config/local.properties
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
