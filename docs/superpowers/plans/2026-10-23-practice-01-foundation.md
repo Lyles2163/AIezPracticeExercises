@@ -1670,3 +1670,57 @@ git commit -m "段1验收记录：PracticeModule 首个接口经网关打通，�
 ## 执行记录
 
 （Task 1.6 Step 7 起在此追加）
+
+---
+
+## 执行记录
+
+### 2026-10-23 段 1 执行完成
+
+**环境**：JDK 21.0.11，Maven 3.9.16 wrapper，MySQL 9.1.0（root/空密码），Redis db1（本模块）/db0（AuthModule 验证码），Nacos 8848，网关 8100，PracticeModule 8102。
+
+**测试基线**：`mvn -pl PracticeModule -am test` → **24/24 全绿**，`QbQuestionMapperDbIT` 默认被排除。
+`-Dtest=QbQuestionMapperDbIT -Dsurefire.excludedGroups=` → **4/4 全绿**（真库）。
+
+**启动与路由（Steps 1）**
+
+| 检查 | 结果 |
+|---|---|
+| 启动命令 | 先 `mvn -pl PracticeModule -am -DskipTests install`，再 `mvn -pl PracticeModule spring-boot:run` |
+| 组件扫描运行期 | 日志 `✅ JWT 工具类初始化成功，过期时间：86400000ms` —— Task 1.1 审查的 ⚠️ 项就此关闭 |
+| 端口 | `Tomcat started on port 8102`，5.552s |
+| Nacos 注册 | `192.168.8.10:8102 healthy=true` |
+
+**命令坑（重要）**：`mvn -pl PracticeModule -am spring-boot:run` 不可用——`-am` 会对聚合根项目也执行 `spring-boot:run`，报 `Unable to find a suitable main class`，且 reactor 在聚合根就 FAILURE、PracticeModule 显示 SKIPPED，看起来像模块问题，实际是命令问题。
+
+**登录链路（Steps 2–3）**：`test918 / 123456`。验证码明文存在 Redis **db0** 的 `auth:captcha:{key}`（`AuthCacheKeys`，TTL 120s，`CaptchaServiceImpl` 有意保留开发用明文输出），直接读它比自己 OCR 图片快，且并未绕过校验本身。登录返回 `code=1`，token 载荷含 `userId:10`。
+
+**真实接口（Step 4）**
+
+```json
+{"code":1,"msg":"success","data":[
+ {"id":1,"name":"语文","subjectKey":"chinese","questionCount":4,"myTotal":0,"myCorrect":0,"myAccuracy":0.0,"lastAnswerAt":null},
+ {"id":2,"name":"数学","subjectKey":"math","questionCount":3,"myTotal":0,"myCorrect":0,"myAccuracy":0.0,"lastAnswerAt":null}]}
+```
+
+`questionCount` 的 4 与 3 与直连 JDBC 探针完全一致，证明 `countEnabledQuestionRows` 的 `<script>+foreach` 与分组聚合正确。`myTotal` 为 0 符合预期——种子里那 3 条统计属于幽灵用户 2/3（`users_dev` 无此 id），不属于 test918(id=10)。
+
+**四条负路径（Step 5）**
+
+| 场景 | 结果 |
+|---|---|
+| 网关无 token | HTTP 401 `{"code":401,"message":"缺少或无效的授权头"}` |
+| 伪 token `aaa.bbb.ccc` | HTTP 401 |
+| 直连 8102 不带 `X-User-Name` | **HTTP 200 `{"code":40100,"msg":"用户身份不存在，请重新登录"}`** —— Step 6 的 `handleMissingHeader` 在真实容器生效 |
+| `?userId=2`（幽灵用户，库里有 3 条统计） | 两个 `myTotal` 仍为 0；若参数被采信会变成 3。**证明身份只认 `X-User-Name`** |
+
+**身份缓存（Step 6）**：`redis-cli -n 1 GET qb:uid:test918` → `10`，`TTL` → `1800`。
+
+**测量坑（教训）**：首次读响应时用 `curl ... | python -m json.tool`，得到中文乱码与孤立代理项，一度以为接口坏了。根因是 Windows 控制台 GBK 码页——python 用 GBK 解码 UTF-8 字节再转义。**验证非 ASCII 响应时不要经过控制台编码**：直连与网关两次原始字节 `cmp` 完全相同，中文正确。以后取证据直接看 `curl` 原始字节或写文件后比对，不要用 `json.tool` 二次转码。
+
+**与计划的偏差**：
+1. Task 1.4 由并发会话按同一计划实现并提交（`793704e`）；我逐行比对后接受，全量测试绿。**未经本流程独立审查**。
+2. Task 1.5 因用户要求不用子代理而由我亲自实现（`58cc730`）。**未经独立审查**——段末总审必须重点覆盖。
+3. 计划外补了一条真库测试 `subjectQueriesWorkAgainstLiveDb`，覆盖两个新增 `@Select`（驼峰映射、record 投影、`foreach`）。理由：单测只 mock 了 mapper，而 1.6 需要真实凭据才能跑；若凭据一直拿不到，这两条 SQL 将无人验证。
+4. `SubjectServiceTest` 由 3 条增到 4 条（补"无科目时短路"），故段内测试总数为 24 而非计划的 23。
+5. db-it 命令形式按 Task 1.2 修复轮的实测结论执行（`-Dtest=` + `-Dsurefire.excludedGroups=`）。
