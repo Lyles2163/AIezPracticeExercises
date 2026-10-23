@@ -27,7 +27,15 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <!-- 真库测试默认不进 mvn test：excludedGroups 走属性，命令行 -Dsurefire.excludedGroups= 可临时放开。 -->
         <surefire.excludedGroups>db-it</surefire.excludedGroups>
+        <!--
+            groups 同样只能走属性：命令行直接给 -Dgroups=db-it 会随 -am 传进 CommonJwt，
+            而 CommonJwt 没有 JUnit5 引擎，surefire 会以
+            "groups/excludedGroups require ... JUnit 5 (a specific engine required on classpath)" 失败。
+            跑真库测试用 -Dsurefire.groups=db-it -Dsurefire.excludedGroups= 。
+        -->
+        <surefire.groups/>
     </properties>
     <dependencies>
         <dependency>
@@ -106,6 +114,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <groups>${surefire.groups}</groups>
                     <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                 </configuration>
             </plugin>

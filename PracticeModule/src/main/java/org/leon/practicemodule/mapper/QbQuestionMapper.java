@@ -2,6 +2,7 @@ package org.leon.practicemodule.mapper;
 
 import org.leon.practicemodule.pojo.QbQuestion;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
 
 /**
 * @author Administrator
@@ -9,6 +10,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 * @createDate 2026-09-22 09:43:25
 * @Entity generator.pojo.QbQuestion
 */
+@Mapper
 public interface QbQuestionMapper extends BaseMapper<QbQuestion> {
 
 }
