@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.leon.practicemodule.pojo.QbEntityColumns;
 import org.leon.practicemodule.pojo.QbQuestion;
+import org.leon.practicemodule.pojo.QbSubject;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -53,6 +54,8 @@ class QbQuestionMapperDbIT {
     private static SqlSession session;
     private static QbQuestionMapper questionMapper;
     private static UsersReadMapper usersReadMapper;
+    private static QbSubjectMapper subjectMapper;
+    private static QbUserSubjectStatMapper subjectStatMapper;
 
     @BeforeAll
     static void open() {
@@ -67,10 +70,14 @@ class QbQuestionMapperDbIT {
         cfg.setJdbcTypeForNull(JdbcType.NULL);
         cfg.addMapper(QbQuestionMapper.class);
         cfg.addMapper(UsersReadMapper.class);
+        cfg.addMapper(QbSubjectMapper.class);
+        cfg.addMapper(QbUserSubjectStatMapper.class);
         SqlSessionFactory factory = new MybatisSqlSessionFactoryBuilder().build(cfg);
         session = factory.openSession();
         questionMapper = session.getMapper(QbQuestionMapper.class);
         usersReadMapper = session.getMapper(UsersReadMapper.class);
+        subjectMapper = session.getMapper(QbSubjectMapper.class);
+        subjectStatMapper = session.getMapper(QbUserSubjectStatMapper.class);
     }
 
     @AfterAll
@@ -97,6 +104,28 @@ class QbQuestionMapperDbIT {
         // 8=testuser02, 9=test01, 10=test918, 11=test920, 14=adminL, 15=mqcap01, 16=adminL2
         assertEquals(1L, usersReadMapper.selectIdByUsername("admin"));
         assertNull(usersReadMapper.selectIdByUsername("__no_such_user__"));
+    }
+
+    @Test
+    @DisplayName("科目与统计的 @Select 脚本能跑通：驼峰映射、record 投影、foreach 都生效")
+    void subjectQueriesWorkAgainstLiveDb() {
+        List<QbSubject> subjects = subjectMapper.selectEnabledSubjects();
+        assertFalse(subjects.isEmpty(), "qb_subject 实测有 2 行启用科目");
+        assertTrue(subjects.stream().allMatch(s -> s.getSubjectKey() != null),
+                "subject_key 没映射到 subjectKey —— 下划线转驼峰在注解查询里失效了");
+
+        List<Long> ids = subjects.stream().map(QbSubject::getId).toList();
+        List<StatCountRow> counts = subjectMapper.countEnabledQuestionRows(ids);
+        assertFalse(counts.isEmpty(), "两个科目下都有启用题目；空结果说明 record 构造器投影失败");
+        // 实测：科目 1 有 4 题、科目 2 有 3 题（status=1）
+        assertEquals(4L, counts.stream().filter(r -> r.subjectId() == 1L)
+                .findFirst().orElseThrow().cnt());
+        assertEquals(3L, counts.stream().filter(r -> r.subjectId() == 2L)
+                .findFirst().orElseThrow().cnt());
+
+        // 种子统计属于幽灵用户 2/3（users_dev 无这两个 id），这里只验含 foreach 的 SQL 能跑
+        assertNotNull(subjectStatMapper.selectByUserAndSubjects(1L, ids));
+        assertNotNull(subjectStatMapper.selectByUserAndSubjects(2L, ids));
     }
 
     @Test
