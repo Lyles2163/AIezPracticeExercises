@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("es-it")
@@ -151,9 +152,15 @@ class RetrievalServiceIT {
         assertFalse(response.knn().isEmpty(), "kNN 腿应有结果");
         assertTrue(response.bm25().stream().noneMatch(item -> item.docId() == 43L));
         assertTrue(response.knn().stream().noneMatch(item -> item.docId() == 43L));
-        System.out.printf("[RAG-IT] debug bm25=%d knn=%d took=%d ms, knn 第一条 score=%.4f%n",
+        // cosine 只能来自 kNN 腿的 _score，BM25 腿的 _score 是 BM25 分，不能冒充余弦
+        assertTrue(response.bm25().stream().allMatch(item -> item.cosine() == null),
+                "BM25 腿不该产出 cosine");
+        assertTrue(response.knn().stream().allMatch(item -> item.cosine() != null
+                        && item.cosine() >= 0.55 - 1e-6),
+                "kNN 腿的 cosine 必须由 score 反解且不低于 similarity 闸门");
+        System.out.printf("[RAG-IT] debug bm25=%d knn=%d took=%d ms, knn 第一条 score=%.4f cosine=%.4f%n",
                 response.bm25().size(), response.knn().size(), response.took(),
-                response.knn().get(0).score() == null ? -1d : response.knn().get(0).score());
+                response.knn().get(0).score(), response.knn().get(0).cosine());
     }
 
     @Test
@@ -179,15 +186,7 @@ class RetrievalServiceIT {
         KnowledgeSearchResponse response = service.searchKnowledge("快速排序",
                 new SearchOptions("alice", List.of("official"), 12L, 10));
         KnowledgeSearchItem first = response.items().get(0);
-        System.out.printf("[RAG-PROBE] first chunkId=%d cosine=%s%n", first.chunkId(), first.cosine());
-        co.elastic.clients.json.JsonData raw =
-                client.get(g -> g.index(ALIAS).id(String.valueOf(first.chunkId())), co.elastic.clients.json.JsonData.class).source();
-        KbChunkDoc parsed =
-                client.get(g -> g.index(ALIAS).id(String.valueOf(first.chunkId())), KbChunkDoc.class).source();
-        System.out.printf("[RAG-PROBE] rawHasVec=%s rawHasVecQuote=%s rawLen=%d%n",
-                raw.toString().contains("vec"), raw.toString().contains("\"vec\":"), raw.toString().length());
-        System.out.printf("[RAG-PROBE] parsed vec null=%s len=%s%n",
-                parsed.getVec() == null, parsed.getVec() == null ? "-" : String.valueOf(parsed.getVec().length));
+        assertNotNull(first.cosine(), "官方命中的第一条应同时在 kNN 腿里，能反解 cosine");
         assertEquals(1.0, first.cosine(), 0.0001);
         assertEquals("测试教材", first.book());
         assertEquals(45, first.pageNo());

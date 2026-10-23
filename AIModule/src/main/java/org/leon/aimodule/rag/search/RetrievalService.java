@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +52,7 @@ public class RetrievalService {
         Map<String, KbChunkDoc> docsById = new LinkedHashMap<>();
         List<String> bm25Order = collectOrder(bm25Response, docsById);
         List<String> knnOrder = collectOrder(knnResponse, docsById);
+        Map<String, Double> cosineById = knnCosines(knnResponse);
         List<RrfFusion.FusedHit> fused = RrfFusion.fuse(bm25Order, knnOrder,
                 props.getSearch().getRrfRankConstant(), options.topK());
 
@@ -61,8 +63,7 @@ public class RetrievalService {
                 continue;
             }
             items.add(new KnowledgeSearchItem(
-                    doc.getChunkId(), doc.getDocId(), hit.rank(),
-                    VectorMath.cosine(queryVector, doc.getVec()),
+                    doc.getChunkId(), doc.getDocId(), hit.rank(), cosineById.get(hit.id()),
                     doc.getTitle(), doc.getBook(), doc.getChapterPath(),
                     doc.getPageNo(), doc.getContent()));
         }
@@ -90,8 +91,8 @@ public class RetrievalService {
 
         return new DebugSearchResponse(
                 (int) Math.max(bm25Response.took(), knnResponse.took()),
-                toLegItems(bm25Response, queryVector),
-                toLegItems(knnResponse, queryVector));
+                toLegItems(bm25Response, false),
+                toLegItems(knnResponse, true));
     }
 
     private List<String> collectOrder(SearchResponse<KbChunkDoc> response, Map<String, KbChunkDoc> docsById) {
@@ -107,7 +108,21 @@ public class RetrievalService {
         return order;
     }
 
-    private List<DebugLegItem> toLegItems(SearchResponse<KbChunkDoc> response, float[] queryVector) {
+    /**
+     * ES 对 cosine 类型的 dense_vector 返回 _score = (1 + cos) / 2，反解即余弦。
+     * ES 9.5 起 dense_vector 不再留在 _source 里，所以只能从 kNN 腿取，不能自己点积。
+     */
+    private Map<String, Double> knnCosines(SearchResponse<KbChunkDoc> knnResponse) {
+        Map<String, Double> cosineById = new HashMap<>();
+        for (Hit<KbChunkDoc> hit : knnResponse.hits().hits()) {
+            if (hit.id() != null && hit.score() != null) {
+                cosineById.put(hit.id(), 2 * hit.score() - 1);
+            }
+        }
+        return cosineById;
+    }
+
+    private List<DebugLegItem> toLegItems(SearchResponse<KbChunkDoc> response, boolean knnLeg) {
         List<DebugLegItem> items = new ArrayList<>();
         List<Hit<KbChunkDoc>> hits = response.hits().hits();
         for (int i = 0; i < hits.size(); i++) {
@@ -116,8 +131,9 @@ public class RetrievalService {
             if (doc == null) {
                 continue;
             }
+            Double cosine = knnLeg && hit.score() != null ? 2 * hit.score() - 1 : null;
             items.add(new DebugLegItem(doc.getChunkId(), doc.getDocId(), i + 1, hit.score(),
-                    VectorMath.cosine(queryVector, doc.getVec()), doc.getTitle(), doc.getContent()));
+                    cosine, doc.getTitle(), doc.getContent()));
         }
         return items;
     }
