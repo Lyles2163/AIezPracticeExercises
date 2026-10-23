@@ -533,16 +533,19 @@ class QbQuestionMapperDbIT {
     }
 
     @Test
-    @DisplayName("users_dev 只读取 id：种子数据里的 user_id=2 能换到 username")
+    @DisplayName("users_dev 只读取 id：实测存在的 username 能换到 id")
     void usersReadMapperWorks() {
-        assertNotNull(usersReadMapper.selectIdByUsername("alice"),
-                "users_dev 里应有 username=alice 的行；若为 null 请核对种子数据并写进执行记录");
+        // 实测 users_dev（2026-10-23）：1=admin, 4=wang_wu, 5=zhao_liu, 6=testuser01,
+        // 8=testuser02, 9=test01, 10=test918, 11=test920, 14=adminL, 15=mqcap01, 16=adminL2
+        assertEquals(1L, usersReadMapper.selectIdByUsername("admin"));
         assertNull(usersReadMapper.selectIdByUsername("__no_such_user__"));
     }
 }
 ```
 
-> Step 6 的第二个测试依赖 `users_dev` 里存在 `username='alice'`——种子数据里 `qb_user_answer_record.user_id` 有 2 和 3，但**用户名与 id 的对应关系尚未实测**。跑之前先执行 `SELECT id,username FROM users_dev;`（用仓库外 JDBC 探针）确认真实用户名，把断言里的 `alice` 换成实际值，并把这份 id↔username 对照写进执行记录——段 2 的判分测试要用它。
+> **实测数据完整性告警（2026-10-23）**：`qb_user_answer_record` / `qb_user_wrong` / `qb_user_favorite` / `qb_user_subject_stat` 四张表的种子数据都用 `user_id = 2` 和 `3`，而 `users_dev` 里**没有 id 2 和 3**。也就是说种子答题记录指向不存在的用户（这些表只有普通索引、没有外键，所以建表时没报错）。
+>
+> 影响：段 1 端到端验收时，任何真实账号登录后 `myTotal` 都会是 0——种子统计不属于他们。这**不是 bug**，但会让人误判"统计没生效"。验收时要么先用真实账号答两题再查统计，要么明确记录"种子数据属于幽灵用户 2/3"。段 2 的判分测试若要复用种子统计，必须先补这个认知。
 
 - [ ] **Step 7: 跑集成测试（默认被 surefire 排除，显式开启）**
 
