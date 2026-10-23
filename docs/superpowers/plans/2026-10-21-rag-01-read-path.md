@@ -255,7 +255,7 @@ cd /f/AAAJAVA/code/ezPracticeExercises
 ```yaml
   ai:
     openai:
-      api-key: sk-032471b595b942f9913934a812f78cee  # 现有 DeepSeek Key，本次不动
+      api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek Key 通过环境变量注入，不写死在仓库里
       base-url: https://api.deepseek.com
       chat:
         options:
