@@ -9,7 +9,7 @@
 
 ## 一、范围
 
-**本期做**：会话与消息的存储模型（2 张表）、8 个后端接口、`SseEmitter` 流式问答、服务端组装多轮上下文、重新生成（以最新版为准）、停止生成、断连与孤儿回收。
+**本期做**：会话与消息的存储模型（2 张表）、8 个后端接口、`SseEmitter` 流式问答、服务端组装多轮上下文、重新生成（以最新版为准）、停止生成、断连与孤儿回收、`effort` 五档 → 服务端参数映射。
 
 **本期不做**（每一项都在第九节留下明确接缝，不写半成品代码）：
 
@@ -18,7 +18,8 @@
 | RAG 检索、知识库引用、降级 | 用户决定"先完成对话功能，后接 RAG"。`ai_message_citation` 表也一并推到 RAG 阶段 |
 | 思考链路（`ai_thought_step` 表、`thought_step`/`thought_end` 事件、reasoning 切句摘要） | 本期无检索、无工具调用，四类步骤里只有 `reasoning` 有真实来源，其余三类没有生产者。事件名在契约里预留 |
 | 附件上传（`ai_attachment`） | 本期服务端不解析任何文件，建表即空表 |
-| `effort` 档位与模型能力映射 | 没有思考链路和参数差异时，`effort` 是"能选但选了没有任何区别"的字段——原文档第七节自己批评的"假装它们不同"。改为请求体直接传 `modelKey` + 配置白名单校验 |
+| `effort` 改模型 | 前端模型下拉与 effort 滑块是**两个独立控件**，`PromptBarSendDetail` 同时带 `model` 和 `effort`。经用户确认：`modelKey` 决定调哪个上游模型，`effort` **只决定服务端参数**（temperature / max_tokens），两者互不干涉。`deepseek-chat` + Max 就是低温度大上限，**不会**冒出 reasoning |
+| 语音输入（PromptBar 的 `onDictate`） | 前端本地 Web Speech API，后端无接口 |
 | 版本切换（ChatGPT 的"2/2 ←→"翻页） | 用户选择"以最新版为准"。`superseded` 行不进对话流 |
 | 长会话摘要 / 上下文压缩 | 只做截断，丢最早上下文是已知代价 |
 | 多实例下的 stop | registry 是进程内 Map，边界写在第九节 |
@@ -51,6 +52,7 @@
 | Spring AI M7 流式 usage | `OpenAiChatOptions` 确有 `setStreamUsage(Boolean)` 与 `getStreamOptions()`（javap 验证） | `spring.ai.openai.chat.options.stream-usage: true` 可让最后一个 chunk 带 usage |
 | ES 客户端 JSON mapper | `new JacksonJsonpMapper()`，不复用 Spring 容器里的 `ObjectMapper` | 给 MVC 加全局时间序列化配置**不会**污染 ES 文档序列化 |
 | `AiExceptionHandler` | `@RestControllerAdvice(basePackages="org.leon.aimodule.rag")`，且**没有任何 `@ResponseStatus`** | 只覆盖 rag 包；缺头/校验失败实际返回 **HTTP 200 + code=0**。旧文档的 400/404 错误表与仓库实际行为矛盾，本期按仓库行为走 |
+| 前端 `EZ_frontend` AI 页 | `Chat.vue` 是纯 UI 壳（`send()` 只 console.log），`PromptBar.vue` 的模型/档位都是组件内置演示值 | 后端契约先行；`models`/`efforts` 的**返回形状**必须对齐 `PromptBarModel` 与 `efforts: string[]` 两个 prop，见 4.7 |
 
 ---
 
@@ -68,6 +70,7 @@ CREATE TABLE ai_conversation (
   user_name       VARCHAR(64)  NOT NULL COMMENT '网关注入的 X-User-Name，源自 JWT 的 username claim',
   title           VARCHAR(120) NOT NULL DEFAULT '新对话',
   model_key       VARCHAR(64)  NOT NULL DEFAULT 'deepseek-chat',
+  effort          VARCHAR(16)  NOT NULL DEFAULT 'Medium' COMMENT 'Low/Medium/High/Extra/Max，只映射服务端参数',
   last_message_id BIGINT UNSIGNED NULL,
   last_preview    VARCHAR(160) NOT NULL DEFAULT '' COMMENT '列表预览，写入时截断好',
   message_count   INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'user + 当前生效 assistant 条数',
@@ -87,6 +90,7 @@ CREATE TABLE ai_message (
                       COMMENT 'streaming/done/failed/truncated/superseded',
   stop_reason         VARCHAR(24)  NULL COMMENT 'done/truncated 时的收尾原因',
   model_key           VARCHAR(64)  NULL COMMENT 'assistant 实际使用的上游模型',
+  effort              VARCHAR(16)  NULL COMMENT '本条回答生效时的档位',
   prompt_tokens       INT UNSIGNED NULL,
   completion_tokens   INT UNSIGNED NULL,
   reply_to_message_id BIGINT UNSIGNED NULL COMMENT 'assistant 指向被回答的那条 user 消息',
@@ -113,7 +117,7 @@ CREATE TABLE ai_message (
 
 | 改动 | 理由 |
 |---|---|
-| 砍 `effort` 列（两张表都砍） | 见第一节。将来做思考链路时随模型映射一起加回 |
+| `effort` 保留，但**只映射参数不映射模型** | 前端有滑块且每次发送都带值（`PromptBar.vue:128`、`PromptBarSendDetail.effort`）。旧文档"用 effort 反推模型"的方案不采用——用户同时能选模型，反推会让模型下拉变成误导 |
 | 砍 `ai_thought_step` 表 | 本期无步骤生产者。Stage 6 计划里已有其 DDL，接 RAG 时一并建 |
 | 砍 `reasoning_text` / `thought_seconds` / `meta_json` 列 | 同上。MySQL 8+ 加 nullable 列走 `ALGORITHM=INSTANT`，秒级不重建表，**预留空列没有收益** |
 | 砍 `FULLTEXT KEY ft_content WITH PARSER ngram` | 本期无会话内搜索接口；FULLTEXT 让每次消息写入多付一次分词开销，而聊天是写热路径。将来 `ALTER TABLE ai_message ADD FULLTEXT ft_content(content) WITH PARSER ngram` 即可 |
@@ -143,8 +147,8 @@ CREATE TABLE ai_message (
 
 | # | 方法 | 路径 | 约束 |
 |---|---|---|---|
-| 1 | GET | `/ai/chat/models` | 读配置 `chat.allowed-models`，返回 `{defaultModel, models:[{key,name,contextTokenLimit}]}`。模型选择的唯一真相来源 |
-| 2 | POST | `/ai/chat/conversations` | body `{title?, modelKey?}`；title 省略存"新对话"；modelKey 必须命中 #1 白名单 |
+| 1 | GET | `/ai/chat/models` | 返回 `{defaultModel, defaultEffort, models:[{key,name,tag,supportsThinking}], efforts:["Low","Medium","High","Extra","Max"]}`。`models`/`efforts` 的形状**逐字段对齐前端 `PromptBarModel` 与 `efforts: string[]` 两个 prop**，前端直接把返回值绑上去即可覆盖组件内置的演示值。模型白名单来源是配置 `chat.models`（见第七节） |
+| 2 | POST | `/ai/chat/conversations` | body `{title?, modelKey?, effort?}`；title 省略存"新对话"；modelKey 必须命中 #1 白名单；effort 必须命中 #1 的 efforts |
 | 3 | GET | `/ai/chat/conversations` | `?cursor=&limit=`（默认 20，上限 50）→ `{items:[{id,title,messageCount,lastPreview,updateTime}], nextCursor}` |
 | 4 | PATCH | `/ai/chat/conversations/{id}` | body `{title}`，1–120 字符 |
 | 5 | DELETE | `/ai/chat/conversations/{id}` | 只置 `status=0`，消息保留 |
@@ -159,7 +163,7 @@ CREATE TABLE ai_message (
   { "id": 41, "conversationId": 7, "role": "user", "content": "把这段改成 STAR 结构",
     "status": "done", "createTime": 1760000800000 },
   { "id": 42, "conversationId": 7, "role": "assistant", "content": "……",
-    "status": "done", "modelKey": "deepseek-chat", "stopReason": "done",
+    "status": "done", "modelKey": "deepseek-chat", "effort": "Max", "stopReason": "done",
     "usage": { "promptTokens": 812, "completionTokens": 1640 },
     "createTime": 1760000809000 }
 ]}}
@@ -183,6 +187,19 @@ ChatGPT 的会话标题不是用户填的，是第一条用户消息前若干字
 
 `AiChatController.chat()` 是 Spring AI 的最小连通验证（同步返回纯文本，不套 `Result`），保留作上游通路健康检查，本期不改造、不调用它。新代码全部放 `org.leon.aimodule.chat` 包，流式接口新建 `ChatStreamController`。
 
+### 4.7 前端契约对齐（`EZ_frontend` 实测）
+
+后端契约的形状不是我们凭空定的，前端已有组件在等它。实测结论：
+
+| 前端事实 | 出处 | 后端对策 |
+|---|---|---|
+| 模型下拉的 `gpt-5.5 / gpt-5.5-mini / gpt-6` 是**组件内置演示值**，`Chat.vue` 没传 `:models` | `PromptBar.vue:123-127`、`Chat.vue:59-79` | 这些名字与本项目无关。#1 返回真实模型，前端将来 `:models="catalog.models"` 覆盖 |
+| effort 五档 `['Low','Medium','High','Extra','Max']` 同样是内置默认值 | `PromptBar.vue:128` | #1 的 `efforts` 数组必须与此**逐字相等**，否则前端滑块索引错位 |
+| `send` 一次带出 `{attachments: string[], model?: PromptBarModel, effort?: string}` | `PromptBar.vue:41-45` | #7 接受 `modelKey` + `effort`；`attachments` **本期不受理**（见第九节接缝） |
+| `PromptBarModel = {key, name, tag?}` | `PromptBar.vue:35-39` | #1 的 model 项给 `key/name/tag`，`tag` 用于 "Flagship"/"Fast" 那类右侧灰字标签 |
+| `busy` prop 决定发送/停止按钮形态 | `PromptBar.vue:58`、`Chat.vue:28-38` | 与 4.4 的"同会话禁并发流"对应：前端禁按钮，服务端仍拒 |
+| `Chat.vue` 是纯 UI 壳，`send()` 只 `console.log` + sleep 800ms，无 `src/api/chat.ts` | `Chat.vue:27-35` | 本 spec 即"先立规矩"。前端对接时按项目既有习惯，先建带类型的 `api/chat.ts` 服务函数层 |
+
 ---
 
 ## 五、流式实现
@@ -199,13 +216,15 @@ ChatModelGateway       ← 接口；SpringAiChatModelGateway 实现包住 ChatCl
 
 `ChatEvent` 是 sealed interface，六个 record：`Meta`、`Delta`、`Usage`、`Done`、`ErrorEvt`、`Ping`。编排层只 `consumer.accept(new ChatEvent.Delta(text))`，单测传一个 `List<ChatEvent>` 收集器即可断言整条事件序列，**不需要真连 DeepSeek、不需要 Spring 上下文**。这是本期最重要的可测试性决定，也是后接 RAG 时唯一不用改的接缝——检索步骤只是多几种 `ChatEvent`。
 
-`ChatModelGateway` 这层抽象的另一作用：Spring AI M7 的 `ChatClient` 流式 API 具体方法名（`StreamResponseSpec` 上是 `chatResponse()` 还是 `content()`）以实施时实测为准，把它封在接口后面，编排层和单测都不受版本细节影响。
+`EffortResolver` 是编排层与网关之间的一个纯函数：`resolve(modelKey, effort) -> ModelParams(modelKey, temperature, maxTokens)`，参数取自 `chat.models` / `chat.efforts`。`ChatModelGateway.stream(List<CtxMessage> messages, ModelParams params)` 只认 `ModelParams`，不认 effort 这个概念——档位语义集中在一处，换上游时不用改编排层。
+
+`ChatModelGateway` 这层抽象的另一作用：Spring AI M7 的 `ChatClient` 流式 API 具体方法名以实测为准（已用 `javap` 确认 `StreamResponseSpec.chatResponse() -> Flux<ChatResponse>`、`Generation.getOutput().getText()`、`Usage.getPromptTokens()/getCompletionTokens()`、`OpenAiChatOptions.Builder.model(String)`、`ChatClientRequestSpec.messages(List<Message>)`），把它封在接口后面，编排层和单测都不受版本细节影响。
 
 ### 5.2 事件契约
 
 | 事件 | 频次 | payload | 说明 |
 |---|---|---|---|
-| `meta` | 1，最先 | `{conversationId, messageId, modelKey}` | 前端拿到 `messageId` 才能调 #8 |
+| `meta` | 1，最先 | `{conversationId, messageId, modelKey, effort, supportsThinking}` | 前端拿到 `messageId` 才能调 #8；`supportsThinking=false` 时不渲染思考线 |
 | `delta` | 0..n | `{text}` | 正文增量 |
 | `usage` | 0..1 | `{promptTokens, completionTokens}` | 需 `stream-usage: true`，取上游最后一个 chunk |
 | `done` | 1，最后 | `{finishReason}` = `done`/`stopped`/`length`/`upstream` | 发完即 `complete()` |
@@ -314,7 +333,7 @@ T3 收尾（一个短事务）
 
 | 场景 | 形式 | 落库 |
 |---|---|---|
-| 参数非法（缺 `content`、`modelKey` 不在白名单、`title` 超长、`limit` 越界） | `code=0`，不建流 | 无 |
+| 参数非法（缺 `content`、`modelKey` 不在 `chat.models`、`effort` 不在 `chat.efforts`、`title` 超长、`limit` 越界） | `code=0`，不建流 | 无 |
 | 缺 `X-User-Name` | `code=0, msg="缺少请求头: X-User-Name"` | 无 |
 | 会话不存在 / 不属于本人 / 已软删 | `code=0, msg="会话不存在"` | 无 |
 | 同会话已有进行中的流 | `code=0, msg="上一条回答仍在生成"` | 无 |
@@ -329,8 +348,23 @@ T3 收尾（一个短事务）
 
 ```yaml
 chat:
-  allowed-models: deepseek-chat,deepseek-reasoner
   default-model: deepseek-chat
+  default-effort: Medium
+  models:                      # 既是 #1 的返回内容，也是 modelKey 的白名单（唯一真相来源）
+    - key: deepseek-chat
+      name: deepseek-chat
+      tag: Fast
+      supports-thinking: false
+    - key: deepseek-reasoner
+      name: deepseek-reasoner
+      tag: Reasoning
+      supports-thinking: true
+  efforts:                     # 顺序即滑块从左到右；key 必须与前端 DEFAULT_EFFORTS 逐字一致
+    - { key: Low,    temperature: 1.3, max-tokens: 4096 }
+    - { key: Medium, temperature: 1.0, max-tokens: 4096 }
+    - { key: High,   temperature: 0.7, max-tokens: 8192 }
+    - { key: Extra,  temperature: 0.4, max-tokens: 8192 }
+    - { key: Max,    temperature: 0.2, max-tokens: 16384 }
   system-prompt: ""
   context-max-tokens: 8000
   stream-timeout-ms: 300000
@@ -345,6 +379,8 @@ spring:
         options:
           stream-usage: true   # 必须显式开，否则流式末尾无 usage → usage 事件永不出现
 ```
+
+`effort → (temperature, maxTokens)` 是**单调且可断言**的真实差异，不是装饰。**一个必须实测的上游限制**：DeepSeek 对 reasoning 模型有资料称 `temperature` / `top_p` 不生效——若实测属实，那么 `modelKey=deepseek-reasoner` 时 effort 只体现为 `max_tokens` 一档差异。这是上游能力边界，要在验收清单里用真实请求记录，而不是在文档里假设它不存在。
 
 ---
 
@@ -383,6 +419,9 @@ spring:
 - [ ] 同一 `clientMsgId` 重试不产生第二条用户消息
 - [ ] 不属于本人的 `conversationId` 在 #4/#5/#6/#7/#8 上返回同一文案"会话不存在"
 - [ ] 全程不出现 `thought_step` 事件
+- [ ] 五档 effort 解析出的 `(temperature, maxTokens)` 两两不同（单测断言），且请求体里 effort 非法时拒绝建流
+- [ ] 实测 `deepseek-reasoner` 是否忽略 `temperature`，结论写回第七节那一段（若忽略，明确 effort 在该模型上只剩 `maxTokens` 差异）
+- [ ] #1 返回的 `efforts` 数组与前端 `DEFAULT_EFFORTS` 逐字一致，`models` 项含 `key/name/tag`
 - [ ] 会话列表在无 JOIN 的情况下返回 `lastPreview`；游标翻页无重复无遗漏
 - [ ] `usage` 事件真实到达（验证 `stream-usage` 经 DeepSeek 兼容端点是否生效，实测为准）
 - [ ] 长回答经网关不断流。若被网关超时掐断，需调 Nacos `gateway.yaml` 的 `response-timeout` ——**改共享配置前先征得用户同意**
@@ -398,14 +437,16 @@ spring:
 | **token 计数近似** | cl100k_base 与 DeepSeek 分词不一致，预算取保守值 |
 | **`streaming` 遗留需等 5 分钟** | 进程崩溃后该会话被并发检查阻塞到 `stale-stream-reap-minutes` 到期，或到下一次 #7 请求时被回收 |
 
-**后接 RAG 时的改动面**（这是本期结构设计的验证标准）：
+**后接 RAG 与补前端时的改动面**（这是本期结构设计的验证标准）：
 
 1. 建 `ai_message_citation` 表（DDL 已在 `rag-02-ingest-poll.md:144` 写好，注意那份计划里 Stage 4a 尚未执行过，得真建）。
 2. 给 `ChatEvent` 加 `ThoughtStep` / `ThoughtEnd` 两个 record，`ChatStreamService` 在检索调用点前后各发一帧。
 3. `ContextAssembler` 增加一段"检索命中注入 + `[n]` 编号"，落在 system 与历史之间。
-4. 编排层新增 `sources` 参数处理，`RagChatContextService` 捕获 ES 故障转 `available=false`，降级为普通对话。
+4. 编排层新增 `sources` 参数处理（对应 PromptBar 的 `@` Sources 菜单，前端当前用的是内置演示值 `PromptBar.vue:102-115`），`RagChatContextService` 捕获 ES 故障转 `available=false`，降级为普通对话。
+5. **附件**：#7 请求体当前**不受理** `attachments`（前端 `PromptBarSendDetail.attachments` 会带值上来，`Chat.vue:41-43` 的 `attach()` 现在恒返回 `[]`）。真做时建 `ai_attachment` 表 + `POST /ai/chat/attachments`，并在 #7 接受 `attachments: number[]`。
+6. **前端对接**（本期不写）：`Chat.vue` 用 #1 的返回覆盖 `:models` / `:efforts`；新建 `src/api/chat.ts` 服务函数层（含 SSE 帧解析器，不能用 `EventSource`——它不支持 POST body 与自定义 `Authorization` 头）。
 
-以上四项都只加代码，**不需要改 controller、不需要改事件写出路径、不需要改表**。如果需要，说明本期边界划错了。
+以上各项都只加代码，**不需要改 controller 签名、不需要改事件写出路径、不需要改本期两张表**。如果需要，说明本期边界划错了。
 
 ---
 
