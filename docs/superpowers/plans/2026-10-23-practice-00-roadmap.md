@@ -46,7 +46,7 @@ MVN="/c/Users/Administrator/.m2/wrapper/dists/apache-maven-3.9.16-bin/5grr65jo27
 ```
 
 - **禁止使用 `@SpringBootTest`。** `PracticeModuleApplicationTests.java` 是个空的 `@SpringBootTest` 壳（唯一的方法被注释掉了），照它写新测试会去拉 Nacos + MySQL + Redis + Seata 四个外部依赖，测试变成环境探测。单测一律纯 JUnit 5 + Mockito；需要真库的集成测试用 `@Tag("db-it")` 并在测试内自建 `DataSource`（段 1 提供 `PracticeDbTestSupport`）。
-- 测试分组沿用 AIModule 的既有机制：`PracticeModule/pom.xml` 需补 `<properties><surefire.excludedGroups>db-it</surefire.excludedGroups></properties>` 与 `maven-surefire-plugin` 的 `<excludedGroups>${surefire.excludedGroups}</excludedGroups>`（照 `AIModule/pom.xml:32,149-155`）。显式跑集成测试：`-Dgroups=db-it -Dsurefire.excludedGroups=`。
+- 测试分组沿用 AIModule 的既有机制：`PracticeModule/pom.xml` 需补 `<properties><surefire.excludedGroups>db-it</surefire.excludedGroups></properties>` 与 `maven-surefire-plugin` 的 `<excludedGroups>${surefire.excludedGroups}</excludedGroups>`（照 `AIModule/pom.xml:32,149-155`）。**显式跑集成测试的唯一正确形式**（段 1 Task 1.2 实测确立）：`-Dtest=<测试类> -Dsurefire.excludedGroups=` 再加上面两个 `failIf` 开关。**不要用 `-Dgroups=db-it`** —— 它在 `-am` 下会因 `CommonJwt` 没有 JUnit 5 引擎而硬失败；也不要只传 `-Dtest=<类>` 而漏掉 `-Dsurefire.excludedGroups=`，那样标签仍被排除、零个测试运行，而 `failIfNoSpecifiedTests=false` 会让构建报 SUCCESS（假绿灯）。
 - 所有日志、注释、`@DisplayName`、提交信息使用中文；实体/接口/VO 的英文名保持与 spec 第五节一致，不得另立命名。
 - 统一返回体只用 `org.leon.commonjwt.pojo.Result`：成功 `Result.success(data)`（`code=1`），业务失败 `Result.error(code, msg)`（**必须用带 int 的重载**，`Result.error(String)` 会把码写成 0，前端就拿不到 `40100`/`41001` 这些子码了）。
 - 时间字段对外一律 epoch 毫秒 `Long`；`Date`/`LocalDateTime` 不出 VO。

@@ -552,16 +552,21 @@ class QbQuestionMapperDbIT {
 Run:
 ```bash
 "$MVN" -pl PracticeModule -am test -Dtest=QbQuestionMapperDbIT \
-  -Dgroups=db-it -Dsurefire.excludedGroups= \
+  -Dsurefire.excludedGroups= \
   -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tail -30
 ```
-Expected: `Tests run: 2, Failures: 0`。若报 `Unknown column 'owner_id'`，说明 Step 3 的实体没改干净。
+Expected: `Tests run: 3, Failures: 0`（`selectListWorks`、`usersReadMapperWorks`、`allSevenEntitiesMatchLiveColumns`）。若报 `Unknown column 'owner_id'`，说明 Step 3 的实体没改干净。
+
+> **命令形式已实测确立（2026-10-23，Task 1.2 修复轮）**：`-Dtest=<类名> -Dsurefire.excludedGroups=` 是唯一可靠形式。
+> - **不要写 `-Dgroups=db-it`**：`-am` 会把该属性带进 `CommonJwt`，而它没有 JUnit 5 引擎，构建硬失败。
+> - **不要漏 `-Dsurefire.excludedGroups=`**：只传 `-Dtest=` 时标签仍被排除，零个测试运行，而 `failIfNoSpecifiedTests=false` 会让 Maven 报 **BUILD SUCCESS** —— 假绿灯。所以必须核对输出里的 `Tests run:` 数字非零，而不是只看 `BUILD SUCCESS`。
+> - 曾有人在 pom 里加 `<groups>${surefire.groups}</groups>` 来绕开第一条，已回滚：它会让上面第二条的假绿灯变成常态，因为两个属性必须成对传。
 
 再确认默认跑不到它：
 ```bash
 "$MVN" -pl PracticeModule -am test 2>&1 | grep -E "Tests run|QbQuestionMapperDbIT"
 ```
-Expected: 输出里**没有** `QbQuestionMapperDbIT`。
+Expected: 输出里**没有** `QbQuestionMapperDbIT`，且 `Tests run` 只计单测。
 
 - [ ] **Step 8: 提交**
 
