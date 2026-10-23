@@ -588,7 +588,7 @@ git commit -m "PracticeModule 实体与真实表列对齐，修掉 qb_question �
 
 **Interfaces:**
 - Consumes: `org.leon.commonjwt.pojo.Result`
-- Produces: `new PracticeException(PracticeErrorCode.X, msg)`、`PracticeErrorCode.X.code():int`；`PracticeExceptionHandler.toResult(PracticeException):Result<Void>`
+- Produces: `new PracticeException(PracticeErrorCode.X, msg)`、`PracticeErrorCode.X.code():int`；`PracticeExceptionHandler.handlePracticeException(PracticeException):Result<Void>` 与 `handleUnexpected(Exception):Result<Void>`（方法名以代码与测试为准；本行原写 `toResult`，Task 1.3 审查已更正）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1448,25 +1448,116 @@ Run:
 ```
 Expected: `Tests run: 2, Failures: 0`
 
-- [ ] **Step 6: 全量回归**
+- [ ] **Step 6: 补框架异常处理与 advice 作用域断言（Task 1.3 审查裁定的跟进项）**
+
+Task 1.3 的审查指出：`handleUnexpected(Exception.class)` 会把 Spring MVC 的框架异常一并吞成 `code=0` + "服务器繁忙"，而"缺 `X-User-Name` 头"恰恰是 `40100` 的语义（意味着有人绕过了网关），前端无法分支。`AIModule/.../AiExceptionHandler.java:20-31` 已有显式处理框架类型的先例。Task 1.3 不能自己加（brief 只规定两个 handler，加了就是"Extra"违规），故落到本步——本任务是第一个引入 `@RequestHeader` 的任务。
+
+给 `PracticeExceptionHandler` 追加两个 handler（放在 `handlePracticeException` 之后、`handleUnexpected` 之前）：
+
+```java
+    /**
+     * 缺 X-User-Name 只可能是绕过了网关（正常链路下网关必然注入该头），
+     * 语义上是身份缺失而非服务器故障，故回 40100 让前端跳登录。
+     * 本模块目前唯一的 @RequestHeader 就是它；将来若有别的必填头，须按头名分流。
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public Result<Void> handleMissingHeader(MissingRequestHeaderException e) {
+        if ("X-User-Name".equals(e.getHeaderName())) {
+            log.warn("缺少身份请求头，疑似绕过网关直连");
+            return Result.error(PracticeErrorCode.IDENTITY_MISSING.code(), "用户身份不存在，请重新登录");
+        }
+        log.warn("缺少请求头 {}", e.getHeaderName());
+        return Result.error(PracticeErrorCode.BAD_REQUEST.code(), "请求参数不合法");
+    }
+
+    /** 请求体不是合法 JSON、或参数类型不匹配 —— 都是客户端错误，不是 5xx */
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    public Result<Void> handleBadRequest(Exception e) {
+        log.warn("请求不合法: {}", e.getMessage());
+        return Result.error(PracticeErrorCode.BAD_REQUEST.code(), "请求参数不合法");
+    }
+```
+
+需要的 import：`org.springframework.web.bind.MissingRequestHeaderException`、`org.springframework.http.converter.HttpMessageNotReadableException`、`org.springframework.web.method.annotation.MethodArgumentTypeMismatchException`。
+
+在 `PracticeExceptionHandlerTest` 里补三条测试。**注意反射取注解的坑**：`@RestControllerAdvice` 是 `@ControllerAdvice` 的元注解，而 `@ControllerAdvice` 没有 `@Inherited`，所以 `clazz.getAnnotation(ControllerAdvice.class)` 返回 `null` —— 必须用 Spring 的 `AnnotatedElementUtils.findMergedAnnotation`。
+
+```java
+    @Test
+    @DisplayName("缺 X-User-Name → 40100；缺其他头 → 40000")
+    void missingHeaderMapsByIdentity() {
+        Result<Void> id = handler.handleMissingHeader(
+                new MissingRequestHeaderException("X-User-Name", null));
+        assertEquals(40100, id.getCode());
+
+        Result<Void> bad = handler.handleMissingHeader(
+                new MissingRequestHeaderException("X-Trace-Id", null));
+        assertEquals(40000, bad.getCode());
+    }
+
+    @Test
+    @DisplayName("请求体不合法 → 40000，不落进兜底的 code=0")
+    void badRequestBodyMapsToBadRequest() {
+        Result<Void> r = handler.handleBadRequest(
+                new HttpMessageNotReadableException("broken json", (org.springframework.http.HttpInputMessage) null));
+        assertEquals(40000, r.getCode());
+    }
+
+    @Test
+    @DisplayName("advice 限定在 practicemodule 包，绝不全局生效")
+    void adviceIsPackageScoped() {
+        ControllerAdvice ca = AnnotatedElementUtils.findMergedAnnotation(
+                PracticeExceptionHandler.class, ControllerAdvice.class);
+        assertNotNull(ca, "@RestControllerAdvice 是元注解，getAnnotation 取不到");
+        assertArrayEquals(new String[]{"org.leon.practicemodule"}, ca.basePackages(),
+                "一旦变成全局 advice，就会截走 AIModule 的 RagException 处理");
+    }
+```
+
+Run:
+```bash
+"$MVN" -pl PracticeModule -am test -Dtest=PracticeExceptionHandlerTest \
+  -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tail -20
+```
+Expected: `Tests run: 6, Failures: 0`
+
+- [ ] **Step 7: 全量回归**
 
 Run:
 ```bash
 "$MVN" -pl PracticeModule -am test 2>&1 | grep -E "Tests run:|BUILD"
 ```
-Expected: `BUILD SUCCESS`，本段累计单测全绿（`ResultSmokeTest` 2 + `QbEntityColumnTest` 3 + `PracticeExceptionHandlerTest` 3 + `UserIdentityServiceTest` 5 + `SubjectServiceTest` 3 + `PracticeSubjectControllerTest` 2 = 18），且不含 `db-it`。
+Expected: `BUILD SUCCESS`，且输出里**没有** `QbQuestionMapperDbIT`。累计应为 **23 条单测**：`ResultSmokeTest` 2 + `QbEntityColumnTest` 5 + `PracticeExceptionHandlerTest` 6 + `UserIdentityServiceTest` 5 + `SubjectServiceTest` 3 + `PracticeSubjectControllerTest` 2 = 23。若实际数字小于 23，先查是不是某个类的测试没被发现（`Tests run` 少于是最危险的信号，比失败更容易被忽略），把结论写进执行记录。
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 8: 提交**
+
+逐文件 `git add`，并用显式 pathspec 提交（本仓库有并发会话在提交，目录形式的 `git add` 会把别人的暂存文件一起带进来）：
 
 ```bash
-git add PracticeModule/src/main/java/org/leon/practicemodule/pojo/vo \
+git add PracticeModule/src/main/java/org/leon/practicemodule/pojo/vo/PageVO.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/pojo/vo/SubjectItemVO.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/mapper/QbSubjectMapper.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/mapper/QbUserSubjectStatMapper.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/mapper/StatCountRow.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/service/SubjectService.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/service/impl/SubjectServiceImpl.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/controller/PracticeSubjectController.java \
+        PracticeModule/src/main/java/org/leon/practicemodule/exception/PracticeExceptionHandler.java \
+        PracticeModule/src/test/java/org/leon/practicemodule/service/SubjectServiceTest.java \
+        PracticeModule/src/test/java/org/leon/practicemodule/controller/PracticeSubjectControllerTest.java \
+        PracticeModule/src/test/java/org/leon/practicemodule/exception/PracticeExceptionHandlerTest.java
+git commit -m "打通刷题科目列表接口：统一分页壳、三次查询聚合、身份换取与框架异常子码" -- \
+        PracticeModule/src/main/java/org/leon/practicemodule/pojo/vo \
         PracticeModule/src/main/java/org/leon/practicemodule/mapper \
         PracticeModule/src/main/java/org/leon/practicemodule/service \
         PracticeModule/src/main/java/org/leon/practicemodule/controller \
+        PracticeModule/src/main/java/org/leon/practicemodule/exception \
         PracticeModule/src/test/java/org/leon/practicemodule/service \
-        PracticeModule/src/test/java/org/leon/practicemodule/controller
-git commit -m "打通刷题科目列表接口：统一分页壳、三次查询聚合与身份换取"
+        PracticeModule/src/test/java/org/leon/practicemodule/controller \
+        PracticeModule/src/test/java/org/leon/practicemodule/exception
+git show --stat --oneline HEAD
 ```
+Expected: 文件清单恰好是上面这些，不含任何 `AIModule/` 或 `docs/` 路径。
 
 ---
 
@@ -1565,7 +1656,7 @@ git commit -m "段1验收记录：PracticeModule 首个接口经网关打通，�
 
 ## 段 1 完成定义
 
-- [ ] `"$MVN" -pl PracticeModule -am test` 全绿（18 条单测），且 `db-it` 默认被排除
+- [ ] `"$MVN" -pl PracticeModule -am test` 全绿（23 条单测），且 `db-it` 默认被排除
 - [ ] `QbQuestionMapperDbIT` 显式开启时通过 → `Unknown column 'owner_id'` 已消失
 - [ ] `GET /practice/subject/list` 经网关 8100 返回 `code=1`，`myAccuracy` 为两位小数
 - [ ] 无 token → HTTP 401；带 token → 200；`?userId=` 被忽略
