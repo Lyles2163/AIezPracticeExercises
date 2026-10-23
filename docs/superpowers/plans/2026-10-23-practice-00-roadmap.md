@@ -16,8 +16,8 @@
 
 | 段 | 计划文件 | 交付物 | 验收信号 | DDL | 状态 |
 |---|---|---|---|---|---|
-| 1 | `2026-10-23-practice-01-foundation.md` | `CommonJwt` 依赖与 `@ComponentScan`、surefire 测试分组、重生成 `QbQuestion` 等实体与 mapper、`PracticeException` + 按包作用域的 `PracticeExceptionHandler`、`UserIdentityService`（`X-User-Name`→`user_id` + Redis 缓存）、网关 JWT 链路实测、`GET /practice/subject/list` | 走 8100 带 token 拿到 `code=1`；`qb:uid:{userName}` 缓存命中；身份解析失败返回 `40100` | 无 | 待执行 |
-| 2 | `2026-10-23-practice-02-grader-masker.md` | `AnswerGrader`（5 题型表驱动）、`PracticeMasker` + 脱敏守卫测试、`AnswerService` 逐题落库与错题/统计联动、`POST /practice/answer/submit`、`POST /practice/answer/self-judge` | Grader 表驱动全绿；脱敏断言全绿；同题答错两次 `wrong_count=2`、答对置 `status=2`、已掌握再错回退 | 无 | 待执行 |
+| 1 | `2026-10-23-practice-01-foundation.md` | `CommonJwt` 依赖与 `@ComponentScan`、surefire 测试分组、重生成 `QbQuestion` 等实体与 mapper、`PracticeException` + 按包作用域的 `PracticeExceptionHandler`、`UserIdentityService`（`X-User-Name`→`user_id` + Redis 缓存）、网关 JWT 链路实测、`GET /practice/subject/list` | 走 8100 带 token 拿到 `code=1`；`qb:uid:{userName}` 缓存命中；身份解析失败返回 `40100` | 无 | **已完成**（2026-10-23，30 单测 + 4 db-it 绿，端到端已取证） |
+| 2 | `2026-10-23-practice-02-grader-masker.md` | `AnswerGrader`（5 题型表驱动）、`PracticeMasker` + 脱敏守卫测试、`AnswerService` 逐题落库与错题/统计联动、`POST /practice/answer/submit`、`POST /practice/answer/self-judge` | Grader 表驱动全绿；脱敏断言全绿；同题答错两次 `wrong_count=2`、答对置 `status=2`、已掌握再错回退 | 无 | **已完成**（2026-10-23，91 单测 + 3 db-it 绿，错题流转与自评幂等经网关取证） |
 | 3 | `2026-10-23-practice-03-practice-read.md` | `QuestionService`（`current`/`page`/断点反推）、`WrongBookService`（`page`/`master`）、`FavoriteService`（`page`/`toggle`）→ **阶段一 9 接口全部可用**（段 1 的 `subject/list` + 段 2 的两个答题接口 + 本段 6 个） | 9 个接口经网关 `code=1`；`question/current` 响应不含任何答案字段；收藏 toggle 三次得 `true,false,true` 且表里最多 1 行 | 无 | 待执行 |
 | 4 | `2026-10-23-practice-04-ddl-paper.md` | 执行 `qb_paper` + `qb_exam_attempt` 建表与 `qb_user_answer_record.attempt_id` 加列、两表实体与 mapper、`PaperService.validateStructure` 四条校验、1 套样例真题 SQL、`GET /practice/paper/page`、`GET /practice/paper/detail` | 卡片响应能铺满截图①的每个字段（标题、四个徽章、`submitCount`、进度）；四条校验各有反例测试 | **需授权** | 待执行 |
 | 5 | `2026-10-23-practice-05-exam.md` | `ExamService` 状态机（`start`/`draft`/`submit`）、超时懒判、交卷事务与幂等、`exam/*` 6 个接口、`ExamResultVO` 成绩单与全解析 | 截图②全字段可渲染；刷新重进拿到同一 `attemptId`；连点两次提交成绩与行数不变；考试中 `originalText` 为 null；`deadline` 过期 `draft` 报 `41001` | 无（段 4 已建） | 待执行 |
@@ -93,10 +93,10 @@ MVN="/c/Users/Administrator/.m2/wrapper/dists/apache-maven-3.9.16-bin/5grr65jo27
 | Nacos | 运行中，8848 | 6 个 dataId，见第 3 节第 3 条 |
 | Redis | 运行中，6379 | PracticeModule 用 db=1 |
 | Gateway | 运行中，8100 | 路由来自 `gateway.yaml`；`/practice/**` 需鉴权，不在白名单 |
-| PracticeModule | **未运行**，8102 | 每段验收前手动启动 |
+| PracticeModule | 段 2 结束时**在运行**，8102 | 由 `mvn -pl PracticeModule spring-boot:run` 启动；改完代码重启要先确认 8102 的持有 PID（`spring-boot:run` fork 出的 JVM 不会被 Maven 进程的退出带走） |
 | Seata TC | 运行中，8091 | 客户端已启用但本期交卷用本地事务，不加 `@GlobalTransactional` |
 | RabbitMQ | 运行中 | 本期不涉及 |
-| `users_dev` 测试账号 | **缺失** | 段 1 必须解决，否则端到端零步可跑 |
+| `users_dev` 测试账号 | **已解决** | `test918` / `123456`（`user_id=10`），段 1 起用它做端到端；验证码明文在 Redis **db0** 的 `auth:captcha:{key}`，实测 6 位 |
 
 ---
 
