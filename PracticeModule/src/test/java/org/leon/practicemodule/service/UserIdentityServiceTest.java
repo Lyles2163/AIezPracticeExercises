@@ -32,7 +32,9 @@ class UserIdentityServiceTest {
     @BeforeEach
     void setUp() {
         props = new PracticeProperties();
-        props.getIdentity().setCacheTtlSeconds(1800L);
+        // 故意用与 PracticeProperties 默认值和 yaml 值都不同的 900：
+        // 若实现里把 1800 写死，这条测试必须红。审查指出用 1800 时它无法证伪。
+        props.getIdentity().setCacheTtlSeconds(900L);
         service = new UserIdentityServiceImpl(usersReadMapper, redis, props);
     }
 
@@ -47,14 +49,14 @@ class UserIdentityServiceTest {
     }
 
     @Test
-    @DisplayName("缓存未命中则查库并回填，TTL 取配置")
+    @DisplayName("缓存未命中则查库并回填，TTL 取自配置而非硬编码")
     void cacheMissLoadsAndCaches() {
         when(redis.opsForValue()).thenReturn(valueOps);
         when(valueOps.get("qb:uid:bob")).thenReturn(null);
         when(usersReadMapper.selectIdByUsername("bob")).thenReturn(3L);
 
         assertEquals(3L, service.resolveUserId("bob"));
-        verify(valueOps).set(eq("qb:uid:bob"), eq("3"), eq(Duration.ofSeconds(1800)));
+        verify(valueOps).set(eq("qb:uid:bob"), eq("3"), eq(Duration.ofSeconds(900)));
     }
 
     @Test

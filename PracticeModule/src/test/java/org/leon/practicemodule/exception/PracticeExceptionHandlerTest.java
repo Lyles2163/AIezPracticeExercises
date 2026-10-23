@@ -7,8 +7,10 @@ import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.method.annotation.ExceptionHandlerMethodResolver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -66,6 +68,36 @@ class PracticeExceptionHandlerTest {
         Result<Void> r = handler.handleBadRequest(
                 new HttpMessageNotReadableException("broken json", (org.springframework.http.HttpInputMessage) null));
         assertEquals(PracticeErrorCode.BAD_REQUEST.code(), r.getCode());
+    }
+
+    @Test
+    @DisplayName("缺必填查询参数 → 40000，不是兜底的'服务器繁忙'")
+    void missingRequestParameterMapsToBadRequest() {
+        Result<Void> r = handler.handleBadRequest(
+                new MissingServletRequestParameterException("subjectId", "Long"));
+        assertEquals(PracticeErrorCode.BAD_REQUEST.code(), r.getCode());
+    }
+
+    @Test
+    @DisplayName("Spring 选最具体的 handler：缺头走 handleMissingHeader，缺查询参数走 handleBadRequest")
+    void springPicksMostSpecificHandler() {
+        // 光直接调方法证明不了这一点——风险恰恰在 Spring 的匹配顺序上：
+        // MissingRequestHeaderException 是 ServletRequestBindingException 的子类，
+        // 而父类型已被 handleBadRequest 接管，选错了就永远回不到 40100。
+        // 用 Spring 自己的解析器离线验证，不必起容器（本模块禁止 @SpringBootTest）。
+        ExceptionHandlerMethodResolver resolver =
+                new ExceptionHandlerMethodResolver(PracticeExceptionHandler.class);
+
+        // 注意 Spring 只按异常类型匹配，不看运行时参数：任何头名缺失都进 handleMissingHeader，
+        // 头名分流（X-User-Name → 40100，其余 → 40000）发生在方法体内部。
+        assertEquals("handleMissingHeader",
+                resolver.resolveMethod(missingHeader("X-User-Name")).getName());
+        assertEquals("handleMissingHeader",
+                resolver.resolveMethod(missingHeader("X-Trace-Id")).getName());
+
+        // 这条才是"父类型兜底不会截走子类型"的证明
+        assertEquals("handleBadRequest",
+                resolver.resolveMethod(new MissingServletRequestParameterException("subjectId", "Long")).getName());
     }
 
     @Test
