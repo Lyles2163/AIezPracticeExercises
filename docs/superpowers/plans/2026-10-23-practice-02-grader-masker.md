@@ -51,6 +51,11 @@ MVN="/c/Users/Administrator/.m2/wrapper/dists/apache-maven-3.9.16-bin/5grr65jo27
 - `qb_user_wrong` 唯一键 `uk_user_question(user_id, question_id)`；`qb_user_subject_stat` 唯一键 `uk_user_subject(user_id, subject_id)`；`qb_user_answer_record` **除主键外无唯一键**（所以只 insert，不做 upsert）。
 - `qb_user_answer_record.is_correct` 是**有符号** `tinyint NOT NULL` → `-1` 在 `STRICT_TRANS_TABLES` 下可写（裁定一的前提）。
 - `qb_question.type` / `status` / `answer_json` 三个列均 `NOT NULL` → `AnswerGrader` 拆箱 `type` 不会 NPE，判分器不需要为 null 题型兜底。
+
+**两条编译器逼出来的实测修正（Task 2.4 执行时确立，段 3/段 5 直接沿用）**：
+
+1. **MyBatis-Plus 3.5.17 的 `BaseMapper` 同时有 `insert(T)` 与 `insert(Collection<T>)`** —— mock 里写 `insert(any())` 报"对 insert 的引用不明确"，必须写成 `insert(any(QbUserAnswerRecord.class))`。将来批量 insert 上线时这条歧义会更常见。
+2. **Lombok 对原始 `boolean` 生成 `isXxx()`，对包装 `Boolean` 生成 `getXxx()`。** `AnswerSubmitVO.isCorrect`（Boolean，可为 null）取 `getIsCorrect()`，而 `needSelfJudge`/`wrongMastered`（原始 boolean）取 `isNeedSelfJudge()`/`isWrongMastered()`。同一个 VO 里两种访问器名，写测试时容易踩。
 - 题目种子（id/科目/题型/答案）：`1 语文 1 "A"`、`2 语文 2 ["A","C"]`、`3 数学 3 true`、`4 数学 4 ["光合作用"]`、`5 语文 5 "参考答案：要点一；要点二"`、`6 语文 1 "B"`、`7 数学 1 "C"`；题型 1/2 的选项集都是 `A,B,C,D`。`test918(id=10)` 在三张用户表中零行，端到端是干净起点。
 
 **命令模板**（同段 1，`-Dtest=` 必须带两个 `failIf` 开关）：
@@ -95,7 +100,7 @@ spec §5.2 字段名叫 `statDelta` 但未定义语义。定为**更新后的累
 - Consumes: `PracticeException` / `PracticeErrorCode.BAD_REQUEST`（段 1）
 - Produces: `AnswerGrader.grade(int type, String answerJson, String userAnswerJson, List<String> optionKeys)` → `GradeResult(boolean correct, boolean needSelfJudge)`；格式与题型不符一律 `PracticeException(40000)`
 
-- [ ] **Step 1: 先写测试（表驱动，32 个用例）**
+- [x] **Step 1: 先写测试（表驱动，32 个用例）**
 
 创建 `AnswerGraderTest.java`：
 
@@ -261,7 +266,7 @@ class AnswerGraderTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认全部因"找不到符号 AnswerGrader"失败**
+- [x] **Step 2: 跑测试，确认全部因"找不到符号 AnswerGrader"失败**
 
 Run:
 ```bash
@@ -270,7 +275,7 @@ Run:
 ```
 Expected: 编译失败（`找不到符号: 类 AnswerGrader`）。若通过，说明类已存在，停下核对。
 
-- [ ] **Step 3: 实现 `AnswerGrader`**
+- [x] **Step 3: 实现 `AnswerGrader`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -457,12 +462,12 @@ public class AnswerGrader {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: 同 Step 2
 Expected: `Tests run: 32, Failures: 0`
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add PracticeModule/src/main/java/org/leon/practicemodule/service/AnswerGrader.java \
@@ -487,7 +492,7 @@ Expected: 恰好 2 个文件。
 - Consumes: `QbQuestion` / `QbQuestionOption`（段 1 实体）
 - Produces: `PracticeMasker.toQuestionVO(QbQuestion, List<QbQuestionOption>)` → `QuestionVO`。段 3、段 5 的所有取题响应都必须经它，禁止直接返回实体。
 
-- [ ] **Step 1: 先写守卫测试（本段最有价值的一条）**
+- [x] **Step 1: 先写守卫测试（本段最有价值的一条）**
 
 创建 `PracticeMaskerTest.java`：
 
@@ -527,6 +532,13 @@ class PracticeMaskerTest {
         return q;
     }
 
+    /** 重载：允许 null 题型（实体字段是 Integer，防御路径要能测） */
+    private QbQuestion question(Integer type) {
+        QbQuestion q = question(1);
+        q.setType(type);
+        return q;
+    }
+
     private QbQuestionOption option(String key, String content, int isCorrect) {
         QbQuestionOption o = new QbQuestionOption();
         o.setQuestionId(1L);
@@ -550,7 +562,7 @@ class PracticeMaskerTest {
     @DisplayName("未知题型与 null 题型不炸，落成未知题型")
     void unknownTypeFallback() {
         assertEquals("未知题型", masker.toQuestionVO(question(9), List.of()).getTypeName());
-        assertEquals("未知题型", masker.toQuestionVO(question(null), List.of()).getTypeName());
+        assertEquals("未知题型", masker.toQuestionVO(question((Integer) null), List.of()).getTypeName());
     }
 
     @Test
@@ -603,7 +615,7 @@ class PracticeMaskerTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败（找不到 QuestionVO / PracticeMasker）**
+- [x] **Step 2: 跑测试确认失败（找不到 QuestionVO / PracticeMasker）**
 
 Run:
 ```bash
@@ -612,7 +624,7 @@ Run:
 ```
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现 `QuestionVO` 与 `PracticeMasker`**
+- [x] **Step 3: 实现 `QuestionVO` 与 `PracticeMasker`**
 
 `QuestionVO.java`：
 
@@ -733,12 +745,12 @@ public class PracticeMasker {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: 同 Step 2
 Expected: `Tests run: 6, Failures: 0`
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add PracticeModule/src/main/java/org/leon/practicemodule/pojo/vo/QuestionVO.java \
@@ -770,7 +782,7 @@ git show --stat --oneline HEAD
   - `QbUserSubjectStatMapper.selectByUserAndSubject(Long userId, Long subjectId)` → `QbUserSubjectStat`
   - `QbQuestionOptionMapper.selectOptionKeys(Long questionId)` → `List<String>`
 
-- [ ] **Step 1: 加四个 mapper 方法**
+- [x] **Step 1: 加四个 mapper 方法**
 
 `QbUserAnswerRecordMapper` 追加：
 
@@ -840,7 +852,7 @@ git show --stat --oneline HEAD
 
 需要的 import：`QbUserAnswerRecordMapper` 补 `org.apache.ibatis.annotations.Update`/`Param`；`QbUserWrongMapper` 补 `Insert`/`Select`/`Param`；`QbUserSubjectStatMapper` 补 `Insert`/`Param`（`Select` 已有）；`QbQuestionOptionMapper` 补 `Select`/`Param`/`java.util.List`。
 
-- [ ] **Step 2: 写真库语义测试（含合成用户与前后清理）**
+- [x] **Step 2: 写真库语义测试（含合成用户与前后清理）**
 
 创建 `AnswerFlowDbIT.java`：
 
@@ -1002,7 +1014,7 @@ class AnswerFlowDbIT {
 }
 ```
 
-- [ ] **Step 3: 显式跑真库测试（这是本段唯一写 dev 库的动作，先告知用户）**
+- [x] **Step 3: 显式跑真库测试（这是本段唯一写 dev 库的动作，先告知用户）**
 
 Run:
 ```bash
@@ -1011,14 +1023,14 @@ Run:
 ```
 Expected: `Tests run: 3, Failures: 0`。若 `Tests run: 0` 是假绿灯——命令漏了 `-Dsurefire.excludedGroups=`。
 
-- [ ] **Step 4: 确认无残留**
+- [x] **Step 4: 确认无残留**
 
 ```bash
 # 用仓库外 JDBC 探针查一次三张表 user_id=990001 的行数，必须全 0
 ```
 Expected: 三张表各 0 行。
 
-- [ ] **Step 5: 全量回归（db-it 默认排除，确认新 SQL 不影响既有 30 条）**
+- [x] **Step 5: 全量回归（db-it 默认排除，确认新 SQL 不影响既有 30 条）**
 
 Run:
 ```bash
@@ -1043,7 +1055,7 @@ Expected: `Tests run: 68`（30 基线 + `AnswerGraderTest` 32 + `PracticeMaskerT
 - Consumes: Task 2.1–2.3 的全部产出、`UserIdentityService`（段 1）
 - Produces: `AnswerService.submit(Long userId, AnswerSubmitReq)` → `AnswerSubmitVO`；`/practice/answer/submit` 经网关可用
 
-- [ ] **Step 1: 写请求/响应 VO**
+- [x] **Step 1: 写请求/响应 VO**
 
 `AnswerSubmitReq.java`（`pojo/` 下，与实体同包）：
 
@@ -1109,7 +1121,7 @@ public class AnswerSubmitVO {
 }
 ```
 
-- [ ] **Step 2: 写 submit 的失败测试（12 条）**
+- [x] **Step 2: 写 submit 的失败测试（12 条）**
 
 创建 `AnswerServiceTest.java`：
 
@@ -1160,7 +1172,7 @@ class AnswerServiceTest {
 
     @BeforeEach
     void stubInsertBackfillsId() {
-        when(recordMapper.insert(any())).thenAnswer(inv -> {
+        when(recordMapper.insert(any(QbUserAnswerRecord.class))).thenAnswer(inv -> {
             ((QbUserAnswerRecord) inv.getArgument(0)).setId(123L);
             return 1;
         });
@@ -1208,10 +1220,10 @@ class AnswerServiceTest {
 
         assertEquals(123L, vo.getRecordId());
         assertTrue(vo.getIsCorrect());
-        assertFalse(vo.getNeedSelfJudge());
+        assertFalse(vo.isNeedSelfJudge());
         assertEquals("解析", vo.getAnalysis());
         assertEquals(0, vo.getWrongCount());
-        assertFalse(vo.getWrongMastered());
+        assertFalse(vo.isWrongMastered());
         assertEquals(1, vo.getStatDelta().getTotal());
         assertEquals(1.0, vo.getStatDelta().getAccuracy());
 
@@ -1247,7 +1259,7 @@ class AnswerServiceTest {
 
         assertFalse(vo.getIsCorrect());
         assertEquals(1, vo.getWrongCount());
-        assertFalse(vo.getWrongMastered());
+        assertFalse(vo.isWrongMastered());
         assertEquals(1, vo.getStatDelta().getWrong());
         verify(wrongMapper).upsertWrong(USER, 1L, 1L);
         verify(wrongMapper, never()).masterIfUnmastered(anyLong(), anyLong());
@@ -1268,7 +1280,7 @@ class AnswerServiceTest {
         AnswerSubmitVO vo = service.submit(USER, req(1));
 
         assertEquals(2, vo.getWrongCount());
-        assertTrue(vo.getWrongMastered());
+        assertTrue(vo.isWrongMastered());
         verify(wrongMapper).masterIfUnmastered(USER, 1L);
     }
 
@@ -1281,7 +1293,7 @@ class AnswerServiceTest {
 
         AnswerSubmitVO vo = service.submit(USER, req(1));
 
-        assertTrue(vo.getNeedSelfJudge());
+        assertTrue(vo.isNeedSelfJudge());
         assertNull(vo.getIsCorrect(), "待自评不能给前端假的 false");
         assertEquals(0, vo.getStatDelta().getTotal());
 
@@ -1316,7 +1328,7 @@ class AnswerServiceTest {
 
         PracticeException e = assertThrows(PracticeException.class, () -> service.submit(USER, r));
         assertEquals(PracticeErrorCode.NOT_FOUND, e.errorCode());
-        verify(recordMapper, never()).insert(any());
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
     }
 
     @Test
@@ -1328,7 +1340,7 @@ class AnswerServiceTest {
 
         PracticeException e = assertThrows(PracticeException.class, () -> service.submit(USER, req(1)));
         assertEquals(PracticeErrorCode.CONFLICT, e.errorCode());
-        verify(recordMapper, never()).insert(any());
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
     }
 
     @Test
@@ -1348,7 +1360,7 @@ class AnswerServiceTest {
         PracticeException e = assertThrows(PracticeException.class, () -> service.submit(USER, req(2)));
         assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
         verify(questionMapper, never()).selectById(any());
-        verify(recordMapper, never()).insert(any());
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
         verifyNoInteractions(wrongMapper, statMapper);
     }
 
@@ -1378,13 +1390,13 @@ class AnswerServiceTest {
         // 多选传了字符串 "A"
         PracticeException e = assertThrows(PracticeException.class, () -> service.submit(USER, req(1)));
         assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
-        verify(recordMapper, never()).insert(any());
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
         verifyNoInteractions(wrongMapper, statMapper);
     }
 }
 ```
 
-- [ ] **Step 3: 跑测试确认失败（找不到 AnswerServiceImpl / AnswerService / 相关 VO）**
+- [x] **Step 3: 跑测试确认失败（找不到 AnswerServiceImpl / AnswerService / 相关 VO）**
 
 Run:
 ```bash
@@ -1393,7 +1405,7 @@ Run:
 ```
 Expected: 编译失败。
 
-- [ ] **Step 4: 实现 `AnswerService` / `AnswerServiceImpl`（submit 部分）与控制器**
+- [x] **Step 4: 实现 `AnswerService` / `AnswerServiceImpl`（submit 部分）与控制器**
 
 `AnswerService.java`：
 
@@ -1624,12 +1636,12 @@ public class PracticeAnswerController {
 }
 ```
 
-- [ ] **Step 5: 跑测试确认通过（12 条）**
+- [x] **Step 5: 跑测试确认通过（12 条）**
 
 Run: 同 Step 3
 Expected: `Tests run: 12, Failures: 0`
 
-- [ ] **Step 6: 补控制器测试**
+- [x] **Step 6: 补控制器测试**
 
 创建 `PracticeAnswerControllerTest.java`：
 
@@ -1708,7 +1720,7 @@ Expected: `Tests run: 2, Failures: 0`
 - Consumes: Task 2.3 的 `judgeIfPending`、Task 2.4 的 `applyOutcome`/`readOutcome`
 - Produces: `AnswerService.selfJudge(Long userId, SelfJudgeReq)` → `SelfJudgeVO`；`/practice/answer/self-judge` 经网关可用
 
-- [ ] **Step 1: 写请求/响应 VO 与 6 条失败测试**
+- [x] **Step 1: 写请求/响应 VO 与 6 条失败测试**
 
 `SelfJudgeReq.java`：
 
@@ -1851,7 +1863,7 @@ public class SelfJudgeVO {
 
 需要的 import 追加：`SelfJudgeReq`、`SelfJudgeVO`。
 
-- [ ] **Step 2: 跑测试确认 6 条失败（找不到 selfJudge）**
+- [x] **Step 2: 跑测试确认 6 条失败（找不到 selfJudge）**
 
 Run:
 ```bash
@@ -1860,7 +1872,7 @@ Run:
 ```
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现 `selfJudge` 并挂端点**
+- [x] **Step 3: 实现 `selfJudge` 并挂端点**
 
 `AnswerService` 追加：
 
@@ -1940,7 +1952,7 @@ Expected: 编译失败。
     }
 ```
 
-- [ ] **Step 4: 跑测试确认全绿（18 + 3）**
+- [x] **Step 4: 跑测试确认全绿（18 + 3）**
 
 Run:
 ```bash
@@ -1949,7 +1961,7 @@ Run:
 ```
 Expected: `Tests run: 21, Failures: 0`
 
-- [ ] **Step 5: 全量回归 + 提交**
+- [x] **Step 5: 全量回归 + 提交**
 
 Run:
 ```bash
@@ -1998,7 +2010,7 @@ Expected: 文件清单恰好是上面 15 个，不含任何 `AIModule/` 路径�
 - Consumes: 网关 8100、AuthModule 8103、PracticeModule 8102、test918/123456
 - Produces: 段 2 的验收证据与偏差记录
 
-- [ ] **Step 1: 构建并启动 PracticeModule**
+- [x] **Step 1: 构建并启动 PracticeModule**
 
 ```bash
 "$MVN" -pl PracticeModule -am -DskipTests install
@@ -2008,7 +2020,7 @@ Expected: 文件清单恰好是上面 15 个，不含任何 `AIModule/` 路径�
 注意：**不能**用 `-pl PracticeModule -am spring-boot:run`（段 1 实测的坑：`-am` 会在聚合根跑 `spring-boot:run` 并失败）。
 Expected: 日志 `Started PracticeModuleApplication`；`netstat -ano | grep ":8102"` 在听；Nacos 里 `PracticeModuleServer` healthy。
 
-- [ ] **Step 2: 取 token（同段 1 流程）**
+- [x] **Step 2: 取 token（同段 1 流程）**
 
 ```bash
 CAP=$(curl -s http://127.0.0.1:8100/auth/captcha)
@@ -2021,7 +2033,7 @@ echo "token 长度: ${#TOKEN}"   # 不回显 token 本体
 ```
 Expected: `${#TOKEN}` 大于 100。（验证码 TTL 120s，Redis 里没有明文就说明 key 过期，重取。）
 
-- [ ] **Step 3: 正路径——逐条打题，每步断言一个验收点**
+- [x] **Step 3: 正路径——逐条打题，每步断言一个验收点**
 
 请求体写成文件再 `-d @file`，避免 shell 转义 `\"A\"` 这类嵌套 JSON：
 
@@ -2055,7 +2067,7 @@ post "$TMP/q1-A.json" submit
 | 10 | self-judge recordId=`<Step9 的值>`，`isCorrect:true` | `statDelta.total` 再增 1 |
 | 11 | 重发 Step 10 | `code:40900`，`statDelta` 总数不再变 ← **幂等闸门** |
 
-- [ ] **Step 4: 负路径（比正路径更有价值）**
+- [x] **Step 4: 负路径（比正路径更有价值）**
 
 ```bash
 # a) 无 token -> 网关直接 401
@@ -2072,14 +2084,14 @@ curl -s -o /dev/null -w "no-token HTTP %{http_code}\n" -X POST \
 ```
 Expected: a) `HTTP 401`；b–g) HTTP 200 + 各自 `code`。**f/g 还要用探针确认记录行数没变。**
 
-- [ ] **Step 5: 库内取证**
+- [x] **Step 5: 库内取证**
 
 `Seg2Probe.java`（仓库外、只读）打印：
 - `qb_user_wrong WHERE user_id=10` → qid=1 一行、`wrong_count=3`、`status=1`（Step 5 末尾状态）
 - `qb_user_subject_stat WHERE user_id=10` → 语文一行，`total_count/correct_count/wrong_count` 与响应里最后的 `statDelta` 完全一致
 - `qb_user_answer_record WHERE user_id=10 ORDER BY id` → 10 行（Steps 1–5 共 5 行、Step 6–8 各 1 行、Step 9 简答 1 行、Step 10 自评不改行数）——**行数与 `is_correct` 序列逐条与请求序列对上**，其中简答行为 `is_correct=1`（自评回填后）或自评选定值。
 
-- [ ] **Step 6: 写执行记录并提交**
+- [x] **Step 6: 写执行记录并提交**
 
 在本文件"执行记录"追加：日期、Step 1 启动与端口证据、Step 3 每条的实际 `code/isCorrect/wrongCount/statDelta`、Step 4 每条的实际输出、Step 5 探针输出、与计划的全部偏差（含测试数字与 `-1` 哨兵的实际表现）。
 
@@ -2094,14 +2106,14 @@ git show --stat --oneline HEAD
 
 ## 段 2 完成定义
 
-- [ ] `"$MVN" -pl PracticeModule -am test` 全绿（预期 89 条单测，基线 30 + 本段 59），`db-it` 默认被排除
-- [ ] `AnswerFlowDbIT` 显式开启时 3 条全绿，跑完 dev 库无 `user_id=990001` 残留
-- [ ] `AnswerGraderTest` 32 个用例表驱动全绿；`PracticeMaskerTest` 守卫 + 非空转证明全绿
-- [ ] 经网关：答对/答错/简答自评 `code=1`；qid=1 错两次 `wrongCount=2`；答对 `wrongMastered=true`；再错回退为 `false` 且 `wrongCount=3`
-- [ ] 自评第二次 `40900` 且 `statDelta` 不变
-- [ ] 负路径：mode=2 / 空答案 / 跨科目 / 格式不符全部 `40000`；题不存在 `40400`；无 token HTTP 401
-- [ ] 执行记录已写，含所有偏差
-- [ ] **未动**：任何 DDL、`qb_question`/`qb_question_option` 的写、`qb_paper`/`qb_exam_attempt`、AIModule 与 `CommonJwt` 文件
+- [x] `"$MVN" -pl PracticeModule -am test` 全绿（预期 89 条单测，基线 30 + 本段 59），`db-it` 默认被排除
+- [x] `AnswerFlowDbIT` 显式开启时 3 条全绿，跑完 dev 库无 `user_id=990001` 残留
+- [x] `AnswerGraderTest` 32 个用例表驱动全绿；`PracticeMaskerTest` 守卫 + 非空转证明全绿
+- [x] 经网关：答对/答错/简答自评 `code=1`；qid=1 错两次 `wrongCount=2`；答对 `wrongMastered=true`；再错回退为 `false` 且 `wrongCount=3`
+- [x] 自评第二次 `40900` 且 `statDelta` 不变
+- [x] 负路径：mode=2 / 空答案 / 跨科目 / 格式不符全部 `40000`；题不存在 `40400`；无 token HTTP 401
+- [x] 执行记录已写，含所有偏差
+- [x] **未动**：任何 DDL、`qb_question`/`qb_question_option` 的写、`qb_paper`/`qb_exam_attempt`、AIModule 与 `CommonJwt` 文件
 
 ---
 
@@ -2119,4 +2131,63 @@ git show --stat --oneline HEAD
 
 ## 执行记录
 
-（Task 2.6 Step 6 起在此追加）
+### 2026-10-23 段 2 执行完成
+
+**测试基线**：`mvn -pl PracticeModule -am test` → **91/91 全绿**（段 1 的 30 + 本段 61），`AnswerFlowDbIT` 默认被排除。
+`-Dtest=AnswerFlowDbIT -Dsurefire.excludedGroups=` → **3/3 全绿**（真库），跑完 `user_id=990001` 在三张表各 0 行（ResidueProbe 实测）。
+计划里的 89 是写死的期望值，实际 91：`AnswerGraderTest` 因下述缺陷重写后为 33 条（原 32），`AnswerServiceTest` 多补了一条参数缺失守卫（18→19）。**没有"Tests run 变少"的漏发现。**
+
+**提交**：`cc386aa`（判分器）、`2438eb3`（脱敏出口）、`3b5b5b8`（落库与自评，15 文件）、本条记录提交随后。逐文件 `git add` + pathspec 限定，`git show --stat` 核对未卷入并发会话的 AIModule 文件。
+
+#### 端到端发现的真缺陷（唯一一处代码修正，价值最高）
+
+首轮端到端第 9 步（简答题提交）返回 **`code=0`（服务器繁忙）**，服务端日志：
+`DataIntegrityViolationException: INSERT INTO qb_user_answer_record`。
+
+根因：`qb_user_answer_record.user_answer_json` 是 **MySQL `json` 列**，而 `AnswerGrader` 的 `case 5` 按计划"简答不判分也不解析答案体"，把用户原样文本直接写库。1–4 题型因为要判分必然先过 JSON 解析，所以只有简答题漏。
+计划里那条测试（`shortAnswerCases` 第二条 `"\"not json"`，断言"坏格式也不该炸"）**前提是错的**——它保护的是一个会让接口 500 的行为。
+
+修正：`AnswerGrader` 的 `case 5` 改为**只验语法、不比对内容**（`parse(userAnswerJson)` 后 `yield new GradeResult(false, true)`），非法 JSON 归为 40000；测试断言反转为两条 40000 反例。端到端复测：`n6-short-illegal-json` → `code=40000`，且不写库。
+
+**教训（写给自己也写给段 5）**：单测把 mapper 全 mock 掉了，就看不见列类型约束——**凡写进 `json` 列的值必须有语法校验，且必须有端到端或真库测试兜底**。段 4/段 5 的 `qb_paper.structure_json` 与 `qb_exam_attempt.answered_json` 同理：写入前必须 `ObjectMapper.writeValueAsString` 产出合法 JSON，绝不能把裸文本塞进去。
+
+#### 端到端取证（全程经网关 8100，账号 test918 / user_id=10）
+
+前置：三个服务当时都未运行，本次自行启动 Gateway 8100、Auth 8103、PracticeModule 8102（日志各自 `Started ...Application`，8102 有 `✅ JWT 工具类初始化成功` 与 Nacos `healthy=true`）。登录用 Redis db0 的明文验证码（6 位码 `861857`，本次实测长度是 6 不是 4），拿到 219 字符 token。
+
+| # | 场景 | 实测 |
+|---|---|---|
+| 1–5 | 同一题（qid=1 单选）对/错/错/对/错 | `wrongCount` 依次 `0→1→2→2→3`；第 4 步 `wrongMastered=true`，第 5 步回退 `false` ← **7.3 与验收清单第 2 条成立** |
+| 6/7/8 | 多选 `["A","C"]` / 判断 `true` / 填空 `["光合作用"]` | 全部 `code=1 isCorrect=true` ← 五题型判分在真实链路上都跑过 |
+| 9 | 简答 qid=5 | `code=1`、`isCorrect=null`、`needSelfJudge=true`，`statDelta.total` 仍为 6 ← **待自评不污染统计** |
+| 10 | self-judge `isCorrect=true` | `code=1`，`statDelta.total` 6→**7**、acc 0.57 ← **错题本与统计的计数发生在自评那一刻**（spec 5.3） |
+| 11 | self-judge 重发 | **`code=40900`**，`statDelta` 不再变化 ← **幂等闸门生效** |
+| — | `mode=3` 智能练习补测 | `code=1`，`statDelta={total:8,correct:5,wrong:3,accuracy:0.63}` ← **7.1 的 IN (1,3) 端到端成立** |
+| 负 | 无 token | **HTTP 401** `{"code":401,"message":"缺少或无效的授权头"}`（网关侧，非 `Result`） |
+| 负 | `mode=2` | 40000（考试作答不走答题接口） |
+| 负 | 空答案 / 跨科目 / 多选传字符串 | 均 40000 |
+| 负 | qid=999 / 自评不存在记录 | 均 40400 |
+| 负 | 对单选记录自评 | 40000（仅简答题支持自评） |
+
+**交叉验证（裁定二）**：最后打 `GET /practice/subject/list` → `chinese myTotal=8 myCorrect=5 myAccuracy=0.63`、`math myTotal=2 myCorrect=2 myAccuracy=1.0`，与末次 `statDelta` 完全一致 → `statDelta` 确实是累计快照，且与段 1 的 `accuracy` 同一个数同一个口径。
+
+**库内取证（`Seg2Evidence`，只读）**：
+`qb_user_wrong` 仅 1 行 `question_id=1 wrong_count=3 status=1`（已掌握再错回退）；
+`qb_user_subject_stat` 语文 `8/5/3`、数学 `2/2/0`；
+`qb_user_answer_record` 共 10 行，`is_correct` 与请求序列逐条一致，其中简答行 id=17 为 **`is_correct=1`**（写入时为 `-1`，被条件更新恰好改一次）——**三态哨兵与幂等在真库上闭环**。
+
+#### 与计划的偏差（全部为执行期实测所得）
+
+1. **`AnswerGrader` case 5 增加 JSON 语法校验**：如上，属缺陷修正，非风格分歧。
+2. **编译器逼出的三处写法修正**（不影响行为）：
+   - MyBatis-Plus 3.5.17 的 `BaseMapper` 同时有 `insert(T)` 与 `insert(Collection<T>)`，`insert(any())` 报"引用不明确" → 必须 `insert(any(QbUserAnswerRecord.class))`；
+   - Lombok 对原始 `boolean` 生成 `isXxx()`、对包装 `Boolean` 生成 `getXxx()`，同一个 `AnswerSubmitVO` 里两种都有 → 测试取值分别为 `isNeedSelfJudge()` / `getIsCorrect()`；
+   - `PracticeMaskerTest` 需要 `question(Integer)` 重载才能测 null 题型；`SelfJudgeVO` 用无参构造 + setter（与仓库其余 VO 一致），不用计划里写的全参构造。
+   以上已回写进本文件"前置：环境与关卡"的实测修正与代码块，段 3 直接照抄即可。
+3. **测试条数 91 ≠ 计划 89**：见上。
+4. **首轮端到端脚本自身写错**：bash heredoc 里 `"userAnswerJson":"A"` 少了内层转义，实际送出的是裸文本 `A`，导致 8 步全 40000（服务端行为是正确的，是我的测试写错了）。改为 Python 生成请求体后一次通过。教训：**接口契约里带"JSON 字符串"字段时，测试驱动必须显式编码两次**，别用 shell 拼。
+5. **`TaskStop` 只杀 Maven 包装进程，不杀 forked JVM**：端口 8102 被旧 JVM 占住，重启表现为 `BUILD FAILURE / Process terminated exit code 1`，看起来像代码问题。按 PID `taskkill` 后才起来。改完代码要重启前先确认 8102 的持有者。
+6. **写库动作**：本段确实写了两处 dev 库——`AnswerFlowDbIT` 的合成用户 990001（已清 0 行）与 test918 的真实作答数据（10 条记录 + 2 条统计 + 1 条错题）。开跑前把 test918 清回今日实测的零行基线（清掉了首轮失败留下的 1 记录 + 1 统计）。**如需复原**：`DELETE FROM qb_user_answer_record WHERE user_id=10; DELETE FROM qb_user_wrong WHERE user_id=10; DELETE FROM qb_user_subject_stat WHERE user_id=10;`
+7. **未做端到端覆盖的分支**：`40900 题目已下架`（种子数据里无 `status=0` 的题）、`40300 越权操作他人记录`（只有一个账号），二者仅单测覆盖。40100 已由段 1 的"直连 8102 不带 `X-User-Name`"覆盖。别把这三条当成端到端已验。
+
+**环境状态**：Gateway 8100 / Auth 8103 / PracticeModule 8102 三个进程仍在后台运行（日志在 `~/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg2/*.log`）。
