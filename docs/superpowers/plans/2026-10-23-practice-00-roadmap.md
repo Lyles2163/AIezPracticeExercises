@@ -69,19 +69,19 @@ MVN="/c/Users/Administrator/.m2/wrapper/dists/apache-maven-3.9.16-bin/5grr65jo27
    连带作废：`docs/superpowers/plans/2026-10-21-rag-00-roadmap.md:61` 里"`qb_question.owner_id=1` 表示公共题库"这条被标注为已核实的结论。AIModule Stage 5 执行前必须按此更正，否则 ES question index 会映射一个不存在的列。`owner_id` 只存在于 `qb_subject`（`DEFAULT 1`）。
 2. **`/practice/**` 路由已经在 Nacos 里配好。** dataId 是 **`gateway.yaml`**（`practice-service-route: Path=/practice/** → lb://PracticeModuleServer`），全仓库无 `StripPrefix` → 控制器 `@RequestMapping` 前缀必须就是 `/practice`。`GatewayModule/application.yaml:26` 还非可选地导入了一个**不存在的** `gateway-module.yaml`，别去改它找路由。本期零网关改动。
 3. **Nacos 实际只有 6 个 dataId**：`AService`、`gateway.yaml`、`AService_group`(SEATA_GROUP)、`BService_group`(SEATA_GROUP)、`BService`、`common-jwt-dev.yaml`。**`common-jwt.yaml` 不存在**，而所有模块的 `spring.config.import` 都以非 optional 方式导入它。
-4. **由此产生的链路风险，段 1 必须先实测再写代码**：`leon.jwt.secret` 只以明文存在于 `UserModule/src/main/resources/application.yaml:5-7`（已入库，是独立的安全问题），Gateway/Auth/AIModule 的同一段配置是注释掉的。也就是说**网关能否验签 JWT 尚未证实**，而五段的端到端验收每一步都要一个可用 token。段 1 的 Task 1.1 用一次真实请求确认这条链路，结论写进该段的执行记录：
-   - 若验签可用 → 密钥必来自 `common-jwt-dev.yaml`，记录其加载机制；
-   - 若不可用 → 停下来向用户报告，由用户决定在 Nacos 建 `common-jwt.yaml` 还是改各模块 import。**不得为了让测试通过而在本地 yaml 里塞一份密钥**，那会造成签发端与验签端密钥不一致的隐蔽故障。
-5. **明文密钥已入库**：`UserModule/src/main/resources/application.yaml:7` 与三处注释块里是同一个 JWT 密钥字面量。本计划不复制该值、不新增任何明文密钥，段 1 的验收命令一律用环境变量占位。真正的轮换属独立事项，本计划只在段 1 执行记录里留一行提醒。
-6. **`users_dev` 无 `nickname` 列**，用户名列是 `username`。端到端验收需要一个真实账号的明文密码，目前**没有**——段 1 Task 1.1 一并解决（向用户索取，或经用户同意后插一条 BCrypt 哈希测试行）。
-7. **`answer_json` 五种题型的真实形态**：`1单选`→`"A"`；`2多选`→`["A","C"]`；`3判断`→`true`；`4填空`→`["光合作用"]`；`5简答`→`"参考答案：要点一；要点二"`。`user_answer_json` 同构。判断/填空/简答三类**没有 `qb_question_option` 行**（实测题 3/4/5 无选项），这是"判分只认 `answer_json`"的硬依据。
-8. **多选全对才算对**：种子数据里 `["A"]` 对 `["A","C"]` 记 `is_correct=0`，本期沿用该口径。
-9. **`qb_user_answer_record.is_correct` 是 `NOT NULL`**，所以草稿不能写进这张表（spec 4.2），且简答题未自评时只能暂记 0 并在统计与错题联动里跳过。
-10. **`PracticeModule` 编译不进 `Result`**：pom 无 `CommonJwt` 依赖，`PracticeModuleApplication.java:7` 是裸 `@SpringBootApplication`（缺 `@ComponentScan({"org.leon.practicemodule","org.leon.commonjwt"})`）。模板见 `UserModule/pom.xml:103-107` 与 `UserModuleApplication.java:8`。
-11. **`PracticeModule/src/main/java/.../mapper/QbQuestionMapper.xml` 是死文件**：位于 `src/main/java`，不匹配 `mapper-locations: classpath*:mapper/**/*.xml`。段 1 删除，不保留"移过去再说"。
-12. **`RedisTestController.java:33` 的 `qb:user:2:wrong:1` 只是 Redis 演示**，写死 `userId=2`。本期 Redis 只用于身份缓存 `qb:uid:{userName}`，错题本走表。该控制器保留不动，不进业务路径。
-13. **`PracticeModule` 当前未运行**（`netstat` 只有 8100 在听）。每段验收前需启动 PracticeModule 并确认它注册进 Nacos，否则网关返回 503 而非业务错误——这两种失败的区分写在各段的验收步骤里。
-14. **MySQL 9.1.0，`sql_mode` 仅 `STRICT_TRANS_TABLES`**：`NOT NULL` 列必须显式给值，`utf8mb4_unicode_ci` 沿用现有 `qb_*` 表。
+4. **网关 JWT 验签实测可用，但密钥来源不是 Nacos（2026-10-23 实测）。** 证据链：① 无 `Authorization` 头打 `/practice/tetsgateway` → `HTTP 401 {"code":401,"message":"缺少或无效的授权头"}`；② 垃圾 token → `HTTP 401 {"code":401,"message":"无效或过期令牌"}`（非 500）；③ 决定性的一条是 `JwtUtil.init()` 在 `leon.jwt.secret` 为空时抛 `IllegalStateException` 直接让应用启动失败，而网关进程在运行 → 密钥必然非空。它来自 `CommonJwt/.../config/JwtConfig.java` 的**字段默认值（硬编码在源码里）**，不是 `common-jwt-dev.yaml`——那份 Nacos 配置当前**没有被任何模块加载**，改它无效。
+   推论：五段的端到端验收**不被这条卡住**，段 1 无需再做验签探测，只需按第 6 条拿一个真实账号的 token。
+5. **安全债（本期不修，但必须留痕）**：HMAC 密钥以明文同时存在于 `CommonJwt/src/main/java/org/leon/commonjwt/config/JwtConfig.java` 的字段默认值与 `UserModule/src/main/resources/application.yaml:7`，且已入 git。任何能读仓库的人都能自签合法 token 冒充任意 `userId`。本计划不复制该值、不新增任何明文密钥、验收命令一律用环境变量占位。**轮换它必须改代码里的默认值，改 Nacos 无效。** 真正的处置（移除默认值 + 强制外部配置 + 密钥轮换）属独立事项，建议单开一轮。
+6. **`token` 载荷里已经有 `userId`**：`AuthServiceImpl.java:99` 用 `generateToken2(users.getId(), users.getUsername(), users.getRoleId())` 签发，claims 含 `userId`/`username`/`userRole`；`JwtUtil` 只暴露了 `getUsernameFromToken`，没有取 `userId` 的 getter，网关也只注入 `X-User-Name`。因此 spec 第七节选定的"PracticeModule 查库换 id"**不是唯一可行路径**——"网关注入 `X-User-Id` + `JwtUtil` 加一个 getter"只需两处小改，且**不需要用户重新登录**（现有 token 就带着该 claim）。选 B 的理由是"不碰 GatewayModule 与 `CommonJwt`（后者有用户未提交修改）"，不是"做不到"。若日后改判，替换点只有 `UserIdentityService` 一个方法体。
+7. **`users_dev` 无 `nickname` 列**，用户名列是 `username`。端到端验收需要一个真实账号的明文密码，目前**没有**——段 1 第一个任务一并解决（向用户索取，或经用户同意后插一条 BCrypt 哈希测试行）。`/auth/captcha` 实测返回字段名是 **`imageBase64`**（不是既有文档写的 `imageBase64Data`）。
+8. **`answer_json` 五种题型的真实形态**：`1单选`→`"A"`；`2多选`→`["A","C"]`；`3判断`→`true`；`4填空`→`["光合作用"]`；`5简答`→`"参考答案：要点一；要点二"`。`user_answer_json` 同构。判断/填空/简答三类**没有 `qb_question_option` 行**（实测题 3/4/5 无选项），这是"判分只认 `answer_json`"的硬依据。
+9. **多选全对才算对**：种子数据里 `["A"]` 对 `["A","C"]` 记 `is_correct=0`，本期沿用该口径。
+10. **`qb_user_answer_record.is_correct` 是 `NOT NULL`**，所以草稿不能写进这张表（spec 4.2），且简答题未自评时只能暂记 0 并在统计与错题联动里跳过。
+11. **`PracticeModule` 编译不进 `Result`**：pom 无 `CommonJwt` 依赖，`PracticeModuleApplication.java:7` 是裸 `@SpringBootApplication`（缺 `@ComponentScan({"org.leon.practicemodule","org.leon.commonjwt"})`）。模板见 `UserModule/pom.xml:103-107` 与 `UserModuleApplication.java:8`。
+12. **`PracticeModule/src/main/java/.../mapper/QbQuestionMapper.xml` 是死文件**：位于 `src/main/java`，不匹配 `mapper-locations: classpath*:mapper/**/*.xml`。段 1 删除，不保留"移过去再说"。
+13. **`RedisTestController.java:33` 的 `qb:user:2:wrong:1` 只是 Redis 演示**，写死 `userId=2`。本期 Redis 只用于身份缓存 `qb:uid:{userName}`，错题本走表。该控制器保留不动，不进业务路径。
+14. **`PracticeModule` 当前未运行**（`netstat` 只有 8100 在听）。每段验收前需启动 PracticeModule 并确认它注册进 Nacos，否则网关返回 503 而非业务错误——这两种失败的区分写在各段的验收步骤里。
+15. **MySQL 9.1.0，`sql_mode` 仅 `STRICT_TRANS_TABLES`**：`NOT NULL` 列必须显式给值，`utf8mb4_unicode_ci` 沿用现有 `qb_*` 表。
 
 ---
 
