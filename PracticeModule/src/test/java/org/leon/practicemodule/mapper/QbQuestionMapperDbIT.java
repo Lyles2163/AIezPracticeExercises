@@ -148,7 +148,7 @@ class QbQuestionMapperDbIT {
     }
 
     /**
-     * 只读查 information_schema.COLUMNS，取七张 qb_* 表的真实列（按 ORDINAL_POSITION 排序）。
+     * 只读查 information_schema.COLUMNS，取九张 qb_* 表的真实列（按 ORDINAL_POSITION 排序）。
      * 表名取自各实体的 @TableName，因此这条同时验住了"实体指向的表确实存在"。
      */
     private static Map<String, List<String>> liveColumnsOfQbTables() throws SQLException {

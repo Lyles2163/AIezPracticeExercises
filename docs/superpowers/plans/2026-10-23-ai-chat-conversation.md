@@ -2796,12 +2796,20 @@ public class SpringAiChatModelGateway implements ChatModelGateway {
         }
         ChatResponseMetadata md = resp.getMetadata();
         Usage usage = md == null ? null : md.getUsage();
-        Integer pt = usage == null ? null : usage.getPromptTokens();
-        Integer ct = usage == null ? null : usage.getCompletionTokens();
+        // 实测纠正（Task 8 执行时验证）：ChatResponse 的兜底 metadata 带 EmptyUsage，
+        // 每一帧 getUsage() 都非 null 且 pt/ct 都是 0。原写法 `usage == null ? null : ...`
+        // 会让每个中间帧都带着 0/0 活下来，"全空丢弃"永不生效，编排层还会按帧发出
+        // TokenUsage(0,0)。真实补全的 prompt_tokens 至少为 1，故 0 一律视作"这帧没有 usage"。
+        Integer pt = positive(usage == null ? null : usage.getPromptTokens());
+        Integer ct = positive(usage == null ? null : usage.getCompletionTokens());
         if (text == null && finish == null && pt == null && ct == null) {
             return null;
         }
         return new ChatChunk(text, finish, pt, ct);
+    }
+
+    private static Integer positive(Integer value) {
+        return value == null || value <= 0 ? null : value;
     }
 }
 ```
@@ -2897,7 +2905,10 @@ class SseChannelTest {
     void escapesNewlines() {
         channel.emit(new ChatEvent.Delta("第一行\n\n第二行"));
         String frame = frames.get(0);
-        assertEquals(1, frame.split("\n\n", -1).length - 2, "整帧只允许结尾一个空行: " + frame);
+        // 实测纠正（Task 9 执行时验证）：Java 的 "A\n\n".split("\n\n", -1) 长度是 2 不是 3
+        // （只有结尾那一个空段），原写法 `length - 2 == 1` 永远得 0。
+        assertEquals(frame.length() - 2, frame.indexOf("\n\n"), "提前出现空行会断帧: " + frame);
+        assertTrue(frame.endsWith("\n\n"));
         assertTrue(frame.contains("\\n\\n"), "换行必须转义成 \\n 字面量: " + frame);
     }
 
@@ -2939,11 +2950,18 @@ class SseChannelTest {
     @Test
     @DisplayName("两个线程并发发帧不会交错出半帧")
     void concurrentEmitsStayAtomic() throws Exception {
-        List<String> raw = new CopyOnWriteArrayList<>();
+        // 实测纠正（Task 9 执行时验证），两处：
+        // 1) sink 原本一次 add 整帧——那样无论 SseChannel 有没有那把锁，写出去都是原子的，
+        //    用例测不到串行化。真实 SseEmitter 一帧要分两次写（event 行、data 行 + 空行），
+        //    所以测试 sink 必须同样分两次落笔。
+        // 2) ping 发生在 i=0,20..180，即每线程 each/20 次，不是 each/20 + 1。
+        List<String> chunks = new CopyOnWriteArrayList<>();
         SseChannel concurrent = new SseChannel(new SseChannel.Sink() {
             @Override
             public void send(String event, String json) {
-                raw.add("event:" + event + "\ndata:" + json + "\n\n");
+                chunks.add("event:" + event + "\n");
+                Thread.yield();
+                chunks.add("data:" + json + "\n\n");
             }
 
             @Override
@@ -2973,10 +2991,20 @@ class SseChannelTest {
         }
         pool.shutdown();
         assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS));
-        assertEquals(threads * (each + each / 20 + 1), raw.size());
-        for (String frame : raw) {
-            assertTrue(frame.startsWith("event:") && frame.endsWith("\n\n")
-                    && frame.split("\n\n", -1).length == 3, "坏帧: " + frame);
+        int expectedFrames = threads * (each + each / 20);
+        assertEquals(expectedFrames * 2, chunks.size(), "每帧两次落笔，一次都不能丢");
+        String wire = String.join("", chunks);
+        List<String> frames = List.of(wire.split("\n\n", -1));
+        assertEquals(expectedFrames + 1, frames.size(), "每帧一个结束空行，末尾留一个空段");
+        assertTrue(frames.get(frames.size() - 1).isEmpty(), "整段输出必须以帧分隔符收尾");
+        for (String frame : frames) {
+            if (frame.isEmpty()) {
+                continue;
+            }
+            // 交错会把两条 event: 行挤进同一帧，帧内就会出现第二个换行
+            assertEquals(1, frame.chars().filter(c -> c == '\n').count(),
+                    "帧内只允许 event 与 data 之间那个换行: " + frame);
+            assertTrue(frame.startsWith("event:"), "帧必须以 event: 起头: " + frame);
         }
     }
 }
@@ -4168,8 +4196,7 @@ public class ChatStreamService {
 }
 ```
 
-**上面这份实现有三处必须在写代码时一并改掉，否则 Step 6 过不了**（都是接口对不齐，不是思路问题）：
-
+**上面这份实现有四处必须在写代码时一并改掉**（前三处是接口对不齐，第四处是执行时实测出来的并发缺陷）：
 1. **档位有两个真相源**。`resolver.resolve(...)` 在 `cmd.effort()` 为空时回落到 `chat.default-effort`，而 `effortName(cmd, conversation)` 回落到 `ai_conversation.effort`。两者不一致时会出现"按 Medium 的参数生成、按 High 落库"。改法：`prepare()` 里先算一次 `String effortName = effortName(cmd, conversation);`，再 `resolver.resolve(model, effortName)`，`effortName(...)` 内部空值直接返回 `props.getDefaultEffort()`，不再看会话列。`ai_conversation.effort` 只在 #2 创建会话时定一次，作为该会话的默认档位——它参与 `effortName` 的回落链，就必须和 `resolve` 用同一条链，否则这个列是摆设。`prepareWritesBeforeStream` 里加一条断言：`verify(repo).insertAssistant(eq(7L), eq(41L), anyString(), eq("High"), any())` 与 `prepared.params().temperature()` 来自同一档位。
 2. `stop` 依赖 `repo.findById(Long)`，`ChatTurnRepository` 还没有这个方法。补：
    ```java
@@ -4192,6 +4219,23 @@ public class ChatStreamService {
                           @Param("errorMsg") String errorMsg);
    ```
    `onError` 里改成 `repo.finalizeFailed(stream.messageId(), stream.accumulated(), msg);`，删掉原来的 `finalizeAssistant` + `markFailed` 两行。测试 `upstreamFailureKeepsPartialContent` 相应改成 `verify(repo).finalizeFailed(42L, "前半后半", anyString())`，并 `verify(repo, never()).markFailed(anyLong(), anyString())`。
+4. **收尾必须单次生效（Task 10 执行时实测出来的缺陷，比前三处更严重）**。上面 `run()` 里
+   `gateway.stream(...).subscribe(...)` 之后才 `stream.upstream().set(disposable)`，
+   而 Reactor 对同步源（`Flux.just(...)`、真实的快速首帧）会在 `subscribe()` 返回**之前**就把
+   onNext/onComplete 全发完。于是"断连发生在中途"这条路径是：`onChunk` 抓到
+   `ClientGoneException` → `disposeUpstream()` 此时还是空引用，什么都停不掉 →
+   `finishTruncated` 写第一次终态 → 剩余的帧继续跑 → `onComplete` **又写第二次**，
+   把 `truncated` 覆盖成 `done`。`stop()` 与 `onComplete` 并发同理。这违反 5.5 的写次数不变式，
+   而且写坏数据。修法是两层：
+   - `ChatStreamRegistry.remove(Long)` 改为返回 `boolean`（是不是你摘掉的），
+     `truncate` / `onComplete` / `onError` 三个终态入口都先 `if (!registry.remove(id)) return;`
+     ——抢到 claim 的那个线程才是收尾者，输的什么都不写。
+   - `AiMessageMapper.finalizeAssistant` 的 WHERE 加 `AND status = 'streaming'`，
+     `finalizeFailed` 同形。DB 层兜住跨实例并发的孤儿 `stop`（注册表只在本进程内有效）。
+   用例：`ChatStreamServiceTest.midStreamDisconnectWritesOnce`（同步 4 帧流、第 2 次 delta 写失败，
+   断言 `finalizeAssistant` 只被调用 1 次且状态是 `truncated`）；
+   变异验证：把 `onComplete` 的 claim 改成"照写不误"，只有这一条用例变红。
+   `ChatMapperDbIT.finalizeGuardBlocksSecondWrite` 在真库上证明第二次写 0 行。
 
 - [ ] **Step 6: 跑测试**
 
@@ -4500,7 +4544,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * produces 同时声明 SSE 与 JSON：建流前的业务拒绝要返回 Result(JSON)，
  * 若只声明 text/event-stream，客户端带 Accept: text/event-stream 时
- * advice 的 JSON 体协商不出来，会变成 406。
+ * advice 的 JSON 体协商不出来。**但光加 JSON 不够**（实测）：客户端
+ * 只带 Accept: text/event-stream 时拒绝仍是 HTTP 500 空响应体，
+ * 因为协商取的是请求 Accept 的交集。真正的修法在 advice 里
+ * ——拒绝响应体直接写进 HttpServletResponse，绕过内容协商。
  */
 @RestController
 @RequestMapping("/ai/chat")
@@ -4653,6 +4700,31 @@ git add AIModule/src/main/java/org/leon/aimodule/chat/web/ChatStreamController.j
         AIModule/src/test/java/org/leon/aimodule/chat/stream/ChatStreamServiceTest.java
 git commit -m "新增流式与停止接口：拒绝走 JSON、成功走 SSE，emitter 回调对已结束流幂等"
 ```
+
+---
+
+#### Task 11 落地时的实测纠正（实现完回写，后续任务照此）
+
+1. **`produces` 双声明挡不住 SSE-only 客户端**（上面那段注释的原判断是错的）。真容器上
+   `Accept: text/event-stream` 单值 + 业务拒绝 = **HTTP 500、空响应体**，日志里是
+   `ExceptionHandlerExceptionResolver: Failure in @ExceptionHandler … HttpMediaTypeNotAcceptableException:
+   No acceptable representation`，随后 `ChatRejectException` 被 Tomcat 当未处理异常报出来。
+   修法：`ChatExceptionHandler` 的所有 handler 改成 `void`，用注入的 `ObjectMapper` 把
+   `Result` 直接写进 `HttpServletResponse`（先 `isCommitted()` 守卫，已在推流时不能塞 JSON）。
+   改完四种 Accept（`text/event-stream`、双值、`application/json`、`*/*`）全部
+   `200 + {"code":0,…}`。**MockMvc 复现不出来**：把 `produces` 改回单值 SSE，
+   `ChatStreamControllerTest` 仍 9/9 绿——standalone MockMvc 不做真实协商，
+   这条只能靠真容器取证。
+2. **重试/重新生成撞唯一键**（主线上实测出的 `Duplicate entry '6-rename-probe-2:a' for key 'ai_message.uk_conv_client'`）：
+   派生的 `clientMsgId + ":a"` 在同一会话里是固定值，第二次重新生成必撞。幂等键只该保护用户消息，
+   助手行用 `id` 寻址（#6 与 stop 都按 id）。修法：`regenerate` 时助手行 `client_msg_id = null`
+   （MySQL 唯一索引允许多个 NULL，`ChatMapperDbIT.nullClientMsgIdDoesNotCollide` 已覆盖）。
+3. **`prepare` 必须是 `@Transactional`**：上面那个撞键事故里，`supersede` 已经提交、
+   插新占位失败，会话留下「旧答案作废、新答案没建起来」的空档。T1 是一个原子单元，不是三句独立写。
+4. 心跳不能写成 `channel::ping` 方法引用：`ScheduledExecutorService.scheduleAtFixedRate`
+   的任务一旦抛异常就**静默停止后续调度**（没有日志）。改成 lambda 里吞掉
+   `SseChannel.ClientGoneException`，收尾交给 emitter 回调。
+5. 不设 `Connection: keep-alive`：逐跳（hop-by-hop）头，Tomcat 拥有它，servlet 代码写它是越权。
 
 ---
 

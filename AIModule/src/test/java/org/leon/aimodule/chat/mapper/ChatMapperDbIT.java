@@ -273,4 +273,41 @@ class ChatMapperDbIT {
                     "回填 1 分钟必须生效，否则上一条断言证明不了推进");
         }
     }
+
+    @Test
+    @DisplayName("终态写入是单次生效的：第二次 finalize 写 0 行，不会被覆盖")
+    void finalizeGuardBlocksSecondWrite() {
+        try (SqlSession s = factory.openSession(true)) {
+            Long cid = newConversation(s, "alice");
+            AiMessageMapper mm = s.getMapper(AiMessageMapper.class);
+
+            AiMessage a = new AiMessage();
+            a.setConversationId(cid);
+            a.setRole(AiMessage.ROLE_ASSISTANT);
+            a.setContent("");
+            a.setStatus(AiMessage.ST_STREAMING);
+            mm.insert(a);
+            assertEquals(1, mm.finalizeAssistant(a.getId(), "完整回答", AiMessage.ST_DONE,
+                    AiMessage.STOP_DONE, 10, 20));
+            // 断连/stop 与 onComplete 并发时，抢输的那一次必须写不进去（编排层的 claim 是第一道，这里是第二道）
+            assertEquals(0, mm.finalizeAssistant(a.getId(), "半截", AiMessage.ST_TRUNCATED,
+                    AiMessage.STOP_CLIENT_DISCONNECT, null, null));
+            AiMessage kept = mm.selectById(a.getId());
+            assertEquals(AiMessage.ST_DONE, kept.getStatus());
+            assertEquals("完整回答", kept.getContent());
+
+            AiMessage b = new AiMessage();
+            b.setConversationId(cid);
+            b.setRole(AiMessage.ROLE_ASSISTANT);
+            b.setContent("前半");
+            b.setStatus(AiMessage.ST_STREAMING);
+            mm.insert(b);
+            assertEquals(1, mm.finalizeFailed(b.getId(), "前半后半", "429 Too Many Requests"));
+            assertEquals(0, mm.finalizeFailed(b.getId(), "覆盖", "第二次不该写"));
+            AiMessage failed = mm.selectById(b.getId());
+            assertEquals(AiMessage.ST_FAILED, failed.getStatus());
+            assertEquals("前半后半", failed.getContent());
+            assertEquals("429 Too Many Requests", failed.getErrorMsg());
+        }
+    }
 }

@@ -35,7 +35,18 @@ class CursorCodecTest {
     @Test
     @DisplayName("伪造或截断的游标翻成业务拒绝，而不是 NumberFormatException")
     void rejectsGarbage() {
-        for (String bad : new String[]{"!!!", "aGVsbG8", "MTIz", "abc:def", "MTIzOg==", ":"}) {
+        for (String bad : new String[]{
+                // 字符不在 base64url 字母表内，解码阶段就抛 IllegalArgumentException
+                "!!!", "abc:def", ":",
+                // 合法 base64url，但解出 "hello" / "123"，没有冒号 → sep == -1
+                "aGVsbG8", "MTIz",
+                // 合法 base64url，解出 "123:"，冒号在末尾
+                "MTIzOg==",
+                // 合法 base64url，解出 "abc:def"：冒号在中间，Long.parseLong("abc") 抛 NumberFormatException
+                "YWJjOmRlZg",
+                // 合法 base64url，解出 ":123"：冒号在首位（sep == 0），走 sep <= 0 分支
+                "OjEyMw"
+        }) {
             ChatRejectException e = assertThrows(ChatRejectException.class, () -> CursorCodec.decode(bad),
                     "应当拒绝: " + bad);
             assertEquals("cursor 无效", e.getMessage());

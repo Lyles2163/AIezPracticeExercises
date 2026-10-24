@@ -254,6 +254,13 @@ data: {"finishReason":"done"}
 
 **帧必须由 Jackson 序列化后再拼 `data:` 前缀，禁止手拼字符串**——正文里的换行和 `\n\n` 会直接切断帧，这是 SSE 最常见的事故点。
 
+#### 5.2.1 实测校正（2026-10-24，见 `2026-10-23-ai-chat-e2e-log.md`）
+
+- **线格式是 `data:{...}`，冒号后没有空格**（`SseEmitter` 原样输出）。本节上面的样例照抄了"有空格"的惯例，标准 `EventSource` 会主动吃掉一个可选空格所以浏览器无感，但**自写解析器不能按 `data: ` 剥前缀**（会少掉一个字符，正文首字被吃掉）。
+- **`ping` 与是否有数据流无关**。心跳是 `scheduleAtFixedRate(15s)`：实测一条 22 秒、一直在出 delta 的流里仍然夹了 1 次 `ping`，44 秒的流 2 次。前端必须把 `ping` 当作"任何时刻都可能插进来、直接忽略"的事件，不能假设它只在空闲期出现。
+- 实际响应头是 `Content-Type: text/event-stream`（**没有** `;charset=UTF-8`），另有 `Cache-Control: no-cache, no-transform`、`X-Accel-Buffering: no`、`Transfer-Encoding: chunked`。
+- **`done.finishReason` 的取值由服务端归一化保证是小写**。上游 DeepSeek 发 `length`/`stop`，Spring AI 1.0.0-M7 交付成**大写** `LENGTH`，编排层按小写常量比较——不在适配器边界转小写，被 `max_tokens` 截断的回答就会被记成 `done`（实测踩过，见 e2e 记录 §9）。`stop` 归入 `done`，所以前端永远看不到 `stop` 这个词。
+
 ### 5.3 一处真实的并发坑
 
 `SseEmitter.send()` 不是幂等追加，两个线程同时写同一个 response 会交错出坏帧。心跳由 `ScheduledExecutorService` 触发，delta 由 Reactor IO 线程触发，**必然并发**。做法：把 emitter 包进 `SseChannel`，`send`/`complete`/`completeWithError` 全部 `synchronized (this)`，"发一帧"是唯一入口。约二十行，但没有它就是偶发线上故障。
@@ -327,6 +334,9 @@ T3 收尾（一个短事务）
 
 业务拒绝统一 **HTTP 200 + `Result.code=0`**，与仓库现状一致（`AiExceptionHandler` 无 `@ResponseStatus`）。拒绝建流时 `Content-Type` 是 `application/json`。
 
+**实测补充（2026-10-24）：这句契约不依赖客户端怎么写 `Accept`，因为响应体是手写的。** #7 的 `produces` 同时声明 `text/event-stream` 与 `application/json`，但只声明双值**不够**：客户端只带 `Accept: text/event-stream` 时，advice 的**返回值**仍然要走内容协商，而协商取的是请求 Accept 与可产出类型的交集（空），于是 advice 自己抛 `HttpMediaTypeNotAcceptableException` 失败、异常二次抛出，真容器上表现为 **HTTP 500 + 空响应体**（实测，日志链见 e2e 记录）。所以 `ChatExceptionHandler` 的每个 handler 都是 `void`，用注入的 `ObjectMapper` 把 `Result` 直接写进 `HttpServletResponse`（200 + `application/json` + UTF-8），并先判 `response.isCommitted()`——已经开始推流之后绝不能再往流里塞 JSON。四种 Accept（`text/event-stream` / 双值 / `application/json` / `*/*`）实测全部返回 `200 {"code":0,…}`。
+**MockMvc 复现不出这条**：standalone 装配不做真实生产协商，把 `produces` 改回单值 SSE 后控制器测试仍全绿。所以这类断言只是契约文档，缺陷证明只能靠真容器。
+
 **这条必须写进对接说明**：将来前端调 #7 必须先判 `response.headers.get('content-type')`——是 `text/event-stream` 才进 SSE 解析器，是 `application/json` 就当普通错误读。否则对着 JSON 错误体跑帧解析器，表现为"静默无响应"，极难排查。
 
 ### 6.4 错误矩阵
@@ -341,6 +351,11 @@ T3 收尾（一个短事务）
 | 上游报错 / 超时 | SSE `error{UPSTREAM_MODEL_ERROR, retryable:true}` + `done{upstream}` | `status=failed`、`error_msg` 截断 255，已产出内容保留 |
 | 客户端断连 / emitter 超时 | 无（连接已断） | `status=truncated`、`stop_reason=client_disconnect`/`timeout` |
 | `finishReason=length` | `done{length}` | `status=done`、`stop_reason=length` |
+| 客户端把自己的请求体写坏了（坏 JSON / 坏编码 / `?limit=abc` / `/conversations/abc`） | `code=0, msg="请求体格式错误"` 或 `"参数格式错误: id"`，**日志只 warn** | 无 |
+| 单条消息超 `@Size(max=32000)` | `code=0, msg="参数校验失败: content 单条消息过长"` | 无（写库之前就挡掉） |
+
+> 后两行是 2026-10-24 实测补的。第一条曾经会被 catch-all 翻成"服务内部错误"并打 ERROR 堆栈，把排查方向指到服务端（段 B 取证时真被它骗过一轮：那次是 Git Bash 按 GBK 发请求体，错在调用方）。
+> `length` 一行还修掉了一个大小写缺陷，见 5.2.1 最后一条。
 
 ---
 
@@ -380,7 +395,15 @@ spring:
           stream-usage: true   # 必须显式开，否则流式末尾无 usage → usage 事件永不出现
 ```
 
-`effort → (temperature, maxTokens)` 是**单调且可断言**的真实差异，不是装饰。**一个必须实测的上游限制**：DeepSeek 对 reasoning 模型有资料称 `temperature` / `top_p` 不生效——若实测属实，那么 `modelKey=deepseek-reasoner` 时 effort 只体现为 `max_tokens` 一档差异。这是上游能力边界，要在验收清单里用真实请求记录，而不是在文档里假设它不存在。
+`effort → (temperature, maxTokens)` 是**单调且可断言**的真实差异，不是装饰。
+
+#### 7.1 这段配置在 2026-10-24 被真实请求验证到什么
+
+- **`stream-usage: true` 确实必要且生效**。不带它就没有 usage 帧；带上它，DeepSeek 兼容端点把 `{"promptTokens":10,"completionTokens":81}` 这类真值送到 `event:usage`，并原样落库（`prompt_tokens`/`completion_tokens` 非 0）。
+- **usage 只挂在最后一帧**，且 Spring AI 的兜底 metadata 让每一帧的 `getUsage()` 都非 null、值为 0/0。所以适配器必须把 0 归一为 null（`positive()`），否则中间帧会带着 0/0 活下来、被编排层当成 usage 帧发出去。
+- **`max-tokens` 真的被上游执行**：Max 档 16384 那条回答正好停在 16384 completion tokens，并回 `finish_reason=length`（Spring AI 交付成大写 `LENGTH`，见 5.2.1）。
+- **`temperature` 在 `deepseek-reasoner` 上是否被忽略：无法判定，不要写成"已证实"**。同题跑 Low/Medium/Max（1.3/1.0/0.2）三档，输出各不相同（completion 43/50/75 tokens）——但采样本身就有随机性，"输出不同"不能证明 temperature 生效，反之亦然。能确定的只有两件事：请求里带 `temperature` 上游不报错（无 400），以及 effort 在该模型上**至少**通过 `max-tokens` 起作用。
+- **reasoner 的推理内容根本到不了我们**：那条请求 `completionTokens=34` 而正文只有 3 个字符，思考部分被计入 token 却没进 `getOutput().getText()`（Spring AI 不映射 `reasoning_content`）。所以 `supports-thinking: true` 目前是一个前端无法兑现的旗子——本期不产思考链，按 5.2 的预留处理；将来要产 `thought_step`，必须去取 reasoning 字段，不能指望 `delta`。
 
 ---
 
@@ -391,40 +414,44 @@ spring:
 | 测试 | 断言 |
 |---|---|
 | `ChatStreamServiceTest` | 事件序列 = `meta → delta* → usage → done`；假上游抛错时 = `… error → done{upstream}` |
-| `ChatStreamServiceWriteCountTest` | 一次回答期间 mapper 的 update 调用次数为常数（实现 5.5 不变式） |
+| `ChatStreamWriteCountTest`（对应下文"计数测试"） | 3 帧与 3000 帧的 mapper 交互序列逐条相等 + `verifyNoMoreInteractions`（实现 5.5 不变式） |
 | `ContextAssemblerTest` | 预算截断、不撕开问答对、最新消息永不丢、超预算拒绝 |
-| `IdempotencyTest` | `clientMsgId` 命中 → 不新建用户消息、旧 assistant 转 `superseded`、计数净变化 0 |
+| 幂等（原计划叫 `IdempotencyTest`，实际落在 `ChatStreamServiceTest` 的 `retryBecomesRegenerate` 等用例里） | `clientMsgId` 命中 → 不新建用户消息、旧 assistant 转 `superseded`、计数净变化 0 |
 | `CursorCodecTest` | `(updateTime,id)` base64 往返；伪造 cursor 抛业务异常而非 SQL 异常 |
-| `ChatControllerWebTest`（MockMvc standalone） | 8 个接口校验、归属统一文案、`Result` 形状、时间字段是 number |
-| `MessageMapperIT` | 直连本地 MySQL 的**独立 schema `ezpracticeexercises_chat_it`**，`schema.sql` 建表、跑完 drop，默认跳过、`-Dchat.it=true` 才启用（参照 `dev-seed` 开关风格） |
+| `ChatConversationControllerTest` / `ChatStreamControllerTest`（MockMvc standalone） | 8 个接口校验、归属统一文案、`Result` 形状、时间字段是 number。**局限见 6.3**：standalone 不做真实内容协商 |
+| `ChatMapperDbIT`（`@Tag("db-it")`） | 直连本地 MySQL 的独立 schema `ezpracticeexercises_chat_it`，`schema.sql` 建表。**跑法与计划不同**：类名不匹配 surefire 默认 includes，必须 `mvn -pl AIModule test -Dtest=ChatMapperDbIT -Dgroups=db-it -Dsurefire.excludedGroups=`；没有 `-Dchat.it` 开关，主 `test` 阶段靠 `surefire.excludedGroups=db-it` 跳过它 |
 
 ### 8.2 手工端到端（走网关 8100）
 
 已验证可全自动打通的 token 获取链路：
 
-1. `curl http://127.0.0.1:8100/auth/captcha` → 白名单放行，返回 `{captchaKey, imageBase64Data}`（纯数字码）。
-2. 把 base64 落成 PNG，用多模态读取识别数字码。
-3. `POST /auth/login {username, password, captchaKey, captchaCode}` → token，有效期 24h。
-4. `curl -N -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{...}' http://127.0.0.1:8100/ai/chat/completions/stream` → 观察帧序列与落库。
-5. 故障注入：临时把 `spring.ai.openai.api-key` 改错并重启，制造上游 4xx，验 `error` 帧与 `status=failed`。比 mock 更接近真实。
+1. `curl http://127.0.0.1:8100/auth/captcha` → 白名单放行，返回 `{captchaKey, imageBase64}`（纯数字码）。**字段名是 `imageBase64`，不是 `imageBase64Data`**（2026-10-24 实测），值是 `data:image/png;base64,…` 前缀的整串。
+2. 把 base64 落成 PNG，用多模态读取识别数字码。dev 上还有一条等价路径：`redis-cli -n 0 GET auth:captcha:{captchaKey}` 直接拿到同一个码——**读到的必须与图片一致**（本轮两边都是 `062909`），否则就是绕过了验证码而不是识别了它。
+3. `POST /auth/login {username, password, captchaKey, captchaCode}` → `data` 是 `{userName, exp, iat, token}`，token 219 字符，有效期 24h。
+4. `curl -N -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{...}' http://127.0.0.1:8100/ai/chat/completions/stream` → 观察帧序列与落库。非 ASCII 请求体要 `--data-binary @<utf-8 文件>`（Git Bash 内联按 GBK 发出）。
+5. 故障注入：**不必改 `application.yaml`**——命令行覆盖起一个不注册进 Nacos 的诊断实例即可（`--server.port=8106 --spring.cloud.nacos.discovery.enabled=false --spring.ai.openai.api-key=sk-invalid-…`），共享配置文件零改动、零恢复动作。
 
-**前置缺口**：`users_dev` 里需要一个可用账号与密码（登录走 `passwordEncoder.matches` BCrypt）。要么用户提供现有 dev 账号，要么经同意后 SQL 插入专用测试用户。
+**前置缺口（已闭合）**：`users_dev` 的可用账号由用户提供（`test918`），未插新账号。仍然**没有第二个账号**，所以跨用户越权那条只能靠单测 + "网关覆盖 `X-User-Name`"的取证，见 8.3 末尾。
 
 ### 8.3 验收清单
 
-- [ ] `done` 收尾后库内正文与流式所见逐字一致
-- [ ] 流式期间除 T1/T3 外无任何数据库写入（由 8.1 的计数测试保证）
-- [ ] 刷新重进会话，历史完整复原；被 superseded 的旧回答不出现在流里
-- [ ] stop：状态收敛为 `truncated` / `stopped`，已产出内容保留
-- [ ] 同一 `clientMsgId` 重试不产生第二条用户消息
-- [ ] 不属于本人的 `conversationId` 在 #4/#5/#6/#7/#8 上返回同一文案"会话不存在"
-- [ ] 全程不出现 `thought_step` 事件
-- [ ] 五档 effort 解析出的 `(temperature, maxTokens)` 两两不同（单测断言），且请求体里 effort 非法时拒绝建流
-- [ ] 实测 `deepseek-reasoner` 是否忽略 `temperature`，结论写回第七节那一段（若忽略，明确 effort 在该模型上只剩 `maxTokens` 差异）
-- [ ] #1 返回的 `efforts` 数组与前端 `DEFAULT_EFFORTS` 逐字一致，`models` 项含 `key/name/tag`
-- [ ] 会话列表在无 JOIN 的情况下返回 `lastPreview`；游标翻页无重复无遗漏
-- [ ] `usage` 事件真实到达（验证 `stream-usage` 经 DeepSeek 兼容端点是否生效，实测为准）
-- [ ] 长回答经网关不断流。若被网关超时掐断，需调 Nacos `gateway.yaml` 的 `response-timeout` ——**改共享配置前先征得用户同意**
+（2026-10-24 全部经网关 8100 走过一遍，证据在 `docs/superpowers/plans/2026-10-23-ai-chat-e2e-log.md`，下面只标结论与出处。）
+
+- [x] `done` 收尾后库内正文与流式所见逐字一致 —— 81 帧 delta 拼出 138 字符，与库内 `cmp` 一致（两边 359 字节）。注意比对脚本自己要用二进制/`newline=''` 写文件，否则 Windows 会把 `\n` 变成 `\r\n` 假报不一致
+- [x] 流式期间除 T1/T3 外无任何数据库写入 —— 单测 `ChatStreamWriteCountTest`；真库侧 user 行 `update_time-create_time=0`、assistant 行的差值等于生成耗时（1574ms / 81 token）
+- [x] 刷新重进会话历史完整复原；`superseded` 的旧回答不出现 —— conv 41（18 条、含 2 条 superseded）`#6` 返回 14 条、无 superseded、升序
+- [x] stop：收敛为 `truncated`/`stopped`，已产出内容保留 —— 334 帧时 stop → `len=645`、`stop_reason=stopped`、客户端再无 `usage`/`done`；再 stop 幂等 `code=1`
+- [x] 同一 `clientMsgId` 重试不产生第二条用户消息 —— 用户消息恒为 1 条，旧助手行转 superseded，新助手行 `client_msg_id=NULL`（R15）
+- [ ] 不属于本人的 `conversationId` 在 #4/#5/#6/#7/#8 上返回同一文案 —— **只有单测覆盖**。真链路需要第二个账号，G3 只批了复用 `test918`。间接证据：段 B 实测网关**覆盖**客户端自带的 `X-User-Name`，注入路径是关的
+- [x] 全程不出现 `thought_step` 事件 —— 所有取证的帧种类只有 `meta/delta/usage/done/ping/error`
+- [x] 五档 effort 两两不同，非法档位拒绝建流 —— 单测断言；真链路 `不支持的档位: Ultra`（段 B）
+- [x] 实测 `deepseek-reasoner` 是否忽略 `temperature` —— **无法判定，已按"无法判定"写回 7.1**，同时测到一个更硬的结论：reasoning 内容压根不经过 `getOutput().getText()`
+- [x] #1 的 `efforts` 与前端 `DEFAULT_EFFORTS` 逐字一致、`models` 含 `key/name/tag` —— `['Low','Medium','High','Extra','Max']`，两个模型带 `tag`/`supportsThinking`
+- [x] 列表无 JOIN 返回 `lastPreview`；游标翻页无重复无遗漏 —— keyset 第二页（段 B）+ 本轮 `beforeId` 窗口（返回的 id 全部小于 `beforeId`）
+- [x] `usage` 事件真实到达 —— `{"promptTokens":10,"completionTokens":81}` 等，`stream-usage` 经 DeepSeek 兼容端点生效
+- [x] 长回答经网关不断流 —— 最长 44.0s / 16385 帧完整送达，**Nacos `gateway.yaml` 未改（G4 未触发）**
+- [x] 客户端断连可区分 —— `stop_reason=client_disconnect`（curl 4s 强断，`len=660` 保留）
+- [x] 上游故障 —— `error{UPSTREAM_MODEL_ERROR, retryable:true}` + `done{upstream}` + `status=failed`、`error_msg` 落库
 
 ---
 

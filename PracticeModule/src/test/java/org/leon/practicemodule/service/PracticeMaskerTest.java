@@ -119,4 +119,42 @@ class PracticeMaskerTest {
         assertTrue(json.contains("answerJson") && json.contains("analysis"),
                 "实体序列化都不含这些键，说明扫描串写错了，守卫是一条永远绿的空断言");
     }
+
+    @Test
+    @DisplayName("titleBrief：null 原样、空白折叠、20 字符内不动、超长截成 20")
+    void titleBriefCases() {
+        assertNull(PracticeMasker.titleBrief(null));
+        assertEquals("a b", PracticeMasker.titleBrief("  a \t\n b  "));
+        String twenty = "一二三四五六七八九十一二三四五六七八九十";   // 20 字（两个"一…十"）
+        assertEquals(twenty, PracticeMasker.titleBrief(twenty), "刚好 20 字不该被砍");
+        String twentyOne = twenty + "三";
+        String brief = PracticeMasker.titleBrief(twentyOne);
+        assertEquals(20, brief.length(), "截断后总长仍是 20，含省略号");
+        assertEquals("…", brief.substring(19));
+        assertEquals(twenty.substring(0, 19), brief.substring(0, 19));
+    }
+
+    @Test
+    @DisplayName("titleBrief：真库两条题干做锚点——qid 4 刚好 20 字不动，qid 6 的 21 字被截")
+    void titleBriefHitsRealData() {
+        // 实测（2026-10-24，seg3/TitleProbe.java）：七道题干长度 10~21 码点，无换行
+        String qid4 = "植物通过____作用将光能转化为化学能。";
+        String qid6 = "这是用户 alice 的私有题，正确的是？";
+        assertEquals(20, qid4.codePointCount(0, qid4.length()), "锚点数据变了，本用例要重取样本");
+        assertEquals(21, qid6.codePointCount(0, qid6.length()), "锚点数据变了，本用例要重取样本");
+        assertEquals(qid4, PracticeMasker.titleBrief(qid4), "20 字的题干原样回，不砍不该砍的");
+        String brief = PracticeMasker.titleBrief(qid6);
+        assertEquals(20, brief.length());
+        assertEquals(qid6.substring(0, 19), brief.substring(0, 19));
+        assertEquals("…", brief.substring(19));
+    }
+
+    @Test
+    @DisplayName("parseTags 转 public static 后行为不变：合法/空白/坏 JSON")
+    void parseTagsStillSafe() {
+        assertEquals(List.of("语法", "时态"), PracticeMasker.parseTags("[\"语法\",\"时态\"]"));
+        assertEquals(List.of(), PracticeMasker.parseTags(null));
+        assertEquals(List.of(), PracticeMasker.parseTags("[]"));
+        assertEquals(List.of(), PracticeMasker.parseTags("{坏"));
+    }
 }

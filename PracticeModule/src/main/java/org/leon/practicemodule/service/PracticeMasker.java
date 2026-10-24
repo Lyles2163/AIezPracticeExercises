@@ -36,7 +36,10 @@ public class PracticeMasker {
             4, "填空题",
             5, "简答题");
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    /** 列表页摘要长度：实测题干长度 10~21 码点，20 既铺得开又能逼出一例真截断（qid 6） */
+    public static final int TITLE_BRIEF_MAX = 20;
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public QuestionVO toQuestionVO(QbQuestion question, List<QbQuestionOption> options) {
         QuestionVO vo = new QuestionVO();
@@ -67,17 +70,34 @@ public class PracticeMasker {
         return out;
     }
 
-    private List<String> parseTags(String tagsJson) {
+    /** 标签解析的唯一出口：题目列表的行也用它，不在服务里再写一遍 readValue */
+    public static List<String> parseTags(String tagsJson) {
         if (tagsJson == null || tagsJson.isBlank()) {
             return List.of();
         }
         try {
-            return objectMapper.readValue(tagsJson, new TypeReference<List<String>>() {
+            return MAPPER.readValue(tagsJson, new TypeReference<List<String>>() {
             });
         } catch (Exception e) {
             // 标签是展示性数据，解析失败不能连累取题；写入方是 AIModule，改坏它不需要刷题页陪葬
             log.warn("tags_json 解析失败，按无标签返回: {}", tagsJson);
             return List.of();
         }
+    }
+
+    /**
+     * 列表页标题摘要（spec 5.2 的 titleBrief）。
+     * 先折叠空白再截断：错题本与收藏本的卡片是单行，串里的换行或多空格会把布局顶歪。
+     * （实测 2026-10-24 七道题干没有换行，折叠是针对将来录题数据的防御，不是修现有 bug。）
+     */
+    public static String titleBrief(String title) {
+        if (title == null) {
+            return null;
+        }
+        String flat = title.replaceAll("\\s+", " ").trim();
+        if (flat.length() <= TITLE_BRIEF_MAX) {
+            return flat;
+        }
+        return flat.substring(0, TITLE_BRIEF_MAX - 1) + "…";
     }
 }

@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ol>
  *   <li>列集合与 brief 实测列一一对应，且实体自身不得出现重复列名；</li>
  *   <li>qb_question 不许有 owner_id；</li>
- *   <li>七个实体都显式声明非空 {@code @TableName}（漏了会退化成按类名推导表名）；</li>
+ *   <li>九个实体都显式声明非空 {@code @TableName}（漏了会退化成按类名推导表名）；</li>
  *   <li>每个实例字段都显式标注 {@code @TableId} 或 {@code exist = true} 的 {@code @TableField}。
  *       裸字段在本测试的列集合里"看不见"，但 MyBatis-Plus 仍按驼峰转下划线把它拼进
  *       BaseMapper 的 SELECT（mapUnderscoreToCamelCase 已开启），owner_id 那类
@@ -49,14 +49,32 @@ class QbEntityColumnTest {
     }
 
     @Test
-    @DisplayName("其余六张表的列集合钉死")
+    @DisplayName("qb_paper 的 16 列钉死：structure_json 用 String 承载，不引 TypeHandler")
+    void qbPaperColumns() {
+        assertColumns(QbPaper.class, "id", "subject_id", "owner_id", "title", "exam_year",
+                "exam_month", "set_no", "duration_minutes", "total_score", "question_count",
+                "structure_json", "description", "status", "sort_order", "created_at", "updated_at");
+    }
+
+    @Test
+    @DisplayName("qb_exam_attempt 的 17 列钉死：草稿与三个快照计数都在")
+    void qbExamAttemptColumns() {
+        assertColumns(QbExamAttempt.class, "id", "user_id", "paper_id", "subject_id", "seq_no",
+                "status", "answered_json", "started_at", "deadline_at", "submit_at",
+                "duration_used_ms", "score", "correct_count", "wrong_count", "unanswered_count",
+                "created_at", "updated_at");
+    }
+
+    @Test
+    @DisplayName("其余表的列集合钉死")
     void otherTables() {
         assertColumns(QbSubject.class, "id", "name", "owner_id", "subject_key", "icon",
                 "description", "sort_order", "status", "created_at", "updated_at");
         assertColumns(QbQuestionOption.class, "id", "question_id", "option_key", "content",
                 "is_correct", "sort_order", "created_at", "updated_at");
-        assertColumns(QbUserAnswerRecord.class, "id", "user_id", "subject_id", "question_id",
-                "user_answer_json", "is_correct", "duration_ms", "answer_mode", "created_at");
+        assertColumns(QbUserAnswerRecord.class, "id", "user_id", "subject_id", "attempt_id",
+                "question_id", "user_answer_json", "is_correct", "duration_ms", "answer_mode",
+                "created_at");
         assertColumns(QbUserWrong.class, "id", "user_id", "subject_id", "question_id",
                 "wrong_count", "last_wrong_at", "status", "created_at", "updated_at");
         assertColumns(QbUserFavorite.class, "id", "user_id", "subject_id", "question_id", "created_at");
@@ -65,7 +83,7 @@ class QbEntityColumnTest {
     }
 
     @Test
-    @DisplayName("七个实体都显式声明非空 @TableName")
+    @DisplayName("九个实体都显式声明非空 @TableName")
     void everyEntityDeclaresTableName() {
         for (Class<?> entity : QbEntityColumns.qbEntities()) {
             String table = QbEntityColumns.tableNameOf(entity);
@@ -91,6 +109,8 @@ class QbEntityColumnTest {
         assertEquals(String.class, field("QbQuestion", "answerJson").getType());
         assertEquals(String.class, field("QbQuestion", "tagsJson").getType());
         assertEquals(String.class, field("QbUserAnswerRecord", "userAnswerJson").getType());
+        assertEquals(String.class, field("QbPaper", "structureJson").getType());
+        assertEquals(String.class, field("QbExamAttempt", "answeredJson").getType());
     }
 
     private static Field field(String simpleName, String fieldName) {

@@ -31,13 +31,16 @@ public final class QbEntityColumns {
     }
 
     /**
-     * 本任务交付的七个实体，顺序与 brief 的真实列表一致。
+     * 本模块交付的九个实体，顺序与 brief 的真实列表一致（段 4 追加 qb_paper、qb_exam_attempt）。
      * 单测与真库 IT 共用这一份名单，免得两边覆盖的表数漂移。
+     *
+     * <p>加一张表就自动进两条门：{@code QbEntityColumnTest} 的静态列集合断言，
+     * 和 {@code QbQuestionMapperDbIT} 与 information_schema 的**真实列**比对。
      */
     public static List<Class<?>> qbEntities() {
         return List.of(QbSubject.class, QbQuestion.class, QbQuestionOption.class,
                 QbUserAnswerRecord.class, QbUserWrong.class, QbUserFavorite.class,
-                QbUserSubjectStat.class);
+                QbUserSubjectStat.class, QbPaper.class, QbExamAttempt.class);
     }
 
     /**

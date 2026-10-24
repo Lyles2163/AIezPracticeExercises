@@ -27,6 +27,13 @@ public class QbUserAnswerRecord implements Serializable {
     @TableField("subject_id")
     private Long subjectId;
 
+    /**
+     * 考试作答ID，answer_mode=2 时非空，逻辑关联 qb_exam_attempt.id。
+     * 段 4 只把列与字段对齐（列由本段的 DDL 加上），读写都在段 5 的交卷展开里。
+     */
+    @TableField("attempt_id")
+    private Long attemptId;
+
     @TableField("question_id")
     private Long questionId;
 

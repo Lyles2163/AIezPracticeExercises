@@ -258,6 +258,13 @@ ALTER TABLE `qb_user_answer_record`
 
 `answerStatus`：`0` 未作答 / `1` 最近一次答对 / `2` 最近一次答错，由该用户该题最新一条 `qb_user_answer_record` 得出。
 
+> **段 3 更正（2026-10-24，已实施并端到端取证）**：本表有四处按实现更正。
+> 1. `answerStatus` 增加 **`3` = 待自评**。段 2 落地的 `is_correct` 是三态（`-1/0/1`），而 `0`（未作答）与 `2`（答错）都表达不了"简答题等用户自评"——并进 `2` 会让简答题答一次就在答题卡上显示"错"（与"自评那一刻才统计"矛盾），并进 `0` 会让断点反复推同一题。映射的唯一实现点是 `AnswerStatus.of`。
+> 2. `question/current` 的 `data` 除 `answerStatus`/`lastUserAnswerJson` 外，再加 **`pendingRecordId`**，并把题目字段收在嵌套的 `question`（`QuestionVO`）里，同级还有 `finished`。理由：`recordId` 原本"来自上一条响应"，可一旦刷新页面或换设备就再也拿不到，`self-judge` 在真实前端里成为不可达接口；`pendingRecordId` 是它的补捞入口。平铺会把这三个字段塞进段 5 也在用的 `QuestionVO`，而 `finished=true` 时压根没有题可平铺。
+> 3. `pendingRecordId` 只在该记录 **`answer_mode IN (1,3)`** 时非空。段 2 的自评闸门拒绝 `mode=2`，回一个注定 `40000` 的按钮比不回更糟。
+> 4. `question/current` 的 `index` 与 `question/page` 的 `index` 都是**位置序号**（本科目启用题按 `(sort_order,id)` 排到第几位），不是 `sort_order` 的值——见 6.2 的更正，`sort_order` 在科目内会重复。
+> 另外：三个列表接口（`question/page`、`wrong/page`、`favorite/page`）的 `subjectId` 必填，缺失走 5.7 的 `40000`；`wrong/page` 的 `status` 可选（`null` 全部 / `1` 未掌握 / `2` 已掌握）；`pageSize>100` 报 `40000` 而不是静默夹取（静默夹会让前端翻页游标错位且不报错）。
+
 ### 5.3 判分规则（`AnswerGrader`，两个阶段唯一口径）
 
 判分**只认 `qb_question.answer_json`**。后端**永不读** `qb_question_option.is_correct`——理由见 5.5。
@@ -359,6 +366,19 @@ SELECT MAX(q.sort_order) FROM qb_user_answer_record r
 
 取 `sort_order > 该值 AND status=1` 的最小 `sort_order` 一题；无结果即"已刷完"，返回 `{finished:true}`。《EZ刷题设计文档.md》要求的"刷题带记忆到多少题号"由此满足，代价是每次取题多一个 `MAX` 聚合——`idx_user_subject_time` 已覆盖前缀，7 题量级下无需优化。
 
+> **段 3 更正（2026-10-24，上述算法作废并证伪）**：`sort_order` **在同一科目内不唯一**——实测科目 1 的 qid 1 与 qid 6 都是 `sort_order=1`（qid 1→1、qid 6→1、qid 2→2、qid 5→3）。于是本节的算法**可证明会漏题**：用户只答过 qid 6 时 `MAX(sort_order)=1`，`sort_order > 1` 直接跳过同样未作答的 qid 1，实测该情形下旧算法给出 qid 2、新算法给出 qid 1（`QuestionReadSqlDbIT.breakpointSkipsNothingWhereOldAlgorithmSkips` 把这两个值同时钉成断言，`duplicateSortOrderIsReal` 钉住前提数据）。
+> 实现改为与排序键对齐的 `NOT EXISTS`：
+> ```sql
+> SELECT q.id FROM qb_question q
+>  WHERE q.subject_id = ? AND q.status = 1
+>    AND NOT EXISTS (SELECT 1 FROM qb_user_answer_record r
+>                    WHERE r.user_id = ? AND r.subject_id = ? AND r.question_id = q.id
+>                      AND r.answer_mode IN (1,3))
+>  ORDER BY q.sort_order, q.id LIMIT 1
+> ```
+> `answer_mode IN (1,3)` 保留本节原意（考试作答不消耗练习进度，与 7.1 同源）。注意它与 5.2 的 `answerStatus` 口径**故意不同**：状态是"我最近一次对这道题的作答"（含考试），断点是"下一个该刷的题"（不含考试）。可见后果写进段 3 计划的接缝表：考完一卷回刷题页，答题卡显示"已答"但断点仍会把这些题依次推来。
+> `mode=3` 的策略也在这里定下：先取本科目未掌握错题里 `last_wrong_at` 最早的一题（`qb_user_wrong` JOIN `qb_question` 且 `status=1`），没有候选再回落到上面的断点。
+
 ### 6.3 考试（阶段二）
 
 ```
@@ -408,6 +428,8 @@ practice:
 
 1. **`AnswerGrader` 表驱动单测**：5 种题型 × 边界——大小写、全半角、多选乱序、多选部分对算错、填空某空配数组任一命中、答案格式与题型不符报 `40000`、简答不判分。
 2. **脱敏守卫测试**（最有价值的一条）：对答题态全部接口响应做 JSON 字符串断言，不含 `isCorrect` / `answerJson` / `analysis` / `is_correct` 任一子串。这道防线保证将来有人图省事直接返回实体时测试会红。清单是 `PracticeMasker.FORBIDDEN_IN_ANSWER_STATE`（段 2 已建，含 snake_case 形态与值级哨兵断言）；**段 3 起必须把断言对象从"VO 的进程内序列化"升级为"真实响应体"**（standalone MockMvc，不违反禁 `@SpringBootTest`），否则守卫保护的是类型而不是 API。
+   > **段 3 已升级（2026-10-24）**：`AnswerStateResponseGuardTest` 用真控制器 + 真服务 + 真 `PracticeMasker` + mock mapper 对**响应字节**跑同一份清单，覆盖 `question/page`、`question/current`、`wrong/page`、`favorite/page` 四个答题态 GET；段 5 的 `exam/question`、`paper/detail` 直接往这个类里加用例，不另开测试类。两处非空转证据：① 类内 `LeakController` 直接返回 `QbQuestion` 实体，断言扫描**必须抓到** `answerJson`/`analysis`；② 两次伪阳性实测——临时给 `QuestionItemVO` 加 `answerJson`、给 `QuestionVO.OptionVO` 加 `isCorrect`，守卫分别报 `响应体泄漏了 answerJson` / `响应体泄漏了 isCorrect`（含完整报文），回滚后 165/165 绿。端到端另对 42 个真实响应文件扫过一遍，除判分响应（`submit`/`self-judge`，5.4 允许带真值）外零命中。
+   > 一处刻意的边界：`titleBrief` 的原料是 `title`，而题干本身允许外泄，所以**不把值哨兵塞进题干**去断言——那会把"题干里恰好写了这几个字"判成泄漏，是假阳性。值级哨兵只放在真值列（`answer_json`/`analysis`）和选项的 `isCorrect` 上。
 3. **交卷幂等**：同一 `attemptId` 连提两次 → `qb_user_answer_record` 行数不变、`score` 不变。用 mapper 调用次数断言（照 AI 对话"流式期间零写库"的测法）。
 4. **超时懒判**：把 `deadline_at` 改到过去 → `draft` 报 `41001`、`submit` 归档 `3` 且仍给成绩、下次 `start` 拿到新 `seq_no`。
 5. **越权**：B 用户带自己 token 请求 A 的 `attemptId` → `40300`，且 A 的数据零变化。
@@ -425,9 +447,9 @@ practice:
 
 ### 9.3 验收清单
 
-- [ ] 阶段一 9 个接口经网关返回 `code=1`，且答题态响应不含任何答案字段
-- [ ] 同一题答错两次，`wrong_count=2`；答对后 `status=2`；再答错回 `1`
-- [ ] 收藏 toggle 三次 → `favorited` 序列 `true,false,true`，表里最多 1 行
+- [x] 阶段一 9 个接口经网关返回 `code=1`，且答题态响应不含任何答案字段（**2026-10-24 段 3 完成**：`subject/list`+`answer/submit`+`self-judge`+`question/page`+`question/current`+`wrong/page`+`wrong/master`+`favorite/page`+`favorite/toggle` 全部经 8100 实跑 `code=1`；42 个响应字节扫描零命中，仅判分响应按 5.4 允许带真值。负例矩阵同时落位：缺参/越界 → `40000`，科目或题不存在 → `40400`，无 token → 网关 HTTP 401，绕网关直连 → `40100`）
+- [x] 同一题答错两次，`wrong_count=2`；答对后 `status=2`；再答错回 `1`（**段 2 已证**：`AnswerFlowDbIT` 真库 + 网关实跑；段 3 补上读侧半边：错题本 `status=1/2` 分页与 `wrong/master` 连点两次都回 `true`）
+- [x] 收藏 toggle 三次 → `favorited` 序列 `true,false,true`，表里最多 1 行（**2026-10-24 段 3 完成**：网关实跑四次得 `[true,false,true,false]`，`qb_user_favorite` 里 `user_id=10` 始终 0 或 1 行；`uk_user_question` + `ON DUPLICATE KEY UPDATE id=id` 保证并发双击不出双行）
 - [ ] 刷新页面重新 `exam/start` 同一试卷 → 返回**同一个** `attemptId`，草稿答案还在
 - [ ] 交卷后 `qb_user_answer_record` 新增 `question_count` 行、`answered_json` 为 NULL、`submitCount` 变 2
 - [ ] 连点两次提交 → 成绩与行数不变
