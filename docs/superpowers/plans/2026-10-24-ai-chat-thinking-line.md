@@ -626,7 +626,7 @@ Expected: 全绿。若还有编译错误，就是漏改的 `ChatChunk`/`TokenUsa
 - Consumes: Task 15 的 `ChatChunk` 六参形状
 - Produces: `static ChatModelGateway.ChatChunk OpenAiStreamChatModelGateway.toChunk(String dataPayload)`（`[DONE]`/全空返回 null）；`UpstreamChunk` DTO。Task 17 在同一类里加实例方法。
 
-- [ ] **Step 1: 写失败测试（全部用本轮真实录到的帧）**
+- [x] **Step 1: 写失败测试（全部用本轮真实录到的帧）**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -719,12 +719,12 @@ class UpstreamChunkParseTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=UpstreamChunkParseTest -Dsurefire.excludedGroups=`
 Expected: 编译失败 —— `UpstreamChunk` / `OpenAiStreamChatModelGateway` 不存在。
 
-- [ ] **Step 3: 写 DTO**
+- [x] **Step 3: 写 DTO**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -737,48 +737,60 @@ import java.util.List;
  * 上游一帧的原始形状。ignoreUnknown 是硬要求：DeepSeek 已经在发
  * system_fingerprint / prompt_cache_hit_tokens 这类我们没建模的字段，
  * 严格绑定就是等着某天 500。
+ *
+ * 每个字段都写显式 @JsonProperty，不用 SNAKE_CASE 命名策略：实测
+ * "命名策略 + record 隐式组件名" 的绑定只在特定属性顺序下生效 ——
+ * 真实的 usage 尾帧（prompt_tokens / completion_tokens / completion_tokens_details
+ * 三个属性）会把 completion_tokens_details 静默丢成 null，两个属性时却正常。
+ * 这种"看运气"的绑定不能留在计费字段上。
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-record UpstreamChunk(List<Choice> choices, Usage usage) {
+record UpstreamChunk(@JsonProperty("choices") List<Choice> choices,
+                     @JsonProperty("usage") Usage usage) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Choice(Delta delta, String finishReason) {
+    record Choice(@JsonProperty("delta") Delta delta,
+                  @JsonProperty("finish_reason") String finishReason) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Delta(String content, String reasoningContent) {
+    record Delta(@JsonProperty("content") String content,
+                 @JsonProperty("reasoning_content") String reasoningContent) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Usage(Integer promptTokens, Integer completionTokens, CompletionTokenDetails completionTokenDetails) {
+    record Usage(@JsonProperty("prompt_tokens") Integer promptTokens,
+                 @JsonProperty("completion_tokens") Integer completionTokens,
+                 @JsonProperty("completion_tokens_details") CompletionTokenDetails completionTokenDetails) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record CompletionTokenDetails(Integer reasoningTokens) {
+    record CompletionTokenDetails(@JsonProperty("reasoning_tokens") Integer reasoningTokens) {
     }
 }
 ```
 
-- [ ] **Step 4: 写解析核心（静态部分）**
+- [x] **Step 4: 写解析核心（静态部分）**
 
 ```java
 package org.leon.aimodule.chat.stream;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * DeepSeek 的 OpenAI 兼容端点。之所以自己读上游：Spring AI 1.0.0-M7 的
  * ChatCompletionMessage 没有 reasoning 字段，delta.reasoning_content 在 JSON
  * 绑定阶段就被丢掉（1.0.9 GA 同样没有，只有 1.1.x 有，而那要求整项目升框架）。
+ *
+ * 本任务只有静态解析部分，所以还没 implements ChatModelGateway —— Task 17 加 stream() 时一起接上。
  */
-public class OpenAiStreamChatModelGateway implements ChatModelGateway {
+public class OpenAiStreamChatModelGateway {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
-            .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     static ChatModelGateway.ChatChunk toChunk(String dataPayload) {
@@ -837,19 +849,21 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
 }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=UpstreamChunkParseTest -Dsurefire.excludedGroups=`
 Expected: 8/8 绿。
 
-- [ ] **Step 6: 变异取证**
+- [x] **Step 6: 变异取证**
 
 1. 把 `positive()` 换成直接取值（回到 R11 前的写法）→ 只有 `zeroUsageDropped` 红。
 2. 把 `lower()` 改成原样返回 → 只有 `finishReasonLowerCased` 红（这就是 R17 的哨兵）。
-3. 把 `@JsonIgnoreProperties` 与 `FAIL_ON_UNKNOWN_PROPERTIES=false` 同时去掉 → 只有 `unknownFieldsIgnored` 红。
+3. 把 `@JsonIgnoreProperties` 与 `FAIL_ON_UNKNOWN_PROPERTIES=false` 同时去掉 → 实测 **6 条 error**（原计划只预测 `unknownFieldsIgnored` 1 条红，低估了：真实帧满是未建模字段，严格绑定后连 `contentFrame` 都解析不出来）。
+4. （执行期自补，配套上面的显式 `@JsonProperty` 修复）把 `@JsonProperty("completion_tokens_details")` 改成单数 → 恰好 `finishFrameCarriesUsage` 1 条红，失败信息与修复前一致。
+5. （执行期自补）两道 ignoreUnknown 守护**拆开各摘一次** → 各自单独都 8/8 绿，即两道各就够用、同时保留是纵深防御；正因如此，删掉其中一道不会被测试发现，这条结论必须留在文档里。
 恢复，`grep -rn MUTATION AIModule/src/` 为 0。
 
-- [ ] **检查点**：全模块绿。
+- [x] **检查点**：全模块绿。
 
 ---
 
@@ -1655,3 +1669,35 @@ JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai
   - 恢复后 `grep -rn MUTATION AIModule/src/` = 0。
 - 遗留（按计划属 Task 18）：假 sink 的 `default -> {}` 仍会吞掉 `thought_step`/`thought_end`，所以现在还没有"编排层发出思考帧"的用例。
 - **与计划的偏差 1 处**：`text`/`finish` helper 实际是 `private static`（计划写成 `private`），按现状改参。
+
+### Task 16 上游帧 → `ChatChunk` 的纯映射 — 完成
+- RED：类不存在 → 9 处编译错误。
+- **计划 Step 4 的 mapper 设计被真实录制帧证伪**（这是本任务最重要的一条记录）：
+  计划写的是 `new ObjectMapper().setPropertyNamingStrategy(SNAKE_CASE)` + record 组件靠隐式名匹配。
+  照抄后 `finishFrameCarriesUsage` 红：`expected: <63> but was: <null>` —— `reasoning_tokens` 被静默丢掉。
+  用一次性探针类（跑完即删）扫出规律：**同一份 JSON，属性顺序决定能不能绑上** ——
+  `prompt_tokens + completion_token_details`（2 个属性）能绑，
+  `prompt_tokens + completion_tokens + completion_tokens_details`（真实尾帧的 3 个属性）绑不上，
+  单独一个 details 也绑不上；直接 `readValue(..., Usage.class)` 反而能绑。
+  即"命名策略 + record 隐式组件名"的绑定是不确定的，绝不能留在计费字段上。
+  → 改为**每个组件显式 `@JsonProperty("snake_case 原名")`，并去掉 SNAKE_CASE 策略**。
+  这条改动的可证伪性由变异 4 证明（见下）。Global Constraints 第 5 条"测试必须用真实录制帧"就是它救回来的。
+- GREEN：`UpstreamChunkParseTest` 8/8；全模块 `clean test` **169/169**（161 + 8）。
+- 变异取证（计划 3 条 + 自补 3 条）：
+  1. `positive()` 换成直接取值 → 恰好 `zeroUsageDropped` 1 条红（与计划一致）。
+  2. `lower()` 原样返回 → 恰好 `finishReasonLowerCased` 1 条红（与计划一致，R17 哨兵）。
+  3. **`@JsonIgnoreProperties` 与 `FAIL_ON_UNKNOWN_PROPERTIES=false` 同时摘掉 → 6 条 error，不是计划预测的 1 条红**：
+     真实帧带着我们没建模的 `id/object/created/model/system_fingerprint/index/logprobs`，严格绑定后几乎所有用例都在解析阶段抛。
+     这道守护的作用被计划低估了。
+  4. （自补，证伪上面的修复）`@JsonProperty("completion_tokens_details")` 改成单数 `completion_token_details`
+     → 恰好 `finishFrameCarriesUsage` 1 条红，且失败信息与修复前完全相同（`expected: <63> but was: <null>`）
+     —— 说明显式名字就是那条绑定规则的载体。
+  5. （自补，拆开计划第 3 条的两道守护）**只摘 DTO 注解、保留 mapper configure** → 8/8 绿。
+  6. （自补）**只摘 mapper configure、保留 DTO 注解** → 8/8 绿。
+     结论：两道守护**各自单独就够用**，同时保留是纵深防御（上游加字段不受我们控制，spec §4.3 要求的就是这个）；
+     只有两道全摘才会崩，所以谁删一道都不会被测试立刻发现 —— 这一点必须写在这里，而不是留给下个人踩。
+- 恢复后 `grep -rn MUTATION AIModule/src/` = 0。
+- **与计划的偏差 2 处**：
+  1. 本任务的新类**没有 `implements ChatModelGateway`** —— 接口要求 `stream()`，而 `stream()` 是 Task 17 的内容，
+     留一个 `throw new UnsupportedOperationException()` 的占位实现是半成品。Task 17 加 `stream()` 时一起接上并删掉类注释里这句说明。
+  2. mapper 的绑定方式改为显式 `@JsonProperty`（上面已详述），计划的 SNAKE_CASE 写法不采用。
