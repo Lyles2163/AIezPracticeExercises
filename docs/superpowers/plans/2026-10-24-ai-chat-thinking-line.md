@@ -880,7 +880,7 @@ Expected: 8/8 绿。
   - `OpenAiStreamChatModelGateway(ChatProperties props, ObjectMapper mapper)` 上的 `Flux<ChatChunk> stream(List<CtxMessage>, ModelParams)`（`@Component`，取代旧实现成为唯一 `ChatModelGateway` bean —— 旧 bean 在 Task 19 才删，所以**本任务先给旧实现加 `@ConditionalOnMissingBean` 式让位是不允许的**：改为在测试里手工构造本类，Spring 装配到 Task 19 一次切换）
   - `UpstreamStatusException(int status, String message)`，`public int status()`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -1071,12 +1071,12 @@ class OpenAiStreamChatModelGatewayTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=OpenAiStreamChatModelGatewayTest -Dsurefire.excludedGroups=`
 Expected: 编译失败 —— `setBaseUrlForTest` / `getApiKey` / `UpstreamStatusException` 不存在。
 
-- [ ] **Step 3: 加 `chat.api-key` 与 `chat.base-url` 到配置**
+- [x] **Step 3: 加 `chat.api-key` 与 `chat.base-url` 到配置**
 
 `ChatProperties.java` 追加（值由 yaml 从 `spring.ai.openai.*` 引过来，保持"key 只有一个真相源"）：
 
@@ -1094,7 +1094,7 @@ Expected: 编译失败 —— `setBaseUrlForTest` / `getApiKey` / `UpstreamStatu
   base-url: ${spring.ai.openai.base-url:https://api.deepseek.com}
 ```
 
-- [ ] **Step 4: 写 `UpstreamStatusException`**
+- [x] **Step 4: 写 `UpstreamStatusException`**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -1115,7 +1115,7 @@ public class UpstreamStatusException extends RuntimeException {
 }
 ```
 
-- [ ] **Step 5: 写实例部分**
+- [x] **Step 5: 写实例部分**
 
 `OpenAiStreamChatModelGateway` 追加（构造 + 请求 + 解码 + 超时 + 错误映射）：
 
@@ -1125,9 +1125,14 @@ public class UpstreamStatusException extends RuntimeException {
 
     public OpenAiStreamChatModelGateway(ChatProperties props, ObjectMapper mapper) {
         this.props = props;
+        this.requestMapper = mapper;
+        // 非 2xx 分支要把错误体读进内存才知道 status 之外的信息，所以放开缓冲上限。
+        ExchangeStrategies strategies = ExchangeStrategies.builder()
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(256 * 1024))
+                .build();
         this.webClient = WebClient.builder()
                 .baseUrl(props.getBaseUrl())
-                .codec(c -> c.defaultCodecs().maxInMemorySize(256 * 1024))
+                .exchangeStrategies(strategies)
                 .build();
     }
 
@@ -1195,18 +1200,18 @@ public class UpstreamStatusException extends RuntimeException {
 
 需要 `import`：`WebClient`、`ServerSentEvent`、`ParameterizedTypeReference`、`HttpHeaders`、`MediaType`、`Duration`、`LinkedHashMap`、`Map`、`List`。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest='OpenAiStreamChatModelGatewayTest,UpstreamChunkParseTest' -Dsurefire.excludedGroups=`
 Expected: 13/13 绿（本类 5 条 + Task 16 的 8 条）。
 
-- [ ] **Step 7: 变异取证**
+- [x] **Step 7: 变异取证**
 
 1. 把 `.timeout(...)` 去掉 → 只有 `idleTimeoutFires` 红（它会挂到 block 的 10s 上限，注意别把它误判成"环境慢"）。
 2. 把 `exchangeToFlux` 里的非 2xx 分支改成 `retrieve()`（丢 status）→ `unauthorizedMapsToStatusException` 红。
 3. 把 `chunkSize` 从 7 改成整块写（改测试）→ `streamsRecordedFramesWithTornChunks` 仍绿，说明它没在测半帧拼接 —— **这条要如实记进报告**：半帧拼接的实际守护者是 spring-webflux 的解码器，不是我们的代码，所以我们不为它写"看起来在测"的用例。
 
-- [ ] **检查点**：全模块绿。
+- [x] **检查点**：全模块绿。
 
 ---
 
@@ -1701,3 +1706,34 @@ JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai
   1. 本任务的新类**没有 `implements ChatModelGateway`** —— 接口要求 `stream()`，而 `stream()` 是 Task 17 的内容，
      留一个 `throw new UnsupportedOperationException()` 的占位实现是半成品。Task 17 加 `stream()` 时一起接上并删掉类注释里这句说明。
   2. mapper 的绑定方式改为显式 `@JsonProperty`（上面已详述），计划的 SNAKE_CASE 写法不采用。
+
+### Task 17 `WebClient` 接线 — 完成（两个执行期未知项都落定）
+- RED：缺 `setApiKey`/`getApiKey`/`UpstreamStatusException`/构造器/`stream`/`setBaseUrlForTest` → 9 处编译错误。
+- **未知项①：没有 reactor-netty 时 `WebClient` 能不能跑？** 能，且是真凭据：
+  `mvn -pl AIModule dependency:list | grep -c reactor-netty` = **0**，而 `requestShape` 用 JDK `HttpServer`
+  收到了真实的 POST（断言了请求体的 `"stream":true`、`"stream_options"`、`"include_usage":true`、
+  `"model":"deepseek-reasoner"`、`"max_tokens":4096` 与 `Authorization: Bearer …`）。
+  即 Spring 6.1 的连接器回落确实走 JDK HttpClient，**零新增依赖成立，不需要问用户要不要加 webflux starter**。
+- **未知项②：`ServerSentEvent` 解码器扛不扛得住 7 字节撕裂？** 扛得住：
+  `streamsRecordedFramesWithTornChunks` 把 90 帧 + `[DONE]` 以 7 字节/片写出，得到 90 个 chunk、
+  顺序与尾帧 `reasoningTokens=63` 全对。
+- GREEN：本类 5/5、Task 16 的 8/8；全模块 `clean test` **174/174**（169 + 5）。
+- 顺带的装配取证：`AiModuleApplicationTests`（`@SpringBootTest`）在同一轮里绿，
+  说明 `chat.api-key: ${spring.ai.openai.api-key:}` 与 `chat.base-url` 的 yaml 占位符能被绑定，
+  且此刻容器里只有 `SpringAiChatModelGateway` 一个 `ChatModelGateway` bean（新类还没加 `@Component`，按计划留给 Task 19）。
+- 变异取证：
+  1. 去掉 `.timeout(...)` → 恰好 `idleTimeoutFires` 1 条红（与计划一致；红的方式是 `cause()` 里
+     "期望抛错，但流正常结束"→"异常链里没有 TimeoutException"，不是挂死，别误判成环境慢）。
+  2. 非 2xx 分支丢掉 status（`UpstreamStatusException(0, …)`）→ **2 条红**（`unauthorizedMapsToStatusException`、
+     `serverErrorKeepsStatus`），计划只预测 1 条：因为 status 有两条用例在断言，这是好事。
+  3. 把 `chunkSize` 从 7 改成整块写 → **仍 5/5 绿**。如实记录：这条用例并不"自己"守护半帧拼接，
+     真正的守护者是 spring-webflux 的 `ServerSentEventHttpMessageReader`；把 7 留在测试里是为了
+     万一上游/容器改成一次 write 全部字节时能早点暴露，不是宣称它测了拼接逻辑。
+- 恢复后 `grep -rn MUTATION AIModule/src/` = 0。
+- **与计划的偏差 3 处**：
+  1. 请求体改成**用注入的 `ObjectMapper` 先序列化再 `bodyValue(String)`**（计划是让 WebClient 自己编码 Map）。
+     理由：构造器既然收了 `mapper` 就必须真的用上，否则那是个假参数；同时请求与响应用同一个 mapper，形状更可控。
+  2. `prependSystem(...)` 那种"先 put 再 cast 再 put"的写法改成 `toWireMessages(...)` 一次构造，
+     省掉 `@SuppressWarnings("unchecked")`；system 仍排在 messages 第一位，与上一期 `ChatClient.system()` 的线上形状一致。
+  3. 计划 Step 5 的 `.codec(c -> c.defaultCodecs()...)` 在 spring-webflux 6.1.5 上不存在该方法，
+     实际用 `ExchangeStrategies.builder().codecs(cfg -> cfg.defaultCodecs().maxInMemorySize(256*1024)).build()`。

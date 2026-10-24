@@ -111,6 +111,10 @@ chat:
   stream-max-threads: 16
   heartbeat-interval-seconds: 15
   stale-stream-reap-minutes: 5
+  # 值直接引用 spring.ai.openai.*：API key 的唯一真相源仍是 config/local.properties
+  # 里的 EZ_DEEPSEEK_API_KEY。不新增第二个键，免得两处能配得不一样。
+  api-key: ${spring.ai.openai.api-key:}
+  base-url: ${spring.ai.openai.base-url:https://api.deepseek.com}
   thinking-enabled: true
   thinking-max-step-chars: 120
   thinking-max-steps: 12

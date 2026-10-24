@@ -28,6 +28,10 @@ public class ChatProperties {
     private int heartbeatIntervalSeconds = 15;
     private int staleStreamReapMinutes = 5;
 
+    /** 上游 HTTP 直连参数。值由 yaml 从 spring.ai.openai.* 引过来，key 只有一个真相源。 */
+    private String apiKey = "";
+    private String baseUrl = "https://api.deepseek.com";
+
     private boolean thinkingEnabled = true;
     private int thinkingMaxStepChars = 120;
     private int thinkingMaxSteps = 12;
