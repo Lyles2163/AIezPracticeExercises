@@ -28,6 +28,19 @@ public class ChatProperties {
     private int heartbeatIntervalSeconds = 15;
     private int staleStreamReapMinutes = 5;
 
+    private boolean thinkingEnabled = true;
+    private int thinkingMaxStepChars = 120;
+    private int thinkingMaxSteps = 12;
+    private int upstreamIdleTimeoutSeconds = 60;
+
+    /**
+     * 能力上报的唯一口径。上一期留过"报 true 却永远发不出内容"的空头旗子，
+     * 所以 #1、meta、以及要不要喂 splitter 都必须问这里，不许各算各的。
+     */
+    public boolean thinkingSupported(boolean modelFlag) {
+        return thinkingEnabled && modelFlag;
+    }
+
     public Model model(String key) {
         if (key == null) {
             return null;

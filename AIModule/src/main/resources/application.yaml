@@ -18,9 +18,10 @@ spring:
       base-url: https://api.deepseek.com  # DeepSeek 的 OpenAI 兼容地址
       chat:
         options:
+          # 遗留演示接口 GET /ai/chat（AiChatController）用 ChatClient 且不显式指定 model，
+          # 这行是它唯一的模型来源 —— 删了会静默弄坏一个不相干的接口。
+          # temperature / stream-usage 已删除：chat 子系统不再走 ChatClient。
           model: deepseek-chat
-          temperature: 0.7
-          stream-usage: true
       embedding:
         # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek
         api-key: ${DASHSCOPE_API_KEY:}
@@ -110,6 +111,10 @@ chat:
   stream-max-threads: 16
   heartbeat-interval-seconds: 15
   stale-stream-reap-minutes: 5
+  thinking-enabled: true
+  thinking-max-step-chars: 120
+  thinking-max-steps: 12
+  upstream-idle-timeout-seconds: 60
 
 
 mybatis:

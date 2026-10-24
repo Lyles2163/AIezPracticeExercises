@@ -41,7 +41,8 @@ public class ConversationService {
         return new ModelCatalogVo(props.getDefaultModel(), props.getDefaultEffort(),
                 props.getEfforts().stream().map(ChatProperties.Effort::getKey).toList(),
                 props.getModels().stream()
-                        .map(m -> new ModelVo(m.getKey(), m.getName(), m.getTag(), m.isSupportsThinking()))
+                        .map(m -> new ModelVo(m.getKey(), m.getName(), m.getTag(),
+                                props.thinkingSupported(m.isSupportsThinking())))
                         .toList());
     }
 

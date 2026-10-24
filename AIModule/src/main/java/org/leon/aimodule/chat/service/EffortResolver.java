@@ -31,6 +31,6 @@ public class EffortResolver {
             throw new ChatRejectException("不支持的档位: " + ek);
         }
         return new ModelParams(model.getKey(), level.getTemperature(), level.getMaxTokens(),
-                model.isSupportsThinking());
+                props.thinkingSupported(model.isSupportsThinking()));
     }
 }

@@ -64,7 +64,7 @@
 - Consumes: 无（本任务是地基）
 - Produces: `boolean ChatProperties.isThinkingEnabled()`、`int ChatProperties.getThinkingMaxStepChars()`、`int ChatProperties.getThinkingMaxSteps()`、`int ChatProperties.getUpstreamIdleTimeoutSeconds()`、`boolean ChatProperties.thinkingSupported(boolean modelFlag)`。Task 14 用中间两个，Task 17 用第四个，Task 18 用 `thinkingSupported` 决定要不要喂 splitter。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```java
 package org.leon.aimodule.chat.config;
@@ -138,12 +138,12 @@ class ChatPropertiesThinkingTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=ChatPropertiesThinkingTest -Dsurefire.excludedGroups=`
 Expected: 编译失败 —— `isThinkingEnabled()` / `thinkingSupported(boolean)` 不存在。
 
-- [ ] **Step 3: 加配置字段与单一口径**
+- [x] **Step 3: 加配置字段与单一口径**
 
 `ChatProperties.java`，在 `private int staleStreamReapMinutes = 5;` 之后追加（类上是 `@Data`，getter/setter 由 lombok 生成）：
 
@@ -162,7 +162,7 @@ Expected: 编译失败 —— `isThinkingEnabled()` / `thinkingSupported(boolean
     }
 ```
 
-- [ ] **Step 4: 两处上报改走口径**
+- [x] **Step 4: 两处上报改走口径**
 
 `ConversationService.java:44`：
 
@@ -178,7 +178,7 @@ Expected: 编译失败 —— `isThinkingEnabled()` / `thinkingSupported(boolean
                 props.thinkingSupported(model.isSupportsThinking()));
 ```
 
-- [ ] **Step 5: yaml 增删**
+- [x] **Step 5: yaml 增删**
 
 `chat:` 段 `stale-stream-reap-minutes: 5` 之后加：
 
@@ -200,16 +200,16 @@ Expected: 编译失败 —— `isThinkingEnabled()` / `thinkingSupported(boolean
           model: deepseek-chat
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest='ChatPropertiesThinkingTest,ConversationServiceTest,EffortResolverTest' -Dsurefire.excludedGroups=`
 Expected: 全绿。若 `ConversationServiceTest` 里 `#1` 的断言依赖 `supportsThinking` 原值，它会继续绿（默认开关为 true）—— 这正是"默认行为不变"的证据。
 
-- [ ] **Step 7: 变异取证**
+- [x] **Step 7: 变异取证**
 
 把 `thinkingSupported` 改成 `return modelFlag;`（摘掉全局开关），跑本测试 → 期望 `thinkingSupportedIsAnd` 与 `resolverUsesTheSameGate` 两条红。恢复，确认 `grep -rn MUTATION AIModule/src/` 为 0。
 
-- [ ] **检查点**：全模块 `clean test` 绿；把结果行数报给用户（不提交）。
+- [x] **检查点**：全模块 `clean test` 绿；把结果行数报给用户（不提交）。
 
 ---
 
@@ -223,7 +223,7 @@ Expected: 全绿。若 `ConversationServiceTest` 里 `#1` 的断言依赖 `suppo
 - Consumes: 无
 - Produces: `new ReasoningSentenceSplitter(int maxStepChars, int maxSteps)`、`List<String> feed(String piece)`、`List<String> flush()`。Task 18 的 `ThinkingTracker` 是唯一调用方。
 
-- [ ] **Step 1: 写失败测试（表驱动，覆盖 spec §4.6 全部十条）**
+- [x] **Step 1: 写失败测试（表驱动，覆盖 spec §4.6 全部十条 + 执行期补的第 11 条跨帧用例）**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -273,6 +273,17 @@ class ReasoningSentenceSplitterTest {
     void doesNotSplitOnDecimal() {
         assertEquals("[The value is 1.5 meters.][Shown here.]",
                 feedAll(s(), "The value is 1.5 meters", ". ", "Shown here", ". "));
+    }
+
+    @Test
+    @DisplayName("小数点跨帧到达：句末点号落在分片末尾时必须等下一帧再判")
+    void trailingPeriodWaitsForNextPiece() {
+        // 上游按 token 吐，"…1" / "." / "5 meters" 三帧把一个小数劈开是真实形状。
+        // 若分片末尾的 '.' 被当成已确认的边界，这里就会切出 "The value is 1." 这种半句。
+        // 摘掉"末尾点号要等下一个字符"这条规则时，只有这条用例会红 ——
+        // 其余用例都把点号放在分片中间，看不出时机差异。
+        assertEquals("[The value is 1.5 meters.]",
+                feedAll(s(), "The value is 1", ".", "5 meters", ". "));
     }
 
     @Test
@@ -343,12 +354,12 @@ class ReasoningSentenceSplitterTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=ReasoningSentenceSplitterTest -Dsurefire.excludedGroups=`
 Expected: 编译失败 —— 类不存在。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -393,7 +404,8 @@ public final class ReasoningSentenceSplitter {
         }
         while (!saturated && buf.length() >= maxStepChars) {
             int force = forceCutIndex();
-            emit(out, buf.substring(0, force));
+            // 强切是"我知道句子还没完"，所以补省略号；自然边界不补。
+            emit(out, buf.substring(0, force) + ELLIPSIS);
             buf.delete(0, force);
         }
         return out;
@@ -466,19 +478,24 @@ public final class ReasoningSentenceSplitter {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=ReasoningSentenceSplitterTest -Dsurefire.excludedGroups=`
-Expected: 10/10 绿。
+Expected: 12/12 绿。
 
-- [ ] **Step 5: 变异取证（三条，逐条做）**
+- [x] **Step 5: 变异取证（三条，逐条做）**
 
-1. 把 lookahead 摘掉（`if (i + 1 == buf.length()) return i + 1;`）→ **只有** `doesNotSplitOnDecimalOrAbbreviation` 红。若还有别的红，说明用例互相耦合，报告出来。
-2. 把 `flush()` 里的 `buf.setLength(0)` 去掉 → 只有 `flushIsIdempotent` 红。
-3. 把 `saturated` 的置位去掉 → 只有 `saturatesAtMaxSteps` 红。
+1. lookahead 规则里有**两个独立守护**，本计划原先把它们当成一个，写错了预测：
+   - **1a｜句末点号在缓冲区末尾时要等下一帧**（`if (i + 1 == buf.length()) return -1;` 改成 `return i + 1;`）。
+     实测**变异存活** —— 11 条用例全绿。原因：`feedAll` 把所有步骤拼成一个串，而 1a 只是把某一步的产出时机从"本次 feed 末尾"挪到"下次 feed 开头"，聚合串不变。
+     这是一次真实的用例缺口，不是实现有问题 → **补第 12 条用例** `trailingPeriodWaitsForNextPiece`（`"The value is 1"` + `"."` + `"5 meters"` + `". "` 三帧劈开一个小数），补完后重做 1a：**恰好 1 条红**，失败信息 `expected: <[The value is 1.5 meters.]> but was: <[The value is 1.][5 meters.]>` 正是这条规则要防的危害。
+   - **1b｜后随字符不是空白/标点就不算边界**（整个 LATIN 分支无条件 `return i + 1;`）。
+     实测 **3 条红**：`doesNotSplitOnDecimal`、`abbreviationSplitsAreAccepted`、`trailingPeriodWaitsForNextPiece`。原计划写的"两条红"漏算了新用例。
+2. 把 `flush()` 里的 `buf.setLength(0)` 去掉 → 实测**恰好 `flushIsIdempotent` 1 条红**。
+3. 把 `saturated` 的置位去掉 → 实测**恰好 `saturatesAtMaxSteps` 1 条红**。
 全部恢复后 `grep -rn MUTATION AIModule/src/` 为 0。
 
-- [ ] **检查点**：`"$MVN" -pl AIModule clean test` 全绿（此时新类还没人用，属正常）。
+- [x] **检查点**：`"$MVN" -pl AIModule clean test` 全绿（此时新类还没人用，属正常）。
 
 ---
 
@@ -1556,7 +1573,7 @@ Expected: 0 处引用（有就先改）。
 "$MVN" -pl AIModule clean test
 "$MVN" -pl AIModule test -Dtest=ChatMapperDbIT -Dgroups=db-it -Dsurefire.excludedGroups=
 ```
-Expected: 单测全绿，总数 **170** 条 = 现有 144 + 本计划新增 34（Task 13 三、14 十、15 二、16 八、17 五、18 六）− 随旧网关一起删除的 8 条。**如果实际数对不上，先搞清楚少了哪条或多哪条再往下走**，不要改期望值凑绿。IT 仍 8/8。
+Expected: 单测全绿，总数 **172** 条 = 现有 144 + 本计划新增 36（Task 13 三、14 十二、15 二、16 八、17 五、18 六）− 随旧网关一起删除的 8 条。**如果实际数对不上，先搞清楚少了哪条或多哪条再往下走**，不要改期望值凑绿。IT 仍 8/8。
 
 - [ ] **Step 4: 真上游取证（会计费，够用即止）**
 
@@ -1590,9 +1607,35 @@ JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai
 
 ---
 
-## 自审结论（写完后回看 spec）
+## 自审结论（写完后回看 spec 与本计划）
 
 - **覆盖**：spec §4.1→Task 13/15/19；§4.2→Task 17 Step 3/5；§4.3→Task 16；§4.4→Task 17 Step 5 + Task 18 Step 6；§4.5→Task 15；§4.6→Task 14；§4.7→Task 18；§4.8→Task 13；§7.1→各任务的测试与变异步骤 + Task 19 Step 3/5。§5（前端）按约定属 F 段，不在本计划。
-- **计划纠正了 spec 一处**：`spring.ai.openai.chat.options.model` 不能删（遗留 `GET /ai/chat` 依赖），已回写 spec §4.1/§4.2。
-- **新增到计划的 spec 未写明项**：`chat.api-key`/`chat.base-url` 两个配置键（spec 只说"复用 `spring.ai.openai.*`"，落地方式是 yaml 里用 `${spring.ai.openai.…}` 引用，保持单一真相源）；`UpstreamStatusException` 这个类型（spec 只说"按状态判定 retryable"，没说状态怎么跨层传递）。
-- **类型一致性**：`ChatChunk` 六参、`TokenUsage` 三参、`ThinkingTracker` 方法名在 Task 14/15/16/17/18 之间已互相对齐。
+- **计划纠正了 spec 一处**：`spring.ai.openai.chat.options.model` 不能删（遗留 `GET /ai/chat` 的 `AiChatController` 不显式指定 model，那行是它唯一来源），已回写 spec §4.1/§4.2。
+- **计划新增而 spec 未点名的东西**：`chat.api-key`/`chat.base-url` 两个配置键（spec 只说"复用 `spring.ai.openai.*`"，落地方式是 yaml 里用 `${spring.ai.openai.…}` 引用，保持单一真相源）；`UpstreamStatusException` 这个类型（spec 只说"按状态判定 retryable"，没说 status 怎么跨层传）。
+- **自审实际抓出并修掉的计划错误**（都是"照抄会编译不过或假绿"级别）：
+  1. Task 15 的断言原本用 `frames.toString()`，而 `SseChannelTest.frames` 是 `List<String>` → 跨帧 `contains` 会因 `", "` 分隔而假失败。改成按下标断言，并补上"改 `emitsAllEventKinds` 的 size 断言"这一步。
+  2. Task 18 的思考相用例原本全用 `prepareNormal()`（`deepseek-chat`，`supportsThinking=false`）→ tracker 关着，**用例会因为"什么都不发"而假绿**。补了 Step 0：注册 reasoner 模型 + `prepareThinking()`，并说明为什么必须这样。
+  3. Task 18 的"思考不落库"哨兵原本写成往 `ChatStreamWriteCountTest` 里加一条独立用例，但那个类没有 `repo`/`service` 字段（全在 `interactions(int)` 里）→ 照抄编译不过。改成把 reasoning 混进既有的帧流，并把 `interactions(int)` 拆成 `(int, String modelKey)`，**否则哨兵测的是 tracker 关着的状态**。
+  4. Task 17 的异常断言原本 `assertThrows`/裸 instanceof，但 `block()` 会把 checked 的 `TimeoutException` 包进 `ReactiveException` → 会红得让人误判实现错。改成顺着 cause 链找的 `cause(Class)` helper。
+  5. Task 14 的切句期望值有四处与规则不自洽（边界标点该不该留在句内、`"a."` 单独喂因 lookahead 不切、强切没标省略号、`e.g.` 用例算错），已按 `findBoundary` 的两条规则逐条手推重写，并把"缩写会提前断句"从"我以为不切"改成**显式接受的用例**。
+- **仍是推测、要到执行时才知道的东西**：`WebClient` 在没有 reactor-netty 时是否真能走 JDK `HttpClient` 请求工厂（Spring 6.1 支持，但 Task 17 Step 6 第一次跑就是它的取证点）；`ServerSentEvent` 解码器对"7 字节一片"的撕裂是否真的无损（同上）。这两条若失败，**升级路径是加 `spring-boot-starter-webflux` 依赖 —— 那属于新增依赖，必须先问用户**，不许自己加。
+
+---
+
+## 执行记录（逐任务回填）
+
+### Task 13 配置项与能力上报单一口径 — 完成
+- RED：`ChatPropertiesThinkingTest` 编译失败，缺的正是 6 个符号（`setThinkingEnabled`/`isThinkingEnabled`/`getThinkingMaxStepChars`/`getThinkingMaxSteps`/`getUpstreamIdleTimeoutSeconds`/`thinkingSupported`）。
+- GREEN：17 条 = 新增 3 + `ConversationServiceTest` 10 + `EffortResolverTest` 4。后两个类**未改一行仍绿**，这就是"默认行为不变"的证据（全局开关默认 true）。
+- 变异：`thinkingSupported` 改成 `return modelFlag;` → 恰好 `thinkingSupportedIsAnd` 与 `resolverUsesTheSameGate` 2 条红，恢复后 `grep MUTATION` = 0。
+- 单一口径取证：`grep -rn supportsThinking AIModule/src/main` 只剩 `ChatProperties`（定义）、两处 `props.thinkingSupported(...)`、`ModelParams`/`ChatEvent.Meta`/`ModelVo` 的字段声明，以及 `ChatStreamService:197` 的 `params.supportsThinking()` —— meta 帧经 `ModelParams` 走同一口径，没有第二处计算点。
+- 全模块 `clean test` 147/147（原 144 + 3）。
+- yaml：删 `spring.ai.openai.chat.options.temperature` 与 `stream-usage`；`model: deepseek-chat` 保留并写明"遗留 `GET /ai/chat` 唯一的模型来源"。`chat.api-key`/`chat.base-url` 按计划留到 Task 17。
+- **与计划的偏差 1 处**：测试文件省略了计划里的 `import org.leon.aimodule.chat.service.CtxMessage;` —— 该类型在本测试中未被使用，留着是无效 import。
+
+### Task 14 `ReasoningSentenceSplitter` — 完成
+- RED：类不存在 → 编译失败。
+- GREEN：12/12 一次通过。11 条期望值在写测试前全部按 `findBoundary` 的两条规则手推过（含 `truncatesOverlongSentence` 走强切分支再 `clean` 截断到 10 字符这条最容易算错的路径）。
+- **变异 1a 存活** —— 本计划 Task 14 Step 5 的第一条预测被证伪：`if (i + 1 == buf.length()) return i + 1;` 摘掉后 11 条用例全绿，因为 `feedAll` 把步骤聚合成一个串，而 1a 只改变了产出时机。这是**用例缺口**而非实现缺陷，补 `trailingPeriodWaitsForNextPiece`（三帧劈开一个小数）后重做：恰好 1 条红，失败信息 `expected: <[The value is 1.5 meters.]> but was: <[The value is 1.][5 meters.]>` 正是该规则要防的危害。
+- 变异 1b（LATIN 分支无条件切）→ 3 条红：`doesNotSplitOnDecimal`、`abbreviationSplitsAreAccepted`、`trailingPeriodWaitsForNextPiece`。变异 2（flush 不清 buf）→ 恰好 `flushIsIdempotent` 1 条红。变异 3（去掉 `saturated` 置位）→ 恰好 `saturatesAtMaxSteps` 1 条红。恢复后 `grep -rn MUTATION AIModule/src/` = 0。
+- 全模块 `clean test` 159/159（147 + 12）。新类暂无生产调用方（Task 18 才接线），属计划预期。
