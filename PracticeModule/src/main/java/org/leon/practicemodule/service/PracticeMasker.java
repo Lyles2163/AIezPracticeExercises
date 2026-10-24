@@ -21,6 +21,14 @@ import java.util.Map;
 @Service
 public class PracticeMasker {
 
+    /**
+     * 答题态禁止外泄的字段名（spec 5.4）。段 3 的 question/current、question/page 与段 5 的
+     * exam/question 对**真实响应体**跑同一份清单——不要再各写一套，那样防线会随分段散落。
+     * camelCase 与 snake_case 都列进来，防的是将来给 spring.jackson 配命名策略后的形态漂移。
+     */
+    public static final List<String> FORBIDDEN_IN_ANSWER_STATE = List.of(
+            "answerJson", "answer_json", "analysis", "isCorrect", "is_correct", "correctAnswerJson");
+
     private static final Map<Integer, String> TYPE_NAMES = Map.of(
             1, "单选题",
             2, "多选题",

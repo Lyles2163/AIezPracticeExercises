@@ -110,6 +110,11 @@ public class AnswerServiceImpl implements AnswerService {
         if (!userId.equals(record.getUserId())) {
             throw new PracticeException(PracticeErrorCode.FORBIDDEN, "无权操作该作答");
         }
+        Integer answerMode = record.getAnswerMode();
+        if (answerMode == null || (answerMode != 1 && answerMode != 3)) {
+            // 段 5 若把考试简答也落成 -1，这里不让它绕开 7.1 把整卷写进科目统计
+            throw badRequest("仅逐题练习作答支持自评");
+        }
         if (!record.getQuestionId().equals(req.getQuestionId())) {
             throw badRequest("记录与题目不匹配");
         }
@@ -146,8 +151,9 @@ public class AnswerServiceImpl implements AnswerService {
     }
 
     /**
-     * 读回错题与统计的当前状态，组装响应。
-     * 不靠内存推算计数：upsert 是原子累加，读回才是并发下唯一正确的绝对值。
+     * 读回错题与统计的当前状态组装响应。
+     * 不靠内存推算：本事务 upsert 过的行有 X 锁到提交，读回即绝对值；
+     * 没写过的行（简答待自评那条路径）读到的是本事务快照下的值，可能偏小但不会偏大。
      */
     Outcome readOutcome(Long userId, Long subjectId, Long questionId) {
         QbUserWrong wrong = wrongMapper.selectByUserAndQuestion(userId, questionId);

@@ -164,6 +164,30 @@ class AnswerGraderTest {
         return Stream.of(Arguments.of(0), Arguments.of(9));
     }
 
+    /**
+     * 多值文档：Jackson 的 readTree 只取第一个值并容忍尾随内容，MySQL 的 json 列却整份校验。
+     * 首值恰好题型合法时（实测 code=0 的四条），裸串写库必炸 DataIntegrityViolation，
+     * 所以必须在判分器就拒掉。非有限数值同理（MySQL JSON_VALID('1e999')=0）。
+     * 每题的"正确答案"都按题型给合法值，保证失败归因在用户答案而不是题库。
+     */
+    static Stream<Arguments> multiValueOrNonFiniteCases() {
+        return Stream.of(
+                Arguments.of(1, "\"A\"", "\"A\" \"B\""),
+                Arguments.of(2, "[\"A\",\"C\"]", "[\"A\",\"C\"] [\"B\"]"),
+                Arguments.of(3, "true", "true true"),
+                Arguments.of(4, "[\"x\"]", "[\"x\"] [\"y\"]"),
+                Arguments.of(5, "\"参考答案\"", "\"文本\" \"文本\""),
+                Arguments.of(5, "\"参考答案\"", "1e999"));
+    }
+
+    @ParameterizedTest(name = "题型 {0}：用户答案 {2} -> 40000")
+    @MethodSource("multiValueOrNonFiniteCases")
+    void multiValueOrNonFiniteRejected(int type, String answerJson, String userAnswerJson) {
+        PracticeException e = assertThrows(PracticeException.class,
+                () -> grader.grade(type, answerJson, userAnswerJson, ABCD));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
+    }
+
     @ParameterizedTest(name = "未知题型 {0} -> 40000")
     @MethodSource("unknownTypeCases")
     void unknownType(int type) {

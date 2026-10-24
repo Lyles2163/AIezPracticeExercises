@@ -374,6 +374,62 @@ class AnswerServiceTest {
     }
 
     @Test
+    @DisplayName("多值 JSON（首值合法带尾随）：40000 且不写库——曾经落到 json 列报 code=0")
+    void multiValueAnswerWritesNothing() {
+        when(questionMapper.selectById(1L)).thenReturn(question(1, "\"A\""));
+        when(optionMapper.selectOptionKeys(1L)).thenReturn(List.of("A", "B", "C", "D"));
+        AnswerSubmitReq r = req(1);
+        r.setUserAnswerJson("\"A\" \"B\"");
+
+        PracticeException e = assertThrows(PracticeException.class, () -> service.submit(USER, r));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
+        verifyNoInteractions(wrongMapper, statMapper);
+    }
+
+    @Test
+    @DisplayName("选项集校验真的接上了：集外字母 40000 且不落库")
+    void outOfSetLetterIsRejectedBeforeInsert() {
+        when(questionMapper.selectById(1L)).thenReturn(question(1, "\"A\""));
+        when(optionMapper.selectOptionKeys(1L)).thenReturn(List.of("A", "B"));
+        AnswerSubmitReq r = req(1);
+        r.setUserAnswerJson("\"D\"");
+
+        PracticeException e = assertThrows(PracticeException.class, () -> service.submit(USER, r));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
+    }
+
+    @Test
+    @DisplayName("非选择题不查选项表")
+    void nonChoiceTypeNeverLoadsOptions() {
+        when(questionMapper.selectById(1L)).thenReturn(question(3, "true"));
+        when(wrongMapper.selectByUserAndQuestion(USER, 1L)).thenReturn(null);
+        stubStat(1, 1, 0);
+        AnswerSubmitReq r = req(1);
+        r.setUserAnswerJson("true");
+
+        service.submit(USER, r);
+
+        verifyNoInteractions(optionMapper);
+    }
+
+    @Test
+    @DisplayName("考试记录（mode=2）不支持自评——7.1 的口径不靠段 5 自觉")
+    void selfJudgeOnExamRecordIs40000() {
+        QbUserAnswerRecord record = pendingRecord();
+        record.setAnswerMode(2);
+        when(recordMapper.selectById(55L)).thenReturn(record);
+        when(questionMapper.selectById(5L)).thenReturn(question(5, "\"参考答案\""));
+
+        PracticeException e = assertThrows(PracticeException.class,
+                () -> service.selfJudge(USER, judgeReq(true)));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
+        verify(recordMapper, never()).judgeIfPending(anyLong(), anyLong(), anyInt());
+        verifyNoInteractions(statMapper);
+    }
+
+    @Test
     @DisplayName("答案格式与题型不符：判分器 40000 直接上抛，一行不写")
     void illegalAnswerFormatWritesNothing() {
         when(questionMapper.selectById(1L)).thenReturn(question(2, "[\"A\",\"C\"]"));

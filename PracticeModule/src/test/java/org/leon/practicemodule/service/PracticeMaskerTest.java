@@ -94,16 +94,22 @@ class PracticeMaskerTest {
     @Test
     @DisplayName("脱敏守卫：序列化后不得出现任何答案字段")
     void serializedQuestionNeverLeaksAnswers() throws Exception {
-        QuestionVO vo = masker.toQuestionVO(question(1),
+        QbQuestion q = question(1);
+        // 值级哨兵：光查字段名，"把 analysis 改名成 remark 但照抄内容"照样能过守卫
+        q.setAnswerJson("\"ANSWER_SENTINEL\"");
+        q.setAnalysis("ANALYSIS_SENTINEL");
+        QuestionVO vo = masker.toQuestionVO(q,
                 List.of(option("A", "选项甲", 1), option("B", "选项乙", 0)));
         String json = new ObjectMapper().writeValueAsString(vo);
 
         // 正向锚点：扫描目标为空串时，下面的负向断言会全部空转
         assertTrue(json.contains("\"title\""), "扫描目标为空，负向断言无意义");
         assertTrue(json.contains("选项甲"));
-        for (String forbidden : List.of("answerJson", "analysis", "isCorrect", "is_correct", "correctAnswerJson")) {
+        for (String forbidden : PracticeMasker.FORBIDDEN_IN_ANSWER_STATE) {
             assertFalse(json.contains(forbidden), "答题态泄漏了 " + forbidden + "：" + json);
         }
+        assertFalse(json.contains("ANSWER_SENTINEL"), "答案内容被换了字段名仍外泄：" + json);
+        assertFalse(json.contains("ANALYSIS_SENTINEL"), "解析内容被换了字段名仍外泄：" + json);
     }
 
     @Test

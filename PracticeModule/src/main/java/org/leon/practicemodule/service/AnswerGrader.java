@@ -1,5 +1,6 @@
 package org.leon.practicemodule.service;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.leon.practicemodule.exception.PracticeErrorCode;
@@ -148,21 +149,40 @@ public class AnswerGrader {
         return out;
     }
 
+    /**
+     * 必须是"整份只有一个值"的合法 JSON。Jackson 的 readTree 默认容忍尾随内容
+     * （`"A" "B"` 只取第一个值），而 qb_user_answer_record.user_answer_json 是 MySQL json 列，
+     * 它校验整份文档——首值题型合法的尾随串会写库报 DataIntegrityViolation（实测 code=0）。
+     * 同理非有限数值（1e999）Jackson 给 Infinity，MySQL 拒收。
+     */
     private JsonNode parse(String json) {
         if (json == null || json.isBlank()) {
             throw malformed("答案不能为空");
         }
-        try {
-            JsonNode node = objectMapper.readTree(json);
+        try (JsonParser parser = objectMapper.getFactory().createParser(json)) {
+            JsonNode node = objectMapper.readTree(parser);
             if (node == null || node.isMissingNode()) {
                 throw malformed("答案不是合法 JSON");
             }
+            if (parser.nextToken() != null) {
+                throw malformed("答案不是合法 JSON");
+            }
+            requireFinite(node);
             return node;
         } catch (PracticeException e) {
             throw e;
         } catch (Exception e) {
             // answer_json 是 json 列，解析失败只可能来自请求侧的 user_answer_json
             throw malformed("答案不是合法 JSON");
+        }
+    }
+
+    private static void requireFinite(JsonNode node) {
+        if (node.isNumber() && !node.isIntegralNumber() && !Double.isFinite(node.doubleValue())) {
+            throw malformed("答案含非法数值");
+        }
+        for (JsonNode child : node) {
+            requireFinite(child);
         }
     }
 
