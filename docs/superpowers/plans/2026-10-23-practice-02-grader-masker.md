@@ -237,19 +237,57 @@ class AnswerGraderTest {
         return Stream.of(Arguments.of("\"光合作用\""), Arguments.of("[123]"));
     }
 
+    static Stream<Arguments> shortAnswerCases() {
+        return Stream.of(
+                Arguments.of("\"参考答案：要点一\"", "\"我的作答\""));
+    }
+
+    /**
+     * 落地版新增（本计划初稿在这里写的是"坏 JSON 也不该炸"，前提被端到端推翻）：
+     * 简答不判内容，但答案必须是合法 JSON——user_answer_json 是 MySQL json 列，
+     * 非法文本写库会被驱动层拒成 code=0，所以必须在判分器就挡成 40000。
+     */
+    static Stream<Arguments> shortAnswerRejectsCases() {
+        return Stream.of(Arguments.of("我的作答"), Arguments.of("[\"坏 JSON"));
+    }
+
+    @ParameterizedTest(name = "简答非法 JSON {0} -> 40000")
+    @MethodSource("shortAnswerRejectsCases")
+    void shortAnswerRejectsIllegalJson(String userAnswerJson) {
+        PracticeException e = assertThrows(PracticeException.class,
+                () -> grader.grade(5, "\"参考答案：要点一\"", userAnswerJson, List.of()));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
+    }
+
+    /**
+     * 多值文档：Jackson 的 readTree 只取第一个值并容忍尾随内容，MySQL 的 json 列却整份校验。
+     * 首值恰好题型合法时（实测 code=0 的四条），裸串写库必炸 DataIntegrityViolation。
+     * 每题的"正确答案"都按题型给合法值，保证失败归因在用户答案而不是题库。
+     */
+    static Stream<Arguments> multiValueOrNonFiniteCases() {
+        return Stream.of(
+                Arguments.of(1, "\"A\"", "\"A\" \"B\""),
+                Arguments.of(2, "[\"A\",\"C\"]", "[\"A\",\"C\"] [\"B\"]"),
+                Arguments.of(3, "true", "true true"),
+                Arguments.of(4, "[\"x\"]", "[\"x\"] [\"y\"]"),
+                Arguments.of(5, "\"参考答案\"", "\"文本\" \"文本\""),
+                Arguments.of(5, "\"参考答案\"", "1e999"));
+    }
+
+    @ParameterizedTest(name = "题型 {0}：用户答案 {2} -> 40000")
+    @MethodSource("multiValueOrNonFiniteCases")
+    void multiValueOrNonFiniteRejected(int type, String answerJson, String userAnswerJson) {
+        PracticeException e = assertThrows(PracticeException.class,
+                () -> grader.grade(type, answerJson, userAnswerJson, ABCD));
+        assertEquals(PracticeErrorCode.BAD_REQUEST, e.errorCode());
+    }
+
     @ParameterizedTest(name = "简答 {1} -> 不判分等自评")
     @MethodSource("shortAnswerCases")
     void shortAnswer(String answerJson, String userAnswerJson) {
         AnswerGrader.GradeResult r = grader.grade(5, answerJson, userAnswerJson, List.of());
         assertFalse(r.correct(), "简答不能自动判对");
         assertTrue(r.needSelfJudge());
-    }
-
-    static Stream<Arguments> shortAnswerCases() {
-        // 第二条故意是坏 JSON：简答不解答案体，坏格式也不该炸
-        return Stream.of(
-                Arguments.of("\"参考答案：要点一\"", "\"我的作答\""),
-                Arguments.of("\"参考答案：要点一\"", "\"not json"));
     }
 
     @ParameterizedTest(name = "未知题型 {0} -> 40000")
@@ -314,7 +352,12 @@ public class AnswerGrader {
             case 2 -> new GradeResult(gradeMulti(answerJson, userAnswerJson), false);
             case 3 -> new GradeResult(gradeJudge(answerJson, userAnswerJson), false);
             case 4 -> new GradeResult(gradeBlank(answerJson, userAnswerJson), false);
-            case 5 -> new GradeResult(false, true);
+            case 5 -> {
+                // 落地版（审查后）：简答不判内容，但必须过 parse 的"整份单值 + 有限数值"校验，
+                // 否则裸文本/多值串会被写进 MySQL json 列，报 DataIntegrityViolation -> code=0
+                parse(userAnswerJson);
+                yield new GradeResult(false, true);
+            }
             default -> throw malformed("未知题型 " + type + "，无法判分");
         };
     }
@@ -423,21 +466,42 @@ public class AnswerGrader {
         return out;
     }
 
+    /**
+     * 必须是"整份只有一个值"的合法 JSON（落地版，含审查后的收紧）。
+     * Jackson 的 readTree 默认容忍尾随内容——`"A" "B"` 只取第一个值就返回；
+     * 而 qb_user_answer_record.user_answer_json 是 MySQL json 列，它校验整份文档，
+     * 首值题型合法的尾随串写库会报 DataIntegrityViolation（端到端实测 code=0）。
+     * 非有限数值同理：Jackson 把 1e999 读成 Infinity，MySQL JSON_VALID 返回 0。
+     * 本计划初稿这里用的是宽松的 readTree(String)，那正是被端到端推翻的地方。
+     */
     private JsonNode parse(String json) {
         if (json == null || json.isBlank()) {
             throw malformed("答案不能为空");
         }
-        try {
-            JsonNode node = objectMapper.readTree(json);
+        try (JsonParser parser = objectMapper.getFactory().createParser(json)) {
+            JsonNode node = objectMapper.readTree(parser);
             if (node == null || node.isMissingNode()) {
                 throw malformed("答案不是合法 JSON");
             }
+            if (parser.nextToken() != null) {
+                throw malformed("答案不是合法 JSON");
+            }
+            requireFinite(node);
             return node;
         } catch (PracticeException e) {
             throw e;
         } catch (Exception e) {
             // answer_json 是 json 列，解析失败只可能来自请求侧的 user_answer_json
             throw malformed("答案不是合法 JSON");
+        }
+    }
+
+    private static void requireFinite(JsonNode node) {
+        if (node.isNumber() && !node.isIntegralNumber() && !Double.isFinite(node.doubleValue())) {
+            throw malformed("答案含非法数值");
+        }
+        for (JsonNode child : node) {
+            requireFinite(child);
         }
     }
 
@@ -1897,6 +1961,11 @@ Expected: 编译失败。
         if (!userId.equals(record.getUserId())) {
             throw new PracticeException(PracticeErrorCode.FORBIDDEN, "无权操作该作答");
         }
+        Integer answerMode = record.getAnswerMode();
+        if (answerMode == null || (answerMode != 1 && answerMode != 3)) {
+            // 审查补的闸门：段 5 若把考试简答也落成 -1，这里不让它绕开 7.1 把整卷写进科目统计
+            throw badRequest("仅逐题练习作答支持自评");
+        }
         if (!record.getQuestionId().equals(req.getQuestionId())) {
             throw badRequest("记录与题目不匹配");
         }
@@ -2106,7 +2175,7 @@ git show --stat --oneline HEAD
 
 ## 段 2 完成定义
 
-- [x] `"$MVN" -pl PracticeModule -am test` 全绿（预期 89 条单测，基线 30 + 本段 59），`db-it` 默认被排除
+- [x] `"$MVN" -pl PracticeModule -am test` 全绿（计划 89 → 首跑 91 → 审查整改后 **101**：基线 30 + 本段 71），`db-it` 默认被排除
 - [x] `AnswerFlowDbIT` 显式开启时 3 条全绿，跑完 dev 库无 `user_id=990001` 残留
 - [x] `AnswerGraderTest` 32 个用例表驱动全绿；`PracticeMaskerTest` 守卫 + 非空转证明全绿
 - [x] 经网关：答对/答错/简答自评 `code=1`；qid=1 错两次 `wrongCount=2`；答对 `wrongMastered=true`；再错回退为 `false` 且 `wrongCount=3`
@@ -2122,6 +2191,12 @@ git show --stat --oneline HEAD
 | 边界 | 接缝在哪 |
 |---|---|
 | `answerStatus` 对 `-1` 的映射 | 段 3 的 `question/page`/`question/current` 从最新一条记录推 `answerStatus`（0/1/2）。遇到 `is_correct=-1`（简答待自评）必须显式裁定：候选是把该题显示为"未作答"（可重做）或给前端新增一个"待自评"态。**本段只保证不把 -1 当错、不出现在 API 里** |
+| **考试侧简答题如何得分**（审查 #6：spec 的洞，不是实现的洞） | `AnswerGrader` 对 `type=5` 永远 `correct=false / needSelfJudge=true`，而 spec 5.6 交卷第 4 步"逐题判分"与 `ExamResultVO.questions[].isCorrect` 都默认判分器能给结论。按现口径，套卷里只要出现简答题，交卷后必然 `is_correct=0`、进错题本、扣分——**永远不可能对**。段 4 灌样例题之前必须裁定：考试简答免判满分 / 交卷后再自评 / 样例卷不含简答题。**否则是隐式数据错误** |
+| 自评只允许练习记录 | 审查后补的闸门：`selfJudge` 显式要求 `answer_mode IN (1,3)`。段 5 即使复用 `-1`，也无法借答题接口把整张卷子写进科目统计——7.1 不再只靠段 5 自觉 |
+| 脱敏守卫的覆盖面 | 本段守卫扫的是 `QuestionVO` 的**进程内序列化**（段 2 还没有返回它的端点）。段 3 第一件事是把 `PracticeMasker.FORBIDDEN_IN_ANSWER_STATE` 这份清单打到**真实响应字节**上（standalone MockMvc + `setControllerAdvice(new PracticeExceptionHandler())`，不违反禁 `@SpringBootTest`），否则守卫保护的是类型而不是 API |
+| 自评先看到参考答案 | `needSelfJudge=true` 时响应即含 `correctAnswerJson`/`analysis`，用户看完再给自己打分，"对"的统计意义因此打折。这是 spec 5.2 定的响应结构，**实现无错**，属产品裁定项（可改为自评响应里才给，需给 `SelfJudgeVO` 加两字段） |
+| db-it 样板与口令重复 | `AnswerFlowDbIT` 与 `QbQuestionMapperDbIT` 各写一份 SqlSession 与 `root`/空口令；roadmap 提到的 `PracticeDbTestSupport` 实际并不存在。段 4/段 5 会再复制两遍，届时应抽出并把口令移出仓库文件 |
+| `application.yaml` 的 `log-impl: StdOutImpl` | 段 2 是本模块第一次写用户内容，STDout 会把含 `user_answer_json` 的 SQL 连参数打进日志。既有配置、非本段引入，但上真实环境前必须换回 `Slf4jImpl` 并按需调级 |
 | 自评后反悔 | 无撤销。改主意就重新作答一题再自评——记录留痕是刻意的 |
 | 并发对同一题双提交 | 两次提交记两行、错题本累两次。与"答两次算两次"一致，不加去重 |
 | `durationMs` 上限 | 只拦负值；上限属反机器人范畴，不在这里引入 |
@@ -2191,3 +2266,29 @@ git show --stat --oneline HEAD
 7. **未做端到端覆盖的分支**：`40900 题目已下架`（种子数据里无 `status=0` 的题）、`40300 越权操作他人记录`（只有一个账号），二者仅单测覆盖。40100 已由段 1 的"直连 8102 不带 `X-User-Name`"覆盖。别把这三条当成端到端已验。
 
 **环境状态**：Gateway 8100 / Auth 8103 / PracticeModule 8102 三个进程仍在后台运行（日志在 `~/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg2/*.log`）。
+
+### 2026-10-23 段 2 独立审查与整改（提交 `5f1f589`）
+
+段 2 的代码全部由我一人写，故派了一个不带本会话历史的独立审查代理复核 `81ad6a3..92facb9`。审查实测复核了测试数（91 绿、db-it 默认排除）。**下列结论我都自己验证过，不是照单全收**：
+
+**Critical #1「json 列写入类缺陷只修了一半」——成立，但范围与审查者给的不同。**
+- 我的验证（项目实际解析到的 Jackson 2.15.4 + MySQL `JSON_VALID` 探针，均在仓库外）：Jackson 的 `readTree` 确实**只取第一个值并容忍尾随**，但审查者列举的用例有一半本来就拒：`"A" trailing`、`["A"] junk`、`["A","B"],` 全部 `JsonParseException`；真正放行的是**两个合法值相连**的形态——`"A" "B"`、`true false`、`{"a":1}{"b":2}`。`1e999` 被读成 `Infinity`。
+- MySQL 侧实测 `JSON_VALID`：`"A" "B"`=0、`true false`=0、`{"a":1}{"b":2}`=0、`1e999`=0；**审查者标注"unverified"的孤立代理对 `"\ud800"` 实测为 1（MySQL 接受）**，所以没有给它加校验。
+- 经网关重放的真实 `code=0` 输入（修复前）：单选 `"A" "B"`、多选 `["A","C"] ["B"]`、判断 `true true`、简答 `"文本" "文本"`、简答 `1e999` —— 五条全部复现。审查者说"五种题型全部成立"方向对，具体样例一半不准；`判断 true false` 之所以没炸，是因为首值不是文本被题型校验顺手挡住了。
+- **修法选了"判分器收紧"而不是"改写规范化值"**：`parse` 改为显式 `JsonParser` 并在取值后断言 `nextToken()==null`（多值即 40000），再加 `requireFinite` 递归拒绝非有限数值。理由：让 `GradeResult` 带 canonical JSON 会改判分器契约，而收紧后剩下的接受集已是"整份单值 + 有限数值 + 题型合法"，MySQL 无进一步拒绝余地；且 canonical 序列化会把 `Infinity` 写成字符串 `"Infinity"`（MySQL 接受！）反而把坏数据洗成合法数据。
+- 修复后重放：五条全部 `40000`（msg 分别为"答案不是合法 JSON"/"答案含非法数值"），正常路径 `code=1` 不变；**失败的插在统计里零增量**，顺带证明 `@Transactional` 回滚有效。
+- 新增测试：`AnswerGraderTest` +6（多值/非有限，每题配与该题型匹配的正确答案，保证失败归因在用户答案）、`AnswerServiceTest` +1（多值不落库）。
+
+**Important #2「selfJudge 缺 answer_mode 闸门」——成立，已修。** 先写了失败测试（`selfJudgeOnExamRecordIs40000`，修复前它返回的是 `CONFLICT` 而非 `40000`，证明确实没有闸门），再在归属校验之后加 `answer_mode IN (1,3)` 断言。这条把 7.1 从"段 5 自觉"变成代码约束。
+
+**Important #3「三份文档仍写着暂记 0」——成立，已回写**：roadmap §3 第 10 条改为三态并新增第 16 条（json 列校验教训）；spec §5.3 表格行与后半段加"段 2 更正"注记（不覆盖原文，保留可追溯性）；spec §9.1.2 写明守卫清单常量与"段 3 必须升级为响应级"；本计划的 Task 2.1 `case 5`、`parse`、`shortAnswer*` 测试块与 Task 2.5 的 `selfJudge` 块全部换成落地版——审查者说得对：**执行记录里写的"已回写"当时并未真的回写，照抄初稿会把已知缺陷抄回去**。
+
+**Important #4「单选选项集接线不可证伪」——成立但当前无 bug。** 补了两条测试：集外字母 `"D"`（选项只 A/B）→ 40000 且不落库；判断题 → `verifyNoInteractions(optionMapper)`。第二条修复前就是绿的，说明接线本来是对的，缺的只是锁。
+
+**Important #5「守卫只扫 VO 不扫响应、只查 key 不查值」——成立（前半段是段 2 的固有边界）。** 已抽出 `PracticeMasker.FORBIDDEN_IN_ANSWER_STATE`（补上 `answer_json` 形态）供段 3/段 5 复用，并在守卫里加了值级哨兵（`ANSWER_SENTINEL`/`ANALYSIS_SENTINEL`），这样"改名照抄内容"也会变红。响应级 MockMvc 断言留给段 3（本段确实没有返回 `QuestionVO` 的端点），已写进接缝表首行。
+
+**Minor 处理**：#8（"读回才是并发下唯一正确的绝对值"过强）已改注释——只有本事务 upsert 过的行是绝对值，没写过的行是快照下界。#13（文件尾换行）与 #7/#9/#10/#11 未动：#7 的 `type` 拆箱有实测 NOT NULL 背书，#9 是 spec 明确只给填空做全角归一，#10/#11 是题库数据异常，都不是本期缺陷；#14/#15/#16 与 #6 写进接缝表，其中 **#16（自评先看到参考答案）和 #6（考试简答永远不可能得分）是需要用户/产品裁定的**，不是我能替用户定的默认值。
+
+**审查结论**：两条设计裁定都被独立复核为成立（审查者额外核实了 `is_correct`/`qb_user_answer_record` 目前全仓库只有 PracticeModule 引用，所以"共享表三态"是未来风险不是现实风险）。整改后 **101 单测绿 + 3 db-it 绿**。审查者判定"With fixes"，三个 must-fix 已全部闭合。
+
+**新增测量坑（本段第二条）**：`netstat -ano | grep ":8102"` 的 `:8102` 没锚定，会匹配到含 18102 之类子串的行，`awk '{print $5}'` 就可能取到别的 PID；我据此杀进程时拿到的是 Maven 父进程 PID 而非应用 PID（应用日志里写的是另一个）。**杀端口持有者前先和启动日志里的 `with PID <n>` 对齐**，别只信 netstat 的第一行。

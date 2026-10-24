@@ -76,12 +76,13 @@ MVN="/c/Users/Administrator/.m2/wrapper/dists/apache-maven-3.9.16-bin/5grr65jo27
 7. **`users_dev` 无 `nickname` 列**，用户名列是 `username`。端到端验收需要一个真实账号的明文密码，目前**没有**——段 1 第一个任务一并解决（向用户索取，或经用户同意后插一条 BCrypt 哈希测试行）。`/auth/captcha` 实测返回字段名是 **`imageBase64`**（不是既有文档写的 `imageBase64Data`）。
 8. **`answer_json` 五种题型的真实形态**：`1单选`→`"A"`；`2多选`→`["A","C"]`；`3判断`→`true`；`4填空`→`["光合作用"]`；`5简答`→`"参考答案：要点一；要点二"`。`user_answer_json` 同构。判断/填空/简答三类**没有 `qb_question_option` 行**（实测题 3/4/5 无选项），这是"判分只认 `answer_json`"的硬依据。
 9. **多选全对才算对**：种子数据里 `["A"]` 对 `["A","C"]` 记 `is_correct=0`，本期沿用该口径。
-10. **`qb_user_answer_record.is_correct` 是 `NOT NULL`**，所以草稿不能写进这张表（spec 4.2），且简答题未自评时只能暂记 0 并在统计与错题联动里跳过。
+10. **`qb_user_answer_record.is_correct` 是 `NOT NULL` 的有符号 `tinyint`**，所以草稿不能写进这张表（spec 4.2）。**段 2 更正**：简答题未自评时不是"暂记 0"而是 **`-1` 三态**（`-1` 待自评 / `0` 错 / `1` 对）——0 无法把"待自评"与"自评判错"分开，spec 5.3 同节的两条要求会互相矛盾（要么永久漏计、要么重复计数）。自评用 `UPDATE ... WHERE is_correct = -1` 保证恰好生效一次。**段 3 的 `answerStatus`（0/1/2）必须为 `-1` 显式裁定映射，段 5 必须决定考试侧用什么表达"待自评"**（详见段 2 计划的裁定一）。
 11. **`PracticeModule` 编译不进 `Result`**：pom 无 `CommonJwt` 依赖，`PracticeModuleApplication.java:7` 是裸 `@SpringBootApplication`（缺 `@ComponentScan({"org.leon.practicemodule","org.leon.commonjwt"})`）。模板见 `UserModule/pom.xml:103-107` 与 `UserModuleApplication.java:8`。
 12. **`PracticeModule/src/main/java/.../mapper/QbQuestionMapper.xml` 是死文件**：位于 `src/main/java`，不匹配 `mapper-locations: classpath*:mapper/**/*.xml`。段 1 删除，不保留"移过去再说"。
 13. **`RedisTestController.java:33` 的 `qb:user:2:wrong:1` 只是 Redis 演示**，写死 `userId=2`。本期 Redis 只用于身份缓存 `qb:uid:{userName}`，错题本走表。该控制器保留不动，不进业务路径。
 14. **`PracticeModule` 当前未运行**（`netstat` 只有 8100 在听）。每段验收前需启动 PracticeModule 并确认它注册进 Nacos，否则网关返回 503 而非业务错误——这两种失败的区分写在各段的验收步骤里。
 15. **MySQL 9.1.0，`sql_mode` 仅 `STRICT_TRANS_TABLES`**：`NOT NULL` 列必须显式给值，`utf8mb4_unicode_ci` 沿用现有 `qb_*` 表。
+16. **写进 `json` 列的值必须按 MySQL 的严格度校验，不能只按 Jackson 的宽松度**（段 2 端到端实测）。Jackson 的 `readTree` 容忍尾随内容（`"A" "B"` 只取第一个值）并把 `1e999` 读成 `Infinity`，而 MySQL `JSON_VALID` 对二者都返回 0 → 裸串写库报 `DataIntegrityViolationException` → 接口回 `code=0`（对客户端错误说谎）。`AnswerGrader.parse` 已收紧为"整份单值 + 有限数值"；**段 4 写 `qb_paper.structure_json`、段 5 写 `qb_exam_attempt.answered_json` 同样适用**。反面教训：单测把 mapper 全 mock 了，列类型约束只有端到端或真库测试才看得见。
 
 ---
 

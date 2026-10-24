@@ -268,11 +268,15 @@ ALTER TABLE `qb_user_answer_record`
 | 2 多选 | 两侧各去重升序后**集合全等**；部分对算错（沿用种子数据 `["A"]` vs `["A","C"]`→0） |
 | 3 判断 | 归一为 `Boolean` 后全等；`"true"/"false"` 字符串与 JSON 布尔等价 |
 | 4 填空 | 按空逐位比对：去首尾空白 + 全角转半角 + 忽略大小写。某空的正确答案写成数组时视为"任一命中" |
-| 5 简答 | **不判分**。写记录但 `is_correct` 暂记 0 并返回 `needSelfJudge:true`，等 `self-judge` 回填 |
+| 5 简答 | **不判分**。写记录但 `is_correct` 记 **`-1` 待自评** 并返回 `needSelfJudge:true`，等 `self-judge` 回填（**2026-10-23 段 2 更正**，原文"暂记 0"不可实现，见下） |
+
+> **段 2 更正（2026-10-23，已实施并端到端取证）**：本节的"暂记 0"作废，改为 `-1` 三态（`-1` 待自评 / `0` 错 / `1` 对）。理由：自评"错"回填后同样是 0，与"未自评"不可区分，于是本节后半句的两条要求互相矛盾——"跳过未回填记录"会把已判错的记录永久漏计，不跳过则重复计数。实现改为 `UPDATE ... WHERE id=? AND user_id=? AND is_correct=-1` 的条件更新，返回 0 行即"已自评过"（`40900`），既不需要加列加表也天然恰好一次。连带：段 3 的 `answerStatus`（0/1/2）需为该三态显式裁定映射，段 5 需决定考试侧如何表达"待自评"。
+>
+> 同段实测补一条判分前提：写进 `qb_user_answer_record.user_answer_json`（MySQL `json` 列）的值必须是**整份单值且数值有限**的合法 JSON。Jackson 的 `readTree` 容忍 `"A" "B"` 这类尾随内容、把 `1e999` 读成 `Infinity`，而 MySQL 一律拒收，裸串写库会变成 `code=0`。`AnswerGrader.parse` 已承担此校验，段 4/段 5 写 `structure_json`、`answered_json` 时同理。
 
 答案格式与题型不符（如单选传数组）→ `40000`，不落库。
 
-`type=5` 的 `is_correct` 暂记 0 是 `NOT NULL` 逼出来的，所以**科目统计与错题本都要跳过 `needSelfJudge` 未回填的记录**（`AnswerService` 里一条显式分支），否则用户答一次简答题就被记一笔"错"。推论：简答题的错题本计数与科目统计**发生在 `self-judge` 那一刻**，不在 `submit` 时——`submit` 只落记录行并回 `recordId`，`self-judge` 用该 `recordId` 回填 `is_correct` 后才走统计与错题联动。
+`type=5` 之所以需要一个"待自评"态，是 `is_correct` 为 `NOT NULL`（没有 NULL 可用）逼出来的，所以**科目统计与错题本都要跳过 `needSelfJudge` 未回填的记录**（`AnswerService` 里一条显式分支），否则用户答一次简答题就被记一笔"错"。推论：简答题的错题本计数与科目统计**发生在 `self-judge` 那一刻**，不在 `submit` 时——`submit` 只落记录行并回 `recordId`，`self-judge` 用该 `recordId` 回填 `is_correct` 后才走统计与错题联动。（"跳过"的判据按上面的更正就是 `is_correct = -1`，不是 0。）
 
 ### 5.4 脱敏（答题态的硬约束）
 
@@ -403,7 +407,7 @@ practice:
 ### 9.1 单元与切片（覆盖率主体，不连服务）
 
 1. **`AnswerGrader` 表驱动单测**：5 种题型 × 边界——大小写、全半角、多选乱序、多选部分对算错、填空某空配数组任一命中、答案格式与题型不符报 `40000`、简答不判分。
-2. **脱敏守卫测试**（最有价值的一条）：对答题态全部接口响应做 JSON 字符串断言，不含 `isCorrect` / `answerJson` / `analysis` / `is_correct` 任一子串。这道防线保证将来有人图省事直接返回实体时测试会红。
+2. **脱敏守卫测试**（最有价值的一条）：对答题态全部接口响应做 JSON 字符串断言，不含 `isCorrect` / `answerJson` / `analysis` / `is_correct` 任一子串。这道防线保证将来有人图省事直接返回实体时测试会红。清单是 `PracticeMasker.FORBIDDEN_IN_ANSWER_STATE`（段 2 已建，含 snake_case 形态与值级哨兵断言）；**段 3 起必须把断言对象从"VO 的进程内序列化"升级为"真实响应体"**（standalone MockMvc，不违反禁 `@SpringBootTest`），否则守卫保护的是类型而不是 API。
 3. **交卷幂等**：同一 `attemptId` 连提两次 → `qb_user_answer_record` 行数不变、`score` 不变。用 mapper 调用次数断言（照 AI 对话"流式期间零写库"的测法）。
 4. **超时懒判**：把 `deadline_at` 改到过去 → `draft` 报 `41001`、`submit` 归档 `3` 且仍给成绩、下次 `start` 拿到新 `seq_no`。
 5. **越权**：B 用户带自己 token 请求 A 的 `attemptId` → `40300`，且 A 的数据零变化。
