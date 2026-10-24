@@ -87,7 +87,9 @@ public class SpringAiChatModelGateway implements ChatModelGateway {
         if (text == null && finish == null && pt == null && ct == null) {
             return null;
         }
-        return new ChatChunk(text, finish, pt, ct);
+        // reasoning 与 reasoningTokens 恒为 null：Spring AI 在 JSON 绑定阶段就丢掉了它们，
+        // 能看到它们的是 OpenAiStreamChatModelGateway（Task 17），本类 Task 19 删除。
+        return new ChatChunk(text, null, finish, pt, ct, null);
     }
 
     private static Integer positive(Integer value) {

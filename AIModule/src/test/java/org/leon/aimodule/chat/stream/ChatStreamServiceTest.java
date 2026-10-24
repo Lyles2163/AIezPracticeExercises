@@ -94,11 +94,11 @@ class ChatStreamServiceTest {
     }
 
     private static ChatModelGateway.ChatChunk text(String t) {
-        return new ChatModelGateway.ChatChunk(t, null, null, null);
+        return new ChatModelGateway.ChatChunk(t, null, null, null, null, null);
     }
 
     private static ChatModelGateway.ChatChunk finish() {
-        return new ChatModelGateway.ChatChunk(null, "stop", 812, 1640);
+        return new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null);
     }
 
     private PreparedTurn prepareNormal() {
@@ -266,7 +266,7 @@ class ChatStreamServiceTest {
     @DisplayName("finishReason=length 时状态仍是 done，收尾原因可区分")
     void lengthFinishReason() {
         when(gateway.stream(any(), any())).thenReturn(Flux.just(
-                text("正文"), new ChatModelGateway.ChatChunk(null, "length", 10, 20)));
+                text("正文"), new ChatModelGateway.ChatChunk(null, null, "length", 10, 20, null)));
         service.subscribeAsync(prepareNormal(), recorderChannel());
         verify(repo).finalizeAssistant(42L, "正文", AiMessage.ST_DONE, AiMessage.STOP_LENGTH, 10, 20);
         assertEquals("length", ((ChatEvent.Done) events.get(events.size() - 1)).finishReason());
@@ -450,6 +450,8 @@ class ChatStreamServiceTest {
         return events.stream().map(e -> switch (e) {
             case ChatEvent.Meta ignored -> "meta";
             case ChatEvent.Delta ignored -> "delta";
+            case ChatEvent.ThoughtStep ignored -> "thought_step";
+            case ChatEvent.ThoughtEnd ignored -> "thought_end";
             case ChatEvent.TokenUsage ignored -> "usage";
             case ChatEvent.Done ignored -> "done";
             case ChatEvent.ErrorEvt ignored -> "error";
@@ -484,9 +486,14 @@ class ChatStreamServiceTest {
                                 mapper.readTree(json).get("supportsThinking").asBoolean()));
                         case "delta" -> events.add(new ChatEvent.Delta(
                                 mapper.readTree(json).get("text").asText()));
-                        case "usage" -> events.add(new ChatEvent.TokenUsage(
-                                mapper.readTree(json).get("promptTokens").asInt(),
-                                mapper.readTree(json).get("completionTokens").asInt()));
+                        case "usage" -> {
+                            var usage = mapper.readTree(json);
+                            var reasoning = usage.get("reasoningTokens");
+                            events.add(new ChatEvent.TokenUsage(
+                                    usage.get("promptTokens").asInt(),
+                                    usage.get("completionTokens").asInt(),
+                                    reasoning == null || reasoning.isNull() ? null : reasoning.asInt()));
+                        }
                         case "done" -> events.add(new ChatEvent.Done(
                                 mapper.readTree(json).get("finishReason").asText()));
                         case "error" -> events.add(new ChatEvent.ErrorEvt(

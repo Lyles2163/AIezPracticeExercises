@@ -35,6 +35,8 @@ public class SseChannel {
         switch (event) {
             case ChatEvent.Meta e -> send("meta", e);
             case ChatEvent.Delta e -> send("delta", e);
+            case ChatEvent.ThoughtStep e -> send("thought_step", e);
+            case ChatEvent.ThoughtEnd e -> send("thought_end", e);
             case ChatEvent.TokenUsage e -> send("usage", e);
             case ChatEvent.Done e -> send("done", e);
             case ChatEvent.ErrorEvt e -> send("error", e);

@@ -32,21 +32,42 @@ class SseChannelTest {
     private final SseChannel channel = new SseChannel(sink, new ObjectMapper());
 
     @Test
-    @DisplayName("五类事件各自的名字与 JSON 形状")
+    @DisplayName("七类事件各自的名字与 JSON 形状")
     void emitsAllEventKinds() {
         channel.emit(new ChatEvent.Meta(7L, 42L, "deepseek-chat", "High", false));
         channel.emit(new ChatEvent.Delta("你好"));
-        channel.emit(new ChatEvent.TokenUsage(812, 1640));
+        channel.emit(new ChatEvent.ThoughtStep("先算乘法"));
+        channel.emit(new ChatEvent.ThoughtEnd(8.4));
+        channel.emit(new ChatEvent.TokenUsage(812, 1640, null));
         channel.emit(new ChatEvent.ErrorEvt("UPSTREAM_MODEL_ERROR", "模型服务暂时不可用", true));
         channel.emit(new ChatEvent.Done("done"));
-        assertEquals(5, frames.size());
+        assertEquals(7, frames.size());
         assertTrue(frames.get(0).startsWith("event:meta\ndata:{"));
         assertTrue(frames.get(0).contains("\"conversationId\":7"));
         assertTrue(frames.get(0).contains("\"supportsThinking\":false"));
         assertTrue(frames.get(1).contains("event:delta"));
-        assertTrue(frames.get(2).contains("\"completionTokens\":1640"));
-        assertTrue(frames.get(3).contains("\"retryable\":true"));
-        assertTrue(frames.get(4).contains("event:done"));
+        assertTrue(frames.get(2).contains("event:thought_step"));
+        assertTrue(frames.get(3).contains("event:thought_end"));
+        assertTrue(frames.get(4).contains("\"completionTokens\":1640"));
+        assertTrue(frames.get(5).contains("\"retryable\":true"));
+        assertTrue(frames.get(6).contains("event:done"));
+    }
+
+    @Test
+    @DisplayName("thought_step / thought_end 的帧名是 snake_case，载荷单行")
+    void thoughtFramesWireNames() {
+        channel.emit(new ChatEvent.ThoughtStep("先算乘法"));
+        channel.emit(new ChatEvent.ThoughtEnd(8.4));
+        assertEquals("event:thought_step\ndata:{\"text\":\"先算乘法\"}\n\n", frames.get(0));
+        assertEquals("event:thought_end\ndata:{\"seconds\":8.4}\n\n", frames.get(1));
+    }
+
+    @Test
+    @DisplayName("usage 帧带 reasoningTokens，字段顺序即 record 声明顺序")
+    void usageCarriesReasoningTokens() {
+        channel.emit(new ChatEvent.TokenUsage(42, 90, 63));
+        assertEquals("event:usage\ndata:{\"promptTokens\":42,\"completionTokens\":90,"
+                + "\"reasoningTokens\":63}\n\n", frames.get(0));
     }
 
     @Test

@@ -240,7 +240,7 @@ public class ChatStreamService {
         Integer promptTokens = usage[0] < 0 ? null : usage[0];
         Integer completionTokens = usage[1] < 0 ? null : usage[1];
         if (promptTokens != null || completionTokens != null) {
-            emitQuietly(stream.channel(), new ChatEvent.TokenUsage(promptTokens, completionTokens));
+            emitQuietly(stream.channel(), new ChatEvent.TokenUsage(promptTokens, completionTokens, null));
         }
         String reason = mapFinishReason(stream.finishReason().get());
         repo.finalizeAssistant(stream.messageId(), stream.accumulated(), AiMessage.ST_DONE, reason,

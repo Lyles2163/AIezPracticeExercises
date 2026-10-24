@@ -73,7 +73,7 @@ class ChatStreamWriteCountTest {
 
         List<ChatModelGateway.ChatChunk> frames = new ArrayList<>(
                 IntStream.rangeClosed(1, chunks).mapToObj(i -> chunk("字")).toList());
-        frames.add(new ChatModelGateway.ChatChunk(null, "stop", 812, 1640));
+        frames.add(new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null));
         when(gateway.stream(any(), any())).thenReturn(Flux.fromIterable(frames));
 
         ChatStreamRegistry registry = new ChatStreamRegistry();
@@ -111,7 +111,7 @@ class ChatStreamWriteCountTest {
     }
 
     private static ChatModelGateway.ChatChunk chunk(String text) {
-        return new ChatModelGateway.ChatChunk(text, null, null, null);
+        return new ChatModelGateway.ChatChunk(text, null, null, null, null, null);
     }
 
     private static SseChannel silentChannel() {

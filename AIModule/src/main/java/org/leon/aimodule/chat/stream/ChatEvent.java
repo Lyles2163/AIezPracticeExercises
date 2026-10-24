@@ -13,7 +13,17 @@ public sealed interface ChatEvent {
     record Delta(String text) implements ChatEvent {
     }
 
-    record TokenUsage(Integer promptTokens, Integer completionTokens) implements ChatEvent {
+    /** 一条可读推理短句。kind/seq 是故意不做的：只有 reasoning 一种生产者。 */
+    record ThoughtStep(String text) implements ChatEvent {
+    }
+
+    /** seconds 单位是秒（小数）—— 前端 ThoughtLine 的 elapsed 就是这个单位。 */
+    record ThoughtEnd(double seconds) implements ChatEvent {
+    }
+
+    /** reasoningTokens 是 completionTokens 的拆分，不是加数。 */
+    record TokenUsage(Integer promptTokens, Integer completionTokens,
+                      Integer reasoningTokens) implements ChatEvent {
     }
 
     /** finishReason: done / stopped / length / upstream */

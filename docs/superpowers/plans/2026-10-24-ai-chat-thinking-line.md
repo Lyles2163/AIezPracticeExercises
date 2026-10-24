@@ -516,7 +516,7 @@ Expected: 12/12 绿。
   - `ChatEvent.ThoughtStep(String text)` → 帧名 `thought_step`；`ChatEvent.ThoughtEnd(double seconds)` → 帧名 `thought_end`
   - `ChatEvent.TokenUsage(Integer promptTokens, Integer completionTokens, Integer reasoningTokens)`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `SseChannelTest.java` 追加。该类已有的收集设施是 `private final List<String> frames`，假 sink 每帧 `add("event:" + event + "\ndata:" + json + "\n\n")`，所以断言按下标取元素，**不要** `frames.toString()`（List 的 toString 会在元素间插 `, `，跨帧断言会假失败）：
 
@@ -541,12 +541,12 @@ Expected: 12/12 绿。
 
 同文件已有的 `emitsAllEventKinds` 里 `new ChatEvent.TokenUsage(812, 1640)` 要补第三参（`null`），并在它后面加一行 `ThoughtStep`/`ThoughtEnd` 的 emit 让 `assertEquals(5, frames.size())` 变成 7 —— **改这条断言时想清楚它是守什么的**：它守的是"每类事件恰好一帧、顺序不乱"，加两类就得改两处，这是诚实的代价，不要为了少改而把新事件塞进别的用例。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest=SseChannelTest -Dsurefire.excludedGroups=`
 Expected: 编译失败 —— `ThoughtStep` / 三参 `TokenUsage` 不存在。
 
-- [ ] **Step 3: 扩 `ChatEvent`**
+- [x] **Step 3: 扩 `ChatEvent`**
 
 ```java
     record Delta(String text) implements ChatEvent {
@@ -565,7 +565,7 @@ Expected: 编译失败 —— `ThoughtStep` / 三参 `TokenUsage` 不存在。
     }
 ```
 
-- [ ] **Step 4: `SseChannel.emit` 的 switch 加两支**
+- [x] **Step 4: `SseChannel.emit` 的 switch 加两支**
 
 ```java
             case ChatEvent.Meta e -> send("meta", e);
@@ -577,7 +577,7 @@ Expected: 编译失败 —— `ThoughtStep` / 三参 `TokenUsage` 不存在。
             case ChatEvent.ErrorEvt e -> send("error", e);
 ```
 
-- [ ] **Step 5: 扩 `ChatChunk` 并补编译**
+- [x] **Step 5: 扩 `ChatChunk` 并补编译**
 
 ```java
     /** 上游一帧的归一化视图，六个字段都可能为 null。 */
@@ -606,12 +606,12 @@ Expected: 编译失败 —— `ThoughtStep` / 三参 `TokenUsage` 不存在。
 
 同文件里 `lengthFinishReason` 与 `upstreamFailureKeepsPartialContent` 直接 new 的地方补成 6 参。
 
-- [ ] **Step 6: 跑全模块确认没漏改的调用点**
+- [x] **Step 6: 跑全模块确认没漏改的调用点**
 
 Run: `"$MVN" -pl AIModule clean test`
 Expected: 全绿。若还有编译错误，就是漏改的 `ChatChunk`/`TokenUsage` 构造点，逐个补 —— **不要**为了少改而给 record 加便捷构造器（那是向后兼容垫片，会掩盖真实调用面）。
 
-- [ ] **检查点**：全模块绿；`grep -rn "new ChatEvent.TokenUsage(" AIModule/src | wc -l` 的数量与改前一致（没有新增构造点）。
+- [x] **检查点**：全模块绿；`grep -rn "new ChatEvent.TokenUsage(" AIModule/src | wc -l` 的数量与改前一致（没有新增构造点）。
 
 ---
 
@@ -1639,3 +1639,19 @@ JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai
 - **变异 1a 存活** —— 本计划 Task 14 Step 5 的第一条预测被证伪：`if (i + 1 == buf.length()) return i + 1;` 摘掉后 11 条用例全绿，因为 `feedAll` 把步骤聚合成一个串，而 1a 只改变了产出时机。这是**用例缺口**而非实现缺陷，补 `trailingPeriodWaitsForNextPiece`（三帧劈开一个小数）后重做：恰好 1 条红，失败信息 `expected: <[The value is 1.5 meters.]> but was: <[The value is 1.][5 meters.]>` 正是该规则要防的危害。
 - 变异 1b（LATIN 分支无条件切）→ 3 条红：`doesNotSplitOnDecimal`、`abbreviationSplitsAreAccepted`、`trailingPeriodWaitsForNextPiece`。变异 2（flush 不清 buf）→ 恰好 `flushIsIdempotent` 1 条红。变异 3（去掉 `saturated` 置位）→ 恰好 `saturatesAtMaxSteps` 1 条红。恢复后 `grep -rn MUTATION AIModule/src/` = 0。
 - 全模块 `clean test` 159/159（147 + 12）。新类暂无生产调用方（Task 18 才接线），属计划预期。
+
+### Task 15 `ChatChunk` 与事件契约扩展 — 完成
+- RED：6 处编译错误，位置正是两条新用例 + `emitsAllEventKinds` 里 `ThoughtStep`/`ThoughtEnd`/三参 `TokenUsage` 的调用点。
+- GREEN：`SseChannelTest` 8/8；全模块 `clean test` **161/161**（159 + 2）。
+- 计划没写但必须一起改的编译点（**本计划 Task 15 的漏项**，逐个补过）：
+  1. `ChatStreamService.java:243` 是**生产代码里唯一的 `TokenUsage` 构造点**，必须补第三参；本任务先传 `null`，Task 18 换成累计的 reasoningTokens。
+  2. `ChatStreamServiceTest.kinds()` 里的 `switch` 也是对 sealed 类型的穷尽 switch，新增两类事件后编译不过 → 补两个分支返回 `thought_step`/`thought_end`。
+  3. `ChatStreamServiceTest` 假 sink 的 `case "usage"` 直接 `.asInt()` 会把 JSON 里的 `null` 读成 `0` → 改成 null-safe 取第三参。
+  4. `ChatStreamWriteCountTest` 有两处 `ChatChunk` 构造（计划的文件清单里没列这个类）。
+- 检查点取证（口径修正）：`new ChatEvent.TokenUsage(` 在 `src/main` 下**改前 1 处、改后 1 处**；总数 3→4 的增加全部来自本任务新增的那条用例自己的构造，不是新增生产构造点。`ChatChunk` 构造点 6→6。
+- 变异（计划 Task 15 没有变异步骤，这里按"每条新守护都要可证伪"补两条）：
+  - A｜帧名 `thought_step` 改成 `thoughtStep` → 恰好 `thoughtFramesWireNames` 与 `emitsAllEventKinds` 2 条红，证明 wire 名断言有效。
+  - B｜删掉 `case ChatEvent.ThoughtStep` 整支 → **编译失败**（javac：switch 分支数少于 total pattern），这就是"穷尽 switch 会在漏映射帧名时拦住你"这句注释的证据。
+  - 恢复后 `grep -rn MUTATION AIModule/src/` = 0。
+- 遗留（按计划属 Task 18）：假 sink 的 `default -> {}` 仍会吞掉 `thought_step`/`thought_end`，所以现在还没有"编排层发出思考帧"的用例。
+- **与计划的偏差 1 处**：`text`/`finish` helper 实际是 `private static`（计划写成 `private`），按现状改参。
