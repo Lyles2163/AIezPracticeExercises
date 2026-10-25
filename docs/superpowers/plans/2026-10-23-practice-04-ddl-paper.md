@@ -3273,6 +3273,13 @@ def save(name, status, payload):
 
 `git status --short`（只应有 `PracticeModule/**` 与三个 docs 文件）、全量绿灯数字、端到端矩阵摘要、给用户的清理 SQL（本段端到端在 `test918(id=10)` 名下新增一条答题记录与统计增量、`qb_paper` 的 4 行样例卷是要保留的验收数据）。**不 `git add`/`git commit`。**
 
+**2026-10-25 按用户新规则改为"做完即提交推送"**（原话「你做好后记得提交推送」），所以这一步不再停在提交前：
+
+- 提交 **`9e390a6`**（`dev`），**逐条 pathspec 显式列出 20 个文件**（17 个 `PracticeModule/**` + 3 个 docs），`git commit -- PracticeModule docs` 收口；**没有用 `git add -A`**——工作树与另一个会话共享，`a749499` 那次宽 `git add` 已经把本段 Task 4.2 的文件一起卷进去过，不能再犯。
+- 提交前核对：`git status --short` 只有我的 20 个文件；`git log --oneline origin/dev..dev` 只有 1 条（我的），即推送不会顺带把别的会话的未推提交推上去。
+- 推送：`git push origin dev` → `1b5067f..9e390a6 dev -> dev`。
+- 推送后复验（不是复述提交前的结果）：工作树 `git status --short` 干净；`"$MVN" -o -pl PracticeModule -am test` 在**已提交的树**上重跑 → `Tests run: 218, Failures: 0, Errors: 0` + `BUILD SUCCESS`；网关活体 `GET /practice/paper/detail?paperId=8` → `code=1`、`parts=2`、`submitCount=0`、**非 null `originalText` 的 section 数 = 0**，且 8102 的监听 PID 仍是日志里的 **14196**（证明响应来自我起的实例，不是别人的构建）。
+
 ---
 
 ## Task 4.8：主线自查（本轮不做独立审查）
