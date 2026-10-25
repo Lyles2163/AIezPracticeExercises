@@ -2598,7 +2598,7 @@ public class PracticeExamController {
   - `ExamQuestionVO {attemptId, index, questionId, score, question(QuestionVO), userAnswerJson}`
   - `GET /practice/exam/question?attemptId=&questionId=`
 
-- [ ] **Step 1：追加失败测试**
+- [x] **Step 1：追加失败测试**
 
 ```java
     @Test
@@ -2671,11 +2671,11 @@ public class PracticeExamController {
 
 **第三条断言里那句 `assertNull(...getIsCorrect() == null ? null : "x")` 是我写坏的一条**：`QuestionVO.OptionVO` 本来就没有 `isCorrect` 字段（段 2 定死的类型），这个表达式编译不过。**正确做法是删掉这一行**——"选项不带真值"这件事由 Step 4 的守卫（真字节）与段 2 的 `PracticeMaskerTest` 双重覆盖，在 service 测试里再写一遍是空转。
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 期望编译失败：`找不到符号 question(...)` / `ExamQuestionVO`。
 
-- [ ] **Step 3：实现 `question`**
+- [x] **Step 3：实现 `question`**
 
 ```java
     /** 成绩单之外的读题路径。不加 @Transactional：一条 SELECT 都不写。 */
@@ -2744,7 +2744,7 @@ public class PracticeExamController {
 
 **注意这里取题用的是"一次单题查询"而不是 `ExamBriefs`**：`exam/question` 一次只要一道题，走批量取整卷原料（四条 SQL 换一道题）是浪费。两条路径各查各的，但**都不选真值列**——`selectDisplayOptions` 是段 3 已有的、不选 `is_correct` 的那条查询。
 
-- [ ] **Step 4：控制器 + 守卫用例 + **伪阳性（缺这段等于没做）****
+- [x] **Step 4：控制器 + 守卫用例 + **伪阳性（缺这段等于没做）****
 
 控制器追加：
 
@@ -2805,7 +2805,7 @@ public class PracticeExamController {
 
 两次都把完整报文记进执行记录，然后回滚，`grep -c isCorrect` 在 `QuestionVO.java` 必须为 0，再跑全量。
 
-- [ ] **Step 5：全量绿 + 报告改动**
+- [x] **Step 5：全量绿 + 报告改动**
 
 期望 `AnswerStateResponseGuardTest` 从 7 条到 **8** 条，全量 **254**（按实跑报）。
 
@@ -3727,7 +3727,56 @@ Tests run: 252, Failures: 0 -- 全量单测
 3. **`insert` 的 matcher 一律带类字面量**（`insert(any(QbExamAttempt.class))`）——`BaseMapper` 现在有两个 `insert` 重载，`any()` 让测试类编译不过（"对 insert 的引用不明确"）。已进本段事实清单第 15 条。
 4. `validationBriefs` 按计划最终版走 `briefs.loadQuestions(structure)`（一次批量），service 层没有第二条 `selectBatchIds`，也没有 `Clock`、没有 `reuse` 死参数、没有全限定名。`STATUS_SUBMITTED` 常量本任务未使用（Task 5.9 才用），留着是因为它和 `STATUS_ARCHIVED` 是一对，只留一个会更怪。
 
-### Task 5.7（待执行）
+### Task 5.7（完成，2026-10-25）
+
+先红（Step 2 的真实报错，只有类型/方法名的部分）：
+
+```
+[ERROR] ExamServiceTest.java: 找不到符号  类 ExamQuestionVO / 方法 question(Long,Long,Long)
+[ERROR] PracticeExamControllerTest.java: 找不到符号  方法 question(...)
+```
+
+绿灯（数字是实跑输出的 `Tests run:` 行，不是相加推出来的）：
+
+```
+Tests run: 18, Failures: 0 -- ExamServiceTest（本任务 +7）
+Tests run: 3,  Failures: 0 -- PracticeExamControllerTest（+1）
+Tests run: 8,  Failures: 0 -- AnswerStateResponseGuardTest（+1）
+Tests run: 29, Failures: 0 -- 上面三类定点跑
+Tests run: 261, Failures: 0, Errors: 0, Skipped: 0 -- 全量单测 / BUILD SUCCESS
+```
+
+计划期望的 254 偏低：Task 5.5/5.6 的全量基线是 252（不是计划写的 245 上下），加 7 条 service、1 条 controller、1 条守卫 = 261。**没有新增 db-it**：本任务零新 SQL，`selectById` 与 `selectDisplayOptions` 都在段 3 的 `QuestionReadSqlDbIT` 里对真库验过（`selectDisplayOptions` 那条尤其关键——它是段 3 就定下的"不选真值列"的查询，本任务的脱敏承诺有一半靠它）。
+
+**两次伪阳性（实测报文，回滚后再跑全量）**：
+
+1. 给 `QuestionVO` 临时加 `private String analysis;` 并在 `question()` 里 `masked.setAnalysis("ANSWER_SENTINEL_GUARD")` → **两条守卫同时红**（不只 exam/question）：
+
+```
+AnswerStateResponseGuardTest  Tests run: 8, Failures: 2
+  questionCurrentResponseIsClean:214->assertNoAnswerFields:174
+    org.opentest4j.AssertionFailedError: 响应体泄漏了 analysis：{"code":1,"msg":"success","data":{"finished":false,
+    "question":{...,"index":1,"score":null,"analysis":null},"answerStatus":3,
+    "lastUserAnswerJson":"\"...\"","pendingRecordId":22}} ==> expected: <false> but was: <true>
+  examQuestionResponseIsClean:238->assertNoAnswerFields:174
+    ... 响应体泄漏了 analysis：{"code":1,"msg":"success","data":{"attemptId":500,"questionId":1,"index":1,"score":7.0,
+    "question":{...,"score":7.0,"analysis":"ANSWER_SENTINEL_GUARD"},"userAnswerJson":"\"A\""}}
+```
+
+（终端把中文前缀显示成乱码是已知的 GBK 问题，报文前缀按 `assertNoAnswerFields` 的源码逐字还原，JSON 部分是原样抄的。）
+**这一条比计划的预期更有价值**：泄漏的是 `QuestionVO` 这个**共享类型**的字段，所以 `question/current` 跟着一起红——它证明"答题态唯一题目出口"这句话是真的：一个类型漏一次，所有走它的接口都漏。
+
+2. 给 `QuestionVO.OptionVO` 临时加回 `private Integer isCorrect;` 并在 `PracticeMasker.toOptions` 里 `ov.setIsCorrect(option.getIsCorrect())` → 同样 **2 红**，报文里的选项变成了 `{"optionKey":"A","content":"...","isCorrect":1},{"optionKey":"B","content":"...","isCorrect":0}`，前缀 `响应体泄漏了 isCorrect`。
+回滚后：`grep -c "private Integer isCorrect\|private String analysis" QuestionVO.java` = **0**，`git diff --stat` 对 `QuestionVO.java` 与 `PracticeMasker.java` 都是**空**（干净回滚，`git status` 只剩本任务该改的六个文件 + 一个新建 VO），全量 261 绿。
+
+**对计划的偏差**：
+
+1. **`ExamServiceTest` 加了 7 条而不是计划的 6 条**。计划那六条全在（含越权 40300 + `verifyNoInteractions(questionMapper)`、题不在卷面 40000、终态 41002、过期仍可读、40400/40000）；多出来的一条是 `简答/填空没有选项：不发选项查询`（type=4/5 → `verify(optionMapper, never()).selectDisplayOptions(any())`）。实现里 `question.getType() != null && (type == 1 || type == 2)` 那个三元式没有这条测试就是纯空转，而它正是"非选择题不发无用的选项 SQL"的成本承诺。
+2. **计划里那句 `assertNull(...getIsCorrect() == null ? null : "x")` 按计划自己的说明删掉了**（`OptionVO` 本来没有这个字段，编译不过）。不算偏差，是计划预告的修正——但**删掉之后"选项不带真值"这件事只剩守卫一条证据链**，所以我把它做实了：伪阳性 #2 就是这条断言的替身。
+3. **守卫断言 `score` 接受 `7.00` 或 `7.0` 两种写法**。实测是 `"score":7.0`：`structure_json` 里的分值被 Jackson 读成 `DoubleNode`，`decimalValue()` 丢掉 scale，`BigDecimal("7.0")` 序列化就是 `7.0`。只断言 `7.00` 会红，而红的原因不是业务缺陷。这条对 Task 5.9 的成绩单断言同样适用（`ExamResults` 里逐题分是判分算出来的，scale 由 `AnswerGrader` 给，跟卷面不同源）。
+4. **守卫装配用 `new PracticeMasker()`（真对象）**，计划已写，这里只是确认执行时没图省事换成 mock——换成 mock 这条守卫就成了空转（伪阳性两轮也验不出东西）。`ExamFixtures` 在 `controller` 包靠 public import 用，与段 4 一致。
+5. `masked.setIndex/setScore` 与 `vo.setIndex/setScore` **两处都填**（照计划实现）。顶层 `ExamQuestionVO.index/score` 是答题卡通用位置，`question.*` 里那两个是"这道题在卷面上的位置"，同一份值两个位置——前端读哪一处都行，不做取舍。
+
 
 ### Task 5.8（待执行）
 
@@ -3749,7 +3798,7 @@ Tests run: 252, Failures: 0 -- 全量单测
 
 ### 伪阳性（缺这段就等于没做）
 
-- [ ] Task 5.7 Step 4：泄漏 `analysis` 与 `isCorrect` 两次实测的失败报文（完整响应体），回滚后 `grep -c` 为 0 + 全量绿
+- [x] Task 5.7 Step 4：泄漏 `analysis` 与 `isCorrect` 两次实测的失败报文（完整响应体），回滚后 `grep -c` 为 0 + 全量绿（实测见 Task 5.7 记录）
 
 ---
 

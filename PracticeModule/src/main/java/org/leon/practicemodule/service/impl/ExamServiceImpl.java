@@ -5,11 +5,16 @@ import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
 import org.leon.practicemodule.mapper.QbExamAttemptMapper;
 import org.leon.practicemodule.mapper.QbPaperMapper;
+import org.leon.practicemodule.mapper.QbQuestionMapper;
+import org.leon.practicemodule.mapper.QbQuestionOptionMapper;
 import org.leon.practicemodule.mapper.QbUserAnswerRecordMapper;
 import org.leon.practicemodule.pojo.QbExamAttempt;
 import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestion;
+import org.leon.practicemodule.pojo.QbQuestionOption;
+import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
+import org.leon.practicemodule.pojo.vo.QuestionVO;
 import org.leon.practicemodule.service.ExamAnswers;
 import org.leon.practicemodule.service.ExamBriefs;
 import org.leon.practicemodule.service.ExamDeadline;
@@ -17,6 +22,7 @@ import org.leon.practicemodule.service.ExamFinalizer;
 import org.leon.practicemodule.service.ExamResults;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.PaperLoad;
+import org.leon.practicemodule.service.PracticeMasker;
 import org.leon.practicemodule.service.PaperSkeleton;
 import org.leon.practicemodule.service.PaperStructure;
 import org.leon.practicemodule.service.PaperStructureParser;
@@ -26,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -46,20 +53,34 @@ public class ExamServiceImpl implements ExamService {
     private final QbPaperMapper paperMapper;
     private final QbExamAttemptMapper attemptMapper;
     private final QbUserAnswerRecordMapper recordMapper;
+    private final QbQuestionMapper questionMapper;
+    private final QbQuestionOptionMapper optionMapper;
     private final ExamBriefs briefs;
     private final ExamFinalizer finalizer;
     private final PracticeProperties props;
+    private final PracticeMasker masker;
 
+    /**
+     * 九个依赖里有三个（questionMapper / optionMapper / masker）是 {@code exam/question} 带进来的：
+     * 那条路径一次只要一道题，所以它走单题查询而不是 {@link ExamBriefs} 的批量取数——
+     * 用批量取整卷原料换一道题是浪费，两条路径各自的成本要各算。
+     */
     public ExamServiceImpl(QbPaperMapper paperMapper,
                            QbExamAttemptMapper attemptMapper,
                            QbUserAnswerRecordMapper recordMapper,
-                           ExamBriefs briefs, ExamFinalizer finalizer, PracticeProperties props) {
+                           QbQuestionMapper questionMapper,
+                           QbQuestionOptionMapper optionMapper,
+                           ExamBriefs briefs, ExamFinalizer finalizer,
+                           PracticeProperties props, PracticeMasker masker) {
         this.paperMapper = paperMapper;
         this.attemptMapper = attemptMapper;
         this.recordMapper = recordMapper;
+        this.questionMapper = questionMapper;
+        this.optionMapper = optionMapper;
         this.briefs = briefs;
         this.finalizer = finalizer;
         this.props = props;
+        this.masker = masker;
     }
 
     @Override
@@ -91,6 +112,68 @@ public class ExamServiceImpl implements ExamService {
 
         QbExamAttempt created = createAttempt(userId, paper, now);
         return toStartVO(paper, structure, created, now);
+    }
+
+    /** 成绩单之外的读题路径。不加 @Transactional：一条 SELECT 都不写。 */
+    @Override
+    public ExamQuestionVO question(Long userId, Long attemptId, Long questionId) {
+        if (attemptId == null || questionId == null) {
+            throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法");
+        }
+        QbExamAttempt attempt = loadOwnAttempt(userId, attemptId);
+        if (attempt.getStatus() == null || attempt.getStatus() != 1) {
+            throw new PracticeException(PracticeErrorCode.EXAM_SUBMITTED, "该次作答已提交");
+        }
+        QbPaper paper = PaperLoad.loadVisible(paperMapper, userId, attempt.getPaperId());
+        PaperStructure structure = PaperStructureParser.parse(paper.getStructureJson());
+        PaperStructure.QuestionRef ref = findRef(structure, questionId);   // 不在卷面上 → 40000
+
+        QbQuestion question = questionMapper.selectById(questionId);
+        if (question == null) {
+            throw new PracticeException(PracticeErrorCode.NOT_FOUND, "题目不存在");
+        }
+        if (question.getStatus() == null || question.getStatus() != 1) {
+            throw new PracticeException(PracticeErrorCode.CONFLICT, "题目已下架");
+        }
+        // 只有选择题需要选项行；判断/填空/简答压根没有选项（段 3 的同一判据）
+        List<QbQuestionOption> options =
+                question.getType() != null && (question.getType() == 1 || question.getType() == 2)
+                        ? optionMapper.selectDisplayOptions(questionId)   // 既有查询就不选 is_correct
+                        : List.of();
+
+        QuestionVO masked = masker.toQuestionVO(question, options);
+        masked.setIndex(ref.index());
+        masked.setScore(ref.score());      // QuestionVO 的预留字段，段 3 恒 null，这里第一次填上
+
+        ExamQuestionVO vo = new ExamQuestionVO();
+        vo.setAttemptId(attempt.getId());
+        vo.setQuestionId(questionId);
+        vo.setIndex(ref.index());
+        vo.setScore(ref.score());
+        vo.setQuestion(masked);
+        vo.setUserAnswerJson(ExamAnswers.decode(attempt.getAnsweredJson()).get(questionId));
+        return vo;
+    }
+
+    /** attempt 归属判据：不存在 40400，不是本人 40300（spec 5.7 的两码必须在同一处分支上分开） */
+    private QbExamAttempt loadOwnAttempt(Long userId, Long attemptId) {
+        QbExamAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null) {
+            throw new PracticeException(PracticeErrorCode.NOT_FOUND, "作答不存在");
+        }
+        if (!userId.equals(attempt.getUserId())) {
+            throw new PracticeException(PracticeErrorCode.FORBIDDEN, "无权操作该作答");
+        }
+        return attempt;
+    }
+
+    private static PaperStructure.QuestionRef findRef(PaperStructure structure, Long questionId) {
+        for (PaperStructure.QuestionRef ref : structure.questionsInOrder()) {
+            if (ref.questionId().equals(questionId)) {
+                return ref;
+            }
+        }
+        throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "该题不在这张卷子里");
     }
 
     /** 新建一次草稿。撞唯一键（并发双击）时重读别人建好的那条返回（裁定二） */

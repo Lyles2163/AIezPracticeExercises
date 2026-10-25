@@ -26,12 +26,19 @@ import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestion;
 import org.leon.practicemodule.pojo.QbQuestionOption;
 import org.leon.practicemodule.pojo.QbSubject;
+import org.leon.practicemodule.config.PracticeProperties;
+import org.leon.practicemodule.service.AnswerGrader;
+import org.leon.practicemodule.service.ExamBriefs;
+import org.leon.practicemodule.service.ExamFinalizer;
+import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.FavoriteService;
 import org.leon.practicemodule.service.PaperService;
 import org.leon.practicemodule.service.PracticeMasker;
 import org.leon.practicemodule.service.QuestionReadService;
 import org.leon.practicemodule.service.UserIdentityService;
 import org.leon.practicemodule.service.WrongBookService;
+import org.leon.practicemodule.service.ExamFixtures;
+import org.leon.practicemodule.service.impl.ExamServiceImpl;
 import org.leon.practicemodule.service.impl.FavoriteServiceImpl;
 import org.leon.practicemodule.service.impl.PaperServiceImpl;
 import org.leon.practicemodule.service.impl.QuestionReadServiceImpl;
@@ -112,11 +119,19 @@ class AnswerStateResponseGuardTest {
         // 原文/答案会不会随实体或内嵌 record 一起出网（spec 9.1.2 把这两个接口列进同一份清单）。
         PaperService paperService = new PaperServiceImpl(paperMapper, subjectMapper,
                 attemptMapper, recordMapper);
+        // 段 5 的 exam/question：真服务 + 真遮罩器 + mock mapper，与上面四个接口同一套装配方式。
+        // masker 必须是真的 new：脱敏口径本身就是被测对象，mock 掉它这条守卫就是空转。
+        ExamBriefs examBriefs = new ExamBriefs(questionMapper, optionMapper);
+        ExamService examService = new ExamServiceImpl(paperMapper, attemptMapper, recordMapper,
+                questionMapper, optionMapper, examBriefs,
+                new ExamFinalizer(attemptMapper, recordMapper, wrongMapper, examBriefs, new AnswerGrader()),
+                new PracticeProperties(), new PracticeMasker());
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new PracticeQuestionController(readService, identity),
                         new PracticeWrongController(wrongBookService, identity),
                         new PracticeFavoriteController(favoriteService, identity),
-                        new PracticePaperController(paperService, identity))
+                        new PracticePaperController(paperService, identity),
+                        new PracticeExamController(examService, identity))
                 .setControllerAdvice(new PracticeExceptionHandler())
                 .build();
     }
@@ -203,9 +218,35 @@ class AnswerStateResponseGuardTest {
         assertTrue(json.contains("我的上次作答"), "lastUserAnswerJson 是允许的用户自身数据：" + json);
     }
 
+    /**
+     * 段 5 的 exam/question（spec 9.1.3：这条是答题态清单里唯一还没被守卫覆盖的 GET）。
+     * 用带真值的实体喂它（{@link #rawQuestion} 的 answerJson/analysis 都是哨兵），
+     * 一旦遮罩漏字段，值哨兵就会在字节里现形。
+     */
     @Test
-    @DisplayName("favorite/page 的响应体干净，且 createdAt 是 epoch 毫秒")
-    void favoritePageResponseIsClean() throws Exception {
+    @DisplayName("exam/question 的响应体干净：选项不带 isCorrect，题干不带答案与解析")
+    void examQuestionResponseIsClean() throws Exception {
+        when(paperMapper.selectById(8L)).thenReturn(ExamFixtures.paperP1());
+        when(attemptMapper.selectById(500L))
+                .thenReturn(ExamFixtures.draftAttempt(10L, 8L, "{\"1\":\"A\"}"));
+        when(questionMapper.selectById(1L)).thenReturn(rawQuestion(1L));
+        when(optionMapper.selectDisplayOptions(1L)).thenReturn(List.of(
+                option("A", "选项甲", 1), option("B", "选项乙", 0)));
+
+        String json = body(get("/practice/exam/question?attemptId=500&questionId=1"));
+
+        assertNoAnswerFields(json, "\"选项甲\"");
+        assertTrue(json.contains("\"index\":1"), "卷面序号没进响应：" + json);
+        // 实测：structure_json 里的 7.00 被 Jackson 读成 DoubleNode，decimalValue() 回的是 scale=1 的
+        // BigDecimal("7.0")，所以出网是 "score":7.0 而不是 7.00。两种形态都接受，Task 5.10 端到端按真应用核。
+        assertTrue(json.contains("\"score\":7.00") || json.contains("\"score\":7.0"),
+                "这道题在卷面上的分值必须给前端（答题页要显示 7 分）：" + json);
+        assertTrue(json.contains("\"userAnswerJson\":\"\\\"A\\\"\""),
+                "自己的草稿答案必须回显：" + json);
+    }
+
+    @Test
+    @DisplayName("favorite/page 的响应体干净，且 createdAt 是 epoch 毫秒")    void favoritePageResponseIsClean() throws Exception {
         when(favoriteMapper.countFavorites(10L, 1L)).thenReturn(1L);
         when(favoriteMapper.selectFavoritePage(eq(10L), eq(1L), anyLong(), anyLong()))
                 .thenReturn(List.of(new FavoritePageRow(1L, new Date(1_700_000_000_000L), 1, "题干甲")));

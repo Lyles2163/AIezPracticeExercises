@@ -2,13 +2,16 @@ package org.leon.practicemodule.controller;
 
 import org.leon.commonjwt.pojo.Result;
 import org.leon.practicemodule.pojo.ExamStartReq;
+import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.UserIdentityService;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -34,5 +37,14 @@ public class PracticeExamController {
         Long userId = userIdentityService.resolveUserId(userName);
         ExamStartReq body = req == null ? new ExamStartReq() : req;
         return Result.success(examService.start(userId, body.getPaperId(), body.getForceNew()));
+    }
+
+    /** 逐题取题：只给脱敏正文 + 卷面序号与分值。终态 attempt 报 41002。 */
+    @GetMapping("/question")
+    public Result<ExamQuestionVO> question(@RequestHeader("X-User-Name") String userName,
+                                          @RequestParam Long attemptId,
+                                          @RequestParam Long questionId) {
+        Long userId = userIdentityService.resolveUserId(userName);
+        return Result.success(examService.question(userId, attemptId, questionId));
     }
 }

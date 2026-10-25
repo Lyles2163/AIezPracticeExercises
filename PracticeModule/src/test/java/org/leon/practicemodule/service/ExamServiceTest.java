@@ -15,6 +15,8 @@ import org.leon.practicemodule.mapper.QbUserWrongMapper;
 import org.leon.practicemodule.mapper.QuestionOptionKeyRow;
 import org.leon.practicemodule.pojo.QbExamAttempt;
 import org.leon.practicemodule.pojo.QbPaper;
+import org.leon.practicemodule.pojo.QbQuestionOption;
+import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.QbUserAnswerRecord;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.service.impl.ExamServiceImpl;
@@ -62,7 +64,8 @@ class ExamServiceTest {
         briefs = new ExamBriefs(questionMapper, optionMapper);
         finalizer = new ExamFinalizer(attemptMapper, recordMapper, wrongMapper, briefs, new AnswerGrader());
         service = new ExamServiceImpl(paperMapper, attemptMapper, recordMapper,
-                briefs, finalizer, new PracticeProperties());
+                questionMapper, optionMapper, briefs, finalizer,
+                new PracticeProperties(), new PracticeMasker());
         when(paperMapper.selectById(PAPER)).thenReturn(ExamFixtures.paperP1());
         stubQuestions();
     }
@@ -95,6 +98,109 @@ class ExamServiceTest {
         attempt.setWrongCount(0);
         attempt.setUnansweredCount(3);
         return attempt;
+    }
+
+    /** exam/question 那道题的原料：type=1 的 qid 1 与它的四个选项 */
+    private void stubQuestionOneForRead() {
+        QbQuestionOption a = new QbQuestionOption();
+        a.setOptionKey("A");
+        a.setContent("选项甲");
+        a.setIsCorrect(1);                       // 实体里带真值，遮罩器必须不复制它
+        QbQuestionOption b = new QbQuestionOption();
+        b.setOptionKey("B");
+        b.setContent("选项乙");
+        b.setIsCorrect(0);
+        when(questionMapper.selectById(1L)).thenReturn(ExamFixtures.question(1L, 1, "\"A\""));
+        when(optionMapper.selectDisplayOptions(1L)).thenReturn(List.of(a, b));
+    }
+
+    @Test
+    @DisplayName("取题：脱敏单题 + 卷面 index 与 score + 这道题的草稿答案")
+    void questionIsMaskedAndCarriesScore() {
+        stubQuestionOneForRead();
+        QbExamAttempt existing = draft(1, "{\"1\":\"A\"}");
+        when(attemptMapper.selectById(500L)).thenReturn(existing);
+
+        ExamQuestionVO vo = service.question(USER, 500L, 1L);
+
+        assertEquals(1, vo.getIndex());
+        assertEquals(0, new BigDecimal("7.00").compareTo(vo.getScore()));
+        assertEquals("单选题", vo.getQuestion().getTypeName(), "题型名由 PracticeMasker 给（既有口径）");
+        assertEquals("\"A\"", vo.getUserAnswerJson(), "草稿答案回给用户自己的数据，允许外泄");
+        assertEquals(2, vo.getQuestion().getOptions().size());
+        assertEquals("选项甲", vo.getQuestion().getOptions().get(0).getContent());
+        // 这里**不写** "assertNull(option.getIsCorrect())"：QuestionVO.OptionVO 根本没有这个字段
+        // （段 2 定死的类型），写了编译不过，而"选项不带真值"由响应字节守卫与 PracticeMaskerTest 各钉一遍。
+    }
+
+    @Test
+    @DisplayName("越权：B 用户拿 A 的 attemptId → 40300，且不查题目")
+    void otherUsersAttemptIsForbidden() {
+        QbExamAttempt mine = draft(1, null);
+        mine.setUserId(999L);
+        when(attemptMapper.selectById(501L)).thenReturn(mine);
+
+        assertEquals(PracticeErrorCode.FORBIDDEN, assertThrows(PracticeException.class,
+                () -> service.question(USER, 501L, 1L)).errorCode());
+        verifyNoInteractions(questionMapper);
+    }
+
+    @Test
+    @DisplayName("题不在卷面上 → 40000（不是 40400：题存在，但不属于这张卷子）")
+    void questionNotOnPaper() {
+        QbExamAttempt existing = draft(1, null);
+        when(attemptMapper.selectById(500L)).thenReturn(existing);
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.question(USER, 500L, 99L)).errorCode());
+    }
+
+    @Test
+    @DisplayName("已提交的 attempt 不能再取题 → 41002")
+    void terminalAttemptRejectsQuestion() {
+        QbExamAttempt done = draft(1, null);
+        done.setStatus(2);
+        when(attemptMapper.selectById(502L)).thenReturn(done);
+        assertEquals(PracticeErrorCode.EXAM_SUBMITTED, assertThrows(PracticeException.class,
+                () -> service.question(USER, 502L, 1L)).errorCode());
+    }
+
+    @Test
+    @DisplayName("过期但仍是草稿：读题不拒（到点只禁写草稿，读无副作用）")
+    void expiredDraftCanStillRead() {
+        stubQuestionOneForRead();
+        QbExamAttempt stale = draft(1, null);
+        stale.setDeadlineAt(new Date(System.currentTimeMillis() - 10_000L));
+        when(attemptMapper.selectById(503L)).thenReturn(stale);
+
+        ExamQuestionVO vo = service.question(USER, 503L, 1L);
+
+        assertEquals(1, vo.getIndex(), "过期了也该能翻题目看已存的草稿，否则用户连自己要交什么都看不见");
+    }
+
+    @Test
+    @DisplayName("简答/填空没有选项：不发选项查询")
+    void nonChoiceTypeSkipsOptions() {
+        QbExamAttempt existing = draft(1, "{\"5\":\"我的作答\"}");
+        when(attemptMapper.selectById(500L)).thenReturn(existing);
+        when(questionMapper.selectById(5L)).thenReturn(ExamFixtures.question(5L, 5, "\"参考答案\""));
+
+        ExamQuestionVO vo = service.question(USER, 500L, 5L);
+
+        assertEquals(4, vo.getIndex());
+        assertEquals(0, new BigDecimal("6.00").compareTo(vo.getScore()));
+        assertTrue(vo.getQuestion().getOptions().isEmpty());
+        verify(optionMapper, never()).selectDisplayOptions(any());
+        assertEquals("\"我的作答\"", vo.getUserAnswerJson());
+    }
+
+    @Test
+    @DisplayName("attempt 不存在 → 40400；questionId 缺失 → 40000")
+    void notFoundAndBadParam() {
+        when(attemptMapper.selectById(777L)).thenReturn(null);
+        assertEquals(PracticeErrorCode.NOT_FOUND, assertThrows(PracticeException.class,
+                () -> service.question(USER, 777L, 1L)).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.question(USER, 500L, null)).errorCode());
     }
 
     @Test

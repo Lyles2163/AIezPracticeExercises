@@ -7,6 +7,7 @@ import org.leon.commonjwt.pojo.Result;
 import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
 import org.leon.practicemodule.pojo.ExamStartReq;
+import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.UserIdentityService;
@@ -58,5 +59,20 @@ class PracticeExamControllerTest {
                 new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法"));
         assertThrows(PracticeException.class, () -> controller.start("alice", null));
         verify(examService).start(10L, null, null);
+    }
+
+    @Test
+    @DisplayName("question：两个 query 参数原样透传，attemptId 不参与身份判断")
+    void questionPassesThrough() {
+        when(identity.resolveUserId("alice")).thenReturn(10L);
+        ExamQuestionVO vo = new ExamQuestionVO();
+        vo.setQuestionId(1L);
+        when(examService.question(10L, 500L, 1L)).thenReturn(vo);
+
+        Result<ExamQuestionVO> r = controller.question("alice", 500L, 1L);
+
+        assertEquals(1, r.getCode());
+        assertEquals(1L, r.getData().getQuestionId());
+        verify(examService).question(10L, 500L, 1L);
     }
 }
