@@ -1113,7 +1113,7 @@ public final class ExamGrading {
   - `static ExamResultVO ExamResults.toVO(QbExamAttempt attempt, QbPaper paper, ExamGrading.PaperGrade grade)`
   - `static double ExamResults.progressPercentOf(int answeredCount, int questionCount)` —— 与段 4 的 `PaperCards.progressPercent` 同口径，**直接调它，不再写一遍**
 
-- [ ] **Step 1：写失败测试**
+- [x] **Step 1：写失败测试**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1209,7 +1209,7 @@ class ExamResultsTest {
 
 `ExamFixtures` 是本段共用的测试夹具类（新建，见 Step 3），三个样例卷结构、briefs 与几组答案 map 都在里面——**四个测试类都要用它**，所以每处用到的结构都在这里定义一次，别在各类里复制。
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamResultsTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -1217,7 +1217,7 @@ class ExamResultsTest {
 
 期望编译失败：`找不到符号 ExamResults` / `ExamResultVO` / `ExamFixtures`。
 
-- [ ] **Step 3：写 `ExamFixtures` 与 `ExamResultVO`**
+- [x] **Step 3：写 `ExamFixtures` 与 `ExamResultVO`**
 
 `test/.../service/ExamFixtures.java`：把 Task 5.3 Step 1 里那份 P1 结构字符串、`briefs()`（qid 1/6/2/5）与答案 map 抽成静态方法，签名固定。**这个类必须是 `public`**——`AnswerStateResponseGuardTest` 在 `controller` 包、`PracticeExamControllerTest` 亦然，包私有的夹具类它们用不到（这条是实测约束，不是风格选择）。
 
@@ -1415,7 +1415,7 @@ public class ExamResultVO {
 }
 ```
 
-- [ ] **Step 4：写 `ExamResults`**
+- [x] **Step 4：写 `ExamResults`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1500,11 +1500,11 @@ public final class ExamResults {
 }
 ```
 
-- [ ] **Step 5：跑测试确认绿**
+- [x] **Step 5：跑测试确认绿**
 
 期望 `Tests run: 3, Failures: 0`。
 
-- [ ] **Step 6：全量绿 + 报告改动**
+- [x] **Step 6：全量绿 + 报告改动**
 
 期望 **236**（233 + 3，按实跑报）。产物：`ExamResultVO`、`ExamResults`、`ExamFixtures`（测试夹具）。
 
@@ -3646,7 +3646,24 @@ Tests run: 10, Failures: 0 -- QuestionReadSqlDbIT（9 + 本任务新增的批量
 
 **基线更新**：单测 **233**，db-it **27**（`QuestionReadSqlDbIT` 10、`PaperSqlDbIT` 10、`QbQuestionMapperDbIT` 4、`AnswerFlowDbIT` 3）。
 
-### Task 5.4（待执行）
+### Task 5.4（完成，2026-10-25）
+
+红灯（用"把两个新类临时移出编译路径"逼出来的真实报错，之后原样移回）：
+
+```
+[ERROR] /F:/.../ExamResultsTest.java:[6,39] 找不到符号   （import ...pojo.vo.ExamResultVO）
+[INFO] BUILD FAILURE
+```
+
+绿灯：`Tests run: 236, Failures: 0`（233 + `ExamResultsTest` 3），与计划预估一致。
+
+**对计划的偏差**：
+
+1. **又一处 `score` 算术错**：计划写 `assertEquals(30.00, vo.getScore())`，但 `allRight()` 含那道简答题，裁定一下它 `scoreGot=0`，所以正确值是 **24.00**（`fullScore` 才是 30.00）。这是同一段代码里第 3 次出现"计划把待自评题算进得分"（5.3 的 30.00 与这里执行时抓到；5.9 的 23.00 在计划自查时发现并已改 17.00）。**规律：只要卷面含 `type=5`，`score` 恒等于 `fullScore - 简答题分值`**——成绩单里 `score` 与 `fullScore` 之差就是"待自评吃掉的分数"，测试注释这样写了，端到端也按这条核对。
+2. `ExamResults` **只有 `toVO` + `progressPercentOf` + `millis`**，计划正文没写第二装配函数，草稿态响应另有 `ExamDraftVO`（Task 5.8），不共用本类——所以"装配出口唯一"这条承诺的范围是**成绩单**，不含草稿进度。
+3. 夹具类的方法名从计划的 `singleBlankStructure()` 改成 **`oneQuestionStructure()`**：原名读起来像"一道填空题"，实际是"只含一道题的最小卷面"（配合"该题不是单选"的桩来验第二条 SQL 不发）。Task 5.5 的 `ExamBriefsTest` 按新名调用。
+4. `ExamFixtures` 实测需要 **`public`**（`AnswerStateResponseGuardTest`/`PracticeExamControllerTest` 在 `controller` 包），计划初稿写成包私有；同时补了 `question(long,int,String)`／`disabled(long,int)`／`paperP1()`／`draftAttempt(...)` 四个工厂，`PAPER_ID`/`ATTEMPT_ID` 两个常量，都是 Task 5.5~5.9 的用例要先用它的形状。
+5. `attempt()` 夹具改为**基于 `ExamFixtures.draftAttempt` 再改状态**，而不是另写一份 `QbExamAttempt` 装配——两份"草稿长什么样"迟早会漂。
 
 ### Task 5.5（待执行）
 
