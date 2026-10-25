@@ -27,7 +27,7 @@ public class AnswerGrader {
     public record GradeResult(boolean correct, boolean needSelfJudge) {
     }
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public GradeResult grade(int type, String answerJson, String userAnswerJson, List<String> optionKeys) {
         return switch (type) {
@@ -38,7 +38,7 @@ public class AnswerGrader {
             case 5 -> {
                 // 不判内容，但必须验语法：qb_user_answer_record.user_answer_json 是 MySQL json 列，
                 // 非法 JSON 落库时直接抛 DataIntegrityViolation（端到端实测），只能在这里挡成 40000
-                parse(userAnswerJson);
+                parseSingleValue(userAnswerJson);
                 yield new GradeResult(false, true);
             }
             default -> throw malformed("未知题型 " + type + "，无法判分");
@@ -65,8 +65,8 @@ public class AnswerGrader {
     }
 
     private boolean gradeBlank(String answerJson, String userAnswerJson) {
-        JsonNode correct = parse(answerJson);
-        JsonNode user = parse(userAnswerJson);
+        JsonNode correct = parseSingleValue(answerJson);
+        JsonNode user = parseSingleValue(userAnswerJson);
         if (!correct.isArray() || !user.isArray()) {
             throw malformed("答案格式与题型不匹配");
         }
@@ -110,7 +110,7 @@ public class AnswerGrader {
     }
 
     private String readText(String json) {
-        JsonNode node = parse(json);
+        JsonNode node = parseSingleValue(json);
         if (!node.isTextual()) {
             throw malformed("答案格式与题型不匹配");
         }
@@ -118,7 +118,7 @@ public class AnswerGrader {
     }
 
     private boolean readBool(String json) {
-        JsonNode node = parse(json);
+        JsonNode node = parseSingleValue(json);
         if (node.isBoolean()) {
             return node.booleanValue();
         }
@@ -135,7 +135,7 @@ public class AnswerGrader {
     }
 
     private List<String> readArray(String json) {
-        JsonNode node = parse(json);
+        JsonNode node = parseSingleValue(json);
         if (!node.isArray()) {
             throw malformed("答案格式与题型不匹配");
         }
@@ -155,12 +155,17 @@ public class AnswerGrader {
      * 它校验整份文档——首值题型合法的尾随串会写库报 DataIntegrityViolation（实测 code=0）。
      * 同理非有限数值（1e999）Jackson 给 Infinity，MySQL 拒收。
      */
-    private JsonNode parse(String json) {
+    /**
+     * "整份单值 + 有限数值"这六个字的唯一实现点（spec 5.3 的判分与段 5 的存草稿共用，
+     * roadmap 第 16 条记着这个坑发作过两次：同一套"MySQL 认、Jackson 不认"的形态在
+     * 两个时机都会撞上，写两遍就一定会有一遍漏掉尾随内容检查）。
+     */
+    static JsonNode parseSingleValue(String json) {
         if (json == null || json.isBlank()) {
             throw malformed("答案不能为空");
         }
-        try (JsonParser parser = objectMapper.getFactory().createParser(json)) {
-            JsonNode node = objectMapper.readTree(parser);
+        try (JsonParser parser = MAPPER.getFactory().createParser(json)) {
+            JsonNode node = MAPPER.readTree(parser);
             if (node == null || node.isMissingNode()) {
                 throw malformed("答案不是合法 JSON");
             }

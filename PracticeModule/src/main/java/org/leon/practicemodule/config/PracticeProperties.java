@@ -21,9 +21,20 @@ public class PracticeProperties {
 
     private final Identity identity = new Identity();
 
+    private final Exam exam = new Exam();
+
     @Data
     public static class Identity {
         /** qb:uid:{userName} 的存活秒数 */
         private long cacheTtlSeconds = 1800L;
+    }
+
+    @Data
+    public static class Exam {
+        /**
+         * 超时宽限秒数，吸收网络与倒计时误差（spec 8）。
+         * 只有 ExamDeadline 读它：判据集中在一处，三个入口（start/draft/submit）共用同一次检查才不会互相打架。
+         */
+        private long graceSeconds = 60L;
     }
 }

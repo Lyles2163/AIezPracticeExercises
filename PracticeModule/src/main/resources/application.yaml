@@ -43,6 +43,9 @@ spring:
 practice:
   identity:
     cache-ttl-seconds: 1800
+  exam:
+    # 超时宽限秒数（spec 8）：只有 ExamDeadline 读它，start/draft/submit 三个入口共用同一次判据
+    grace-seconds: 60
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

@@ -158,7 +158,7 @@ spec §4.4/§6.4 只说"旧草稿归档为 3"，没说归档要不要判分。**
   - `static void ExamAnswers.requireValuesValid(Map<Long,String> answers)`（非法 value 抛 `PracticeException(40000)`）
   - `static int ExamAnswers.countOf(String answeredJson)`（草稿的已答数 = key 数；段 4 的 `PaperCards.answeredJsonKeyCount` 口径一致，这里必须与它同结果）
 
-- [ ] **Step 1：写失败测试（红：类不存在）**
+- [x] **Step 1：写失败测试（红：类不存在）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -253,7 +253,7 @@ class ExamAnswersTest {
 }
 ```
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamAnswersTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -261,7 +261,7 @@ class ExamAnswersTest {
 
 期望 `BUILD FAILURE`，报错是 `找不到符号 ExamAnswers`（不是断言失败——红必须是"类不存在"那种红）。
 
-- [ ] **Step 3：写 `ExamAnswers`**
+- [x] **Step 3：写 `ExamAnswers`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -407,7 +407,7 @@ public final class ExamAnswers {
 2. `MAPPER.reader().readValue("A\" \"B\"", JsonNode.class)` 这类尾随形态到底抛不抛——段 2 实测过 Jackson 的 `readTree` 只取第一个值，所以判据要落在校验里；若实测这条不抛，就补一条"读完后剩余字符必须只有空白"的手工检查（`JsonParser` 的 `getTokenLocation()`/再读一次）。**测不出来就等于没挡**，务必用 Step 1 那条 `rejectsValuesMysqlWouldRefuse` 实测。
 3. `var it = root.fields()` 在本仓库 Jackson 版本上的类型是 `Iterator<Map.Entry<String,JsonNode>>`（需要 `import java.util.Iterator;` 还是 `var` 就够，按编译结果定）。
 
-- [ ] **Step 4：跑测试确认绿**
+- [x] **Step 4：跑测试确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamAnswersTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -415,7 +415,7 @@ public final class ExamAnswers {
 
 期望 `Tests run: 6, Failures: 0, Errors: 0`。
 
-- [ ] **Step 5：加配置项与它的失败测试**
+- [x] **Step 5：加配置项与它的失败测试**
 
 `application.yaml` 的 `practice:` 块下加一行（缩进两层，与 `identity` 同级）：
 
@@ -444,7 +444,7 @@ practice:
 
 测试（追加进 `ExamAnswersTest` 所在包的新类，或直接放进 `PracticePropertiesTest`——本仓库此前没有这个类的测试，**不新开**：配置绑定值由 Task 5.2 的 `ExamDeadlineTest` 用显式入参覆盖，yaml 这条由 Task 5.9 的端到端实测确认"到点还能提交"或"到点报 41001"的行为与 60 一致。**理由：给 `@ConfigurationProperties` 的默认值写单测是空转**，它测的是 Spring 而不是我们的规则。）
 
-- [ ] **Step 6：全量绿 + 报告改动**
+- [x] **Step 6：全量绿 + 报告改动**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test
@@ -3562,7 +3562,42 @@ git push origin dev
 
 **填写规则**：每项贴**真实命令输出**（可截断）。控制台有 GBK 风险，中文从落盘文件读。**红灯必须贴出真实报错**，证明确实先红后绿。
 
-### Task 5.1（待执行）
+### Task 5.1（完成，2026-10-25）
+
+**先红后绿**（红灯是真的"类不存在"，不是断言失败）：
+
+```
+[ERROR] /F:/.../PracticeModule/src/test/java/org/leon/practicemodule/service/ExamAnswersTest.java:[22,32] 找不到符号
+  符号:   类 ExamAnswers
+  位置: 类 org.leon.practicemodule.service.ExamAnswersTest
+```
+
+（javac 的中文提示经管道出来是 GBK 乱码，认行号与符号名即可——roadmap 里那条老坑又踩了一次，不影响判读。）
+
+绿灯与回归：
+
+```
+[INFO] Tests run: 6,  Failures: 0  -- ExamAnswersTest        （Task 5.1 自己的）
+[INFO] Tests run: 39, Failures: 0  -- AnswerGraderTest       （改了段 2 的类，专门回跑）
+[INFO] Tests run: 224, Failures: 0, Errors: 0  -- 全量单测（基线 218 + 6）
+[INFO] Tests run: 26,  Failures: 0            -- 四个 db-it 全跑（AnswerGrader 被动过，真库那条必须复核）
+```
+
+**计划里"三处执行时必须当场验的假设"的实测结果**：
+
+1. **成立且已改用更简的写法**：`JsonNode.toString()` 与 `writeValueAsString(node)` 输出同形（都是带引号的 JSON 字面量），且前者不抛检查异常。`decode` 用 `toString()`，注释写明这条等价性。往返测试（`roundTrip`）钉住它。
+2. **不成立——而且是一条真缺陷**：计划原本写 `MAPPER.reader().readValue(raw, JsonNode.class)`，实测它对尾随内容**不抛**（`"A" "B"` 静静收下），于是 `rejectsValuesMysqlWouldRefuse` 第一次跑红在 `ExamAnswersTest:70`：`Expected PracticeException to be thrown, but nothing was thrown`。段 2 的判据（`getFactory().createParser` + `readTree(parser)` + `parser.nextToken() != null` 就拒）才是能用的那一套。**计划里"补一条手工检查"的备选方案没采纳，而是直接复用了段 2 的实现——见下面的偏差。**
+3. **成立**：`var it = root.fields()` 在本仓库 Jackson 版本上编译通过，`Map.Entry<String, JsonNode>` 显式声明也通过，不需要额外 `import java.util.Iterator`。
+
+**对计划的三处偏差（都是计划错、不是实现将就）**：
+
+- **偏差 1（改了段 2 的文件，计划 Files 块没列）**：`AnswerGrader.parse` → `static JsonNode parseSingleValue`（同包内可见），`private final ObjectMapper objectMapper` → `private static final ObjectMapper MAPPER`，类内 6 处调用点同步；`ExamAnswers` 直接调它。理由：计划原文写"两处分开、各写一遍严格校验"，它给的理由是"判分那份的契约含选项键集合"——那条理由对 `grade(...)` 成立，对 `parse(...)` 不成立，而 `parse` 才是这里要复用的东西。roadmap 第 16 条记着这个坑**发作过两次**，两份"MySQL 严格度"校验正是它描述的形态。`AnswerGraderTest` 39 条与 `AnswerFlowDbIT` 3 条断言一字未改就绿，行为没变。
+- **偏差 2**：`decode` 用 `node.toString()` 而非 `writeValueAsString`（假设 1 的实测结果）。
+- **偏差 3**：计划的 `roundTrip` 与 `rejectsValuesMysqlWouldRefuse` 里把简答题的 value 写成裸文本（`"我的简答原文"`）。那是错的——裸文本既不是合法 JSON，`parseSingleValue` 会拒（MySQL 也拒），这正是段 2 定死的口径（简答必须是 JSON 字符串字面量）。测试改为 `"\"我的简答原文\""`，断言强度不变（仍验往返）。
+
+**基线更正**：计划事实 14 写的 218/26 中，218 是**本任务开始前**的数，跑完是 **224**。26 条 db-it 未变。
+
+**提交**：`git add -- <5 个文件 + 本计划>` 显式 pathspec，`git commit`（本段每任务一提交一推送，用户 2026-10-25 裁定；共享工作树在 Task 5.1 首次尝试时被别人的回滚吞过一次未提交改动，见 memory）。
 
 ### Task 5.2（待执行）
 
