@@ -1533,7 +1533,7 @@ public final class ExamResults {
   - `ExamFinalizer.Outcome ExamFinalizer.finalizeAttempt(QbExamAttempt draft, PaperStructure structure, QbPaper paper, int terminalStatus, long nowMillis)`（判分要卷面结构、错题本要 `subject_id`，所以比"最小签名"多两个参数）
   - `record ExamFinalizer.Outcome(QbExamAttempt attempt, ExamGrading.PaperGrade grade, boolean justFinalized)`
 
-- [ ] **Step 1：写 db-it 的失败用例（真库先红）**
+- [x] **Step 1：写 db-it 的失败用例（真库先红）**
 
 `ExamFlowDbIT` 沿用 `PaperSqlDbIT` 的样板（`UnpooledDataSource` + `MybatisSqlSessionFactoryBuilder` + `session.clearCache()`），合成用户 **`user_id=990005`**，`@Tag("db-it")`，每条用例前 purge `qb_exam_attempt` + `qb_user_answer_record` 的 990005 行，**`qb_paper` 一行都不许动**（跑完用探针复核 `qb_paper=4`）。
 
@@ -1591,7 +1591,7 @@ public final class ExamResults {
     }
 ```
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamFlowDbIT -Dsurefire.excludedGroups= -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -1599,7 +1599,7 @@ public final class ExamResults {
 
 期望编译失败：`找不到符号 finalizeIfDraft` / `selectDraftByUserAndPaper` / `selectMaxSeqNo`。
 
-- [ ] **Step 3：写 mapper 层的五条查询与投影行**
+- [x] **Step 3：写 mapper 层的五条查询与投影行**
 
 ```java
     /**
@@ -1660,7 +1660,7 @@ public record AttemptPageRow(Long attemptId, Integer seqNo, Integer status, BigD
 }
 ```
 
-- [ ] **Step 4：写 `ExamBriefs`（批量取判分原料，零 N+1）**
+- [x] **Step 4：写 `ExamBriefs`（批量取判分原料，零 N+1）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1761,7 +1761,7 @@ public class ExamBriefs {
 
 `Brief` 一次性构造到位（选项键先算再建），不留"建完再改 record 分量"的第二遍。SQL 条数上限 2，由 Step 5 的 `times(1)` 钉住。
 
-- [ ] **Step 5：写 `ExamBriefsTest`**
+- [x] **Step 5：写 `ExamBriefsTest`**
 
 ```java
     @Test
@@ -1820,7 +1820,7 @@ public class ExamBriefs {
     }
 ```
 
-- [ ] **Step 6：写 `ExamFinalizer`**
+- [x] **Step 6：写 `ExamFinalizer`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1973,7 +1973,7 @@ public class ExamFinalizer {
 
 **`expandRecords` 的第二个参数是 `terminal`（终态行）而不是 `draft`**：均摊用时的数据只在 `terminalRow` 里才算得出来（草稿行的 `duration_used_ms` 永远是 null），传错对象不会编译失败、只会让每一行的 `duration_ms` 静默变成 null。所以 Task 5.9 的 `ExamSubmitTest` 里必须有 `assertNotNull(rows.get(0).getDurationMs())` 这一条——它是这段代码唯一的防线（`ExamFinalizer` 不进 db-it，db-it 只测 SQL）。
 
-- [ ] **Step 7：跑 db-it 确认绿**
+- [x] **Step 7：跑 db-it 确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamFlowDbIT -Dsurefire.excludedGroups= -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -1981,7 +1981,7 @@ public class ExamFinalizer {
 
 期望 `Tests run: 3, Failures: 0`。**跑完必须复核**：`qb_paper` 仍 4 行、`user_id=990005` 两张表 0 行（`Seg5Residue.java`，照 `Seg4Residue` 抄）。
 
-- [ ] **Step 8：全量绿 + 报告改动**
+- [x] **Step 8：全量绿 + 报告改动**
 
 期望 **239**（236 + `ExamBriefsTest` 3，按实跑报）。产物：五条 attempt 查询 + `AttemptPageRow` + `ExamBriefs` + `ExamFinalizer` + `ExamFlowDbIT`。
 
@@ -3665,7 +3665,26 @@ Tests run: 10, Failures: 0 -- QuestionReadSqlDbIT（9 + 本任务新增的批量
 4. `ExamFixtures` 实测需要 **`public`**（`AnswerStateResponseGuardTest`/`PracticeExamControllerTest` 在 `controller` 包），计划初稿写成包私有；同时补了 `question(long,int,String)`／`disabled(long,int)`／`paperP1()`／`draftAttempt(...)` 四个工厂，`PAPER_ID`/`ATTEMPT_ID` 两个常量，都是 Task 5.5~5.9 的用例要先用它的形状。
 5. `attempt()` 夹具改为**基于 `ExamFixtures.draftAttempt` 再改状态**，而不是另写一份 `QbExamAttempt` 装配——两份"草稿长什么样"迟早会漂。
 
-### Task 5.5（待执行）
+### Task 5.5（完成，2026-10-25）
+
+**绿灯与真库取证**：
+
+```
+Tests run: 239, Failures: 0 -- 全量单测（236 + ExamBriefsTest 3）
+Tests run: 3,  Failures: 0 -- ExamFlowDbIT（真库，1.45s）
+qb_paper=4 attempt_990005=0 record_990005=0 attempt_ALL=0 question=7   （Seg5Residue 探针）
+```
+
+样例卷 4 行未动、合成用户零残留、`qb_exam_attempt` 全表仍是 0 行（此刻还没有业务写入者）、`qb_question` 仍 7 行。
+
+**没做到的一件事（明写，不掩盖）**：本任务**没有单独跑一次"先红"**。数据层五条查询与它们的测试是一遍写完的，第一次 `mvn -Dtest=ExamFlowDbIT` 确实是红的，但红的原因是**我的 import 缺了 `org.apache.ibatis.annotations.Update`**（`找不到符号 Update`，`QbExamAttemptMapper.java:67`），不是"被测行为还不存在"那种红。补上 import 后一次绿。Task 5.1/5.2/5.3/5.4 都留了真实的红灯输出，这四条是纪律做到位；5.5 这一条没做到，代价是"finalizeIfDraft 的 0/1 语义"少了一次独立反证——它现在由 db-it 的三条断言（回 1、再回 0、越权回 0）在真库上钉住，仍然可复核。
+
+**对计划的偏差**：
+
+1. `insertAttempt` 用**真时间戳**（`started_at = now-60s`、`deadline_at = now+60min`），计划给的是一段写死的字面量（`'2026-10-24 09:00:00'`）。写死的日期会让段 5 之后所有"过期草稿"的用例依赖当天日期，Task 5.9 的 db-it 全链路要在同一条用例里造过期行，必须能自由设 `deadline_at`。
+2. `finalizeAttempt` 的实现签名与计划一致（五个参数），但计划正文的 `expandRecords` 那一版把 `draft` 传进均摊函数，我按执行记录里的更正版传 `terminal`（`duration_ms` 才不会静默为 null）。
+3. 三条 db-it 用例在计划的三条之上多钉了四件事：`finalizeIfDraft` 带 `user_id` 时越权回 0 行、`countForPaper` 把草稿也算进 total、`selectAttemptPage` 的 `ORDER BY id DESC` 用 `seq_no` 序列 `[3,2,1]` 钉住、草稿行的 `score` 必须是 null（这条是 `AttemptPageRow` 全用包装类型的理由）。原计划的三条用例只覆盖了闸门、唯一键与草稿查询。
+4. db-it 样板（open/purge/flushCache/insertAttempt）这里是**第五次重复**。段 3/段 4/段 5 的接缝表都记着这件事，阻力是"MySQL 口令从哪来"与用户"秘密只进 gitignored 本地文件"的规则相冲（`db-it` 里 root 空口令已经是明文，抽取会把它复制第六遍）。本段仍不动，段 5 结束后这条仍然挂在接缝表上。
 
 ### Task 5.6（待执行）
 
