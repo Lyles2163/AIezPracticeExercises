@@ -166,6 +166,14 @@ ALTER TABLE `qb_user_answer_record`
   ADD KEY `idx_record_attempt_question` (`attempt_id`,`question_id`);
 ```
 
+> **段 4 已执行（2026-10-24，用户当场授权"段 4 一路执行到底"，授权范围只到本段的三条 DDL，不延续到段 5）**：三条语句在 dev 库 `ezpracticeexercises` 全部 `OK`，逐列核对来自 `information_schema`（取证在 `plans/2026-10-23-practice-04-ddl-paper.md` 的 DDL 一节，原始 `SHOW CREATE TABLE` 落盘 `seg4/ddl-evidence.txt`）。实测结果与上面的语句**一字不差**，只补三条执行期才显形的数字：
+>
+> 1. `qb_paper` **16 列**、`qb_exam_attempt` **17 列**、`qb_user_answer_record` **10 列**；`attempt_id` 是 `bigint unsigned` / 可空 / `ordinal_position=4`（紧跟 `subject_id`，`AFTER` 生效）。
+> 2. 九张 `qb_*` 表 collation 全是 `utf8mb4_unicode_ci`，新表没有引入第二个 collation——这条不是形式检查：`qb_paper` 要与 `qb_subject` join，混了 collation 的等值比较在 MySQL 9 上是 `Illegal mix of collations`。
+> 3. **`json` 列回读的是 MySQL 规范化后的形态，不是写入的原串**（冒号后补空格）。写进本节的两处 `structure_json` 字符串比较、以及段 5 对 `answered_json` 的任何字符串改写，都必须按规范化形态匹配（`"key"\s*:\s*value`），否则"改写没生效 → 期望异常没抛"会伪装成一条绿用例——本段 `crossSubjectReferenceIsRejected` 第一次就是这么做空的，已在测试里加"改写必须真的生效"的自我把关断言。
+>
+> 另记两条同段实测：`STRICT_TRANS_TABLES` 下漏 `started_at` 的 attempt 行以 **1364** 被拒（所以 db-it 与端到端的插入必须显式给时间），唯一键报错消息**带表名前缀**（`qb_exam_attempt.uk_attempt_user_paper_seq`）。
+
 ### 4.2 五个设计要点
 
 **为什么套卷只引用 `qb_question`，不把题目内嵌进 `structure_json`。** 错题本、收藏本、科目统计、`qb_user_answer_record` 全部以 `question_id` 为键。题目一旦内嵌进试卷就成了私有副本，要么为考试再造一套平行的错题/收藏/统计表（违背"以现有表库为基础"），要么这些功能对考试题全部失效。引用式的代价是 `structure_json` 写入时必须校验 `questionId` 存在且可用，这个代价换来的是两个流程共用一套用户数据。
@@ -310,6 +318,14 @@ ALTER TABLE `qb_user_answer_record`
 
 `PaperCardVO` = `{paperId,title,subjectId,subjectName,examYear,examMonth,setNo,durationMinutes,totalScore,questionCount,badges,submitCount,answeredCount,progressPercent,latestAttemptId,latestAttemptStatus}`。`badges` 由后端拼成 `["2020年","第一套","7月","125分钟"]`，前端直接渲染卡片，不拼字符串。
 
+> **段 4 更正（2026-10-25，两个 paper 接口已实施并端到端取证，本表按实现补正）**：
+>
+> 1. `subjectId` 是**必填**（缺失经 `PracticeExceptionHandler` 转 `40000`，不是"省略即查全部科目"）——本段没有"查全部科目"的形态，因为 `idx_paper_subject_status_sort` 的最左列就是 `subject_id`。
+> 2. 三个徽章字段 `examYear/examMonth/setNo` **既给原值也给拼好的 `badges`**：原值供前端做筛选回显，`badges` 供直接渲染。`badges` 顺序固定为 **年 / 套 / 月 / 时长**（截图如此），套次用中文序数"第一套…第十套"，第 11 套起回落阿拉伯数字。
+> 3. `submitCount` 是 `long`（不是 `int`），语义是**只数终态** attempt（`status IN (2,3)`），草稿不占"已提交次数"；`answeredCount` 则是**草稿数 `answered_json` 的 key 数、终态数展开出的 `qb_user_answer_record` 行数**（`progressPercent` 用它除以 `questionCount`，2 位小数 HALF_UP，`questionCount<=0` 给 `0.0`）。
+> 4. `detail` 的 `data` 除本表列出的字段外，**还有 `description`、`latestAttemptId`、`latestAttemptStatus`**：卡片进详情页需要"继续考试"入口，这两个字段是入口的原料，原表漏列。骨架三层是 `parts[{roman,name,cardLabel,score,minutes,sections[]}]` → `sections[{label,subTitle,direction,audioUrl,originalText,questions[]}]` → `questions[{index,questionId,score}]`，与 `structure_json` 一一对应；**`QuestionRefVO` 刻意不含 `type`**——题型由段 5 的 `exam/question` 给，骨架里塞题型就要多查一次 `qb_question`，而题的正文本就不该出现在这里。
+> 5. `originalText` 闸门的判据按裁定二实现为"**该用户该卷有终态 attempt 才可见**"（即 `submitCount > 0`），本段库里没有 attempt，所以端到端实测到的形态是"三个 section 的 `originalText` 全为 `null`、`audioUrl` 照常给值"；闸门在真库上的三态（无 attempt / 草稿 / 已交卷）由 `PaperSqlDbIT.originalTextGateOnRealData` 用**真服务 + 真库**钉住。
+
 `ExamResultVO` = `{attemptId,seqNo,status,score,fullScore,correctCount,wrongCount,unansweredCount,accuracy,durationUsedMs,sections:[{name,scoreGot,fullScore,correctCount}],questions:[{index,questionId,type,userAnswerJson,correctAnswerJson,isCorrect,scoreGot,fullScore,analysis}]}`。交卷后一次给全，正好喂"答案解析"页；`attempt/detail` 复用同一结构，所以刷新页面不丢解析。
 
 **`originalText` 只在交卷后可见**：`paper/detail` 与 `exam/*` 在 `attempt.status=1` 时 `originalText` 恒为 `null`，`audioUrl` 正常返回。截图的"显示原文"按钮在考试中点开就该是空的——听力原文即答案。
@@ -453,9 +469,9 @@ practice:
 - [ ] 刷新页面重新 `exam/start` 同一试卷 → 返回**同一个** `attemptId`，草稿答案还在
 - [ ] 交卷后 `qb_user_answer_record` 新增 `question_count` 行、`answered_json` 为 NULL、`submitCount` 变 2
 - [ ] 连点两次提交 → 成绩与行数不变
-- [ ] 考试中 `paper/detail` 的 `originalText` 为 null，交卷后 `attempt/detail` 里非 null
+- [ ] 考试中 `paper/detail` 的 `originalText` 为 null，交卷后 `attempt/detail` 里非 null（**前半边的段 4 部分已证，2026-10-25**：网关实跑 `paper/detail?paperId=8` 三个 section 的 `originalText` 全 `null` 而 `audioUrl` 有值；真库真服务的三态（无 attempt / 草稿 / 已交卷）由 `PaperSqlDbIT.originalTextGateOnRealData` 钉住——**草稿态仍 null、交卷态非 null**。后半边（`attempt/detail` 里非 null）要段 5 的考试接口）
 - [ ] `deadline_at` 过期后 `draft` 报 `41001`
-- [ ] 样例试卷 1 套的页面数据能铺满截图两个页面的每个字段
+- [ ] 样例试卷 1 套的页面数据能铺满截图两个页面的每个字段（**卡片半边已完成，2026-10-25**：截图①的每个字段都从网关活体拿到了——`badges=["2020年","第一套","7月","65分钟"]`、`questionCount=4`、`totalScore=30.00`（原始字节形态，`decimal(6,2)` 出网保留两位）、`subjectName=语文`、`submitCount=0`、`progressPercent=0.0`、`latestAttemptId=null`；截图②的卷面骨架三层也已铺满（2 部分 / 3 节 / 4 题、`index` 1..4、听力节 `audioUrl` 有值）。**但"铺满截图每个字段"这条整体不成立**：样例卷实际是 4 套、题量 4/2/3/1（不是真题的 65 题），截图右侧那张 65 格答题卡网格**无法用现有真数据复现**；另一半（考试中作答、交卷成绩单、解析页）要段 5）
 
 ---
 
@@ -477,9 +493,11 @@ practice:
 | 逐题用时在考试里是均摊 | `qb_user_answer_record.duration_ms` 交卷时按已答题均摊。要真逐题计时得前端埋 `exam/question` 的进出时间，接口不用改形状 |
 | 简答靠自评 | `needSelfJudge` + `self-judge`。将来接 AI 判分只替换 `self-judge` 的落库前一步 |
 | 智能练习只有一条策略 | `mode=3` 的取题分支收在 `QuestionService` 一处 |
-| 卡片进度条语义未定 | 截图里 `已提交次数 1次` 旁边的条，既可能是"已用次数/可用次数"也可能是"已答题/总题数"。`PaperCardVO` 同时给 `submitCount` 与 `progressPercent`，前端二选一，后端不猜。若将来要"次数上限"，那是 VIP 配额子系统（《EZ刷题设计文档.md:11》），需新表 |
+| 卡片进度条语义未定 | 截图里 `已提交次数 1次` 旁边的条，既可能是"已用次数/可用次数"也可能是"已答题/总题数"。`PaperCardVO` 同时给 `submitCount` 与 `progressPercent`，前端二选一，后端不猜。若将来要"次数上限"，那是 VIP 配额子系统（《EZ刷题设计文档.md:11》），需新表（**段 4 裁定三已把后端这半边定死，2026-10-25**：`submitCount` 只数终态 attempt（`status IN (2,3)`，草稿不算），`answeredCount` 草稿取 `answered_json` 的 key 数、终态取展开出的答题行数，`progressPercent` 是后两者的比——"已用次数/可用次数"这一支后端不给，因为可用次数属 VIP 配额。前端二选一仍然成立） |
 | 单实例假设 | 本期无内存态注册表，交卷与草稿都是无状态请求，多实例天然安全。若将来加超时广播，参照 AI 对话"单实例边界只记录不实现"的处理 |
 | 断点靠 `MAX(sort_order)` | 题量上万时需给 `qb_user_answer_record` 加覆盖索引或改存进度列，届时是独立决策 |
+
+> **段 4 补一条"已知未校验项"（2026-10-25，做组卷接口时必须补成第五条校验）**：4.3 的四条校验只约束 **题目分值之和** 与 `total_score` 相等（规则 3），**`Σ parts[].score` 与 `total_score` 的关系 spec 没列、实现也没查**。样例卷是手工对齐的（P1 的 `14.00 + 16.00 = 30.00`），那**不是校验出来的**——`PaperStructureValidator` 里查 `part.score` 只用到"非负"，`db-it` 的 `everySeededPaperPassesValidation` 也过不了一个"部分分之和 ≠ 总分"的卷，因为它根本不查。段 5 的组卷/管理端写 `qb_paper` 之前，这条要么补成校验、要么在 `structure_json` 契约里明写"部分分只用于渲染、不参与任何求和"，否则成绩单的三级分（题/节/卷）会对不上总分。
 
 ---
 
@@ -487,10 +505,10 @@ practice:
 
 | 动作 | 影响 |
 |---|---|
-| 执行 4.1 的 DDL（建 2 表 + 给 `qb_user_answer_record` 加 1 列） | 改 dev 库结构，不可逆 |
+| 执行 4.1 的 DDL（建 2 表 + 给 `qb_user_answer_record` 加 1 列） | 改 dev 库结构，不可逆（**已消耗，2026-10-24**：用户当场授权"现在就授权，段 4 一路执行到底"，授权范围**只到段 4 的这三条**，段 5 的任何结构动作要重新授权。三条全 `OK`，实测列数/索引/`ordinal_position` 见 4.1 的段 4 更正） |
 | 改 `QbQuestion.java` / `QbQuestionMapper.java` / `QbQuestionService(Impl)` | 现有文件重写（它们本来就是坏的，见 2.2.1） |
 | `PracticeModule/pom.xml` 加 `CommonJwt` 依赖 + 启动类加 `@ComponentScan` | 动构建与扫描范围 |
-| 灌 1 套样例真题（含 2 个 part、听力音频与原文） | 往 `qb_paper`、`qb_question` 写测试数据 |
+| 灌 1 套样例真题（含 2 个 part、听力音频与原文） | 往 `qb_paper`、`qb_question` 写测试数据（**已消耗，2026-10-24，按裁定一改写为"只写了 `qb_paper`"**：实际灌了 **4 套**（P1 4 题 / P2 2 题 / P3 3 题 / P4 1 题且 `status=0`），`qb_question` 一行没写也没改——样例卷只引用现有 7 道题的 `questionId`。写库脚本在仓库外 `seg4/Seg4Seed.java`，实测自增 id 是 **8/9/10/11**（不是 1..4，因为前面的 db-it 已消耗过自增值），所以测试与端到端一律按 `subjectId/questionCount/status` 定位、**绝不写死 id**） |
 | 建 `users_dev` 测试账号（插一条 BCrypt 哈希行） | 9.2 端到端的前置 |
 | 删除 `src/main/java/.../mapper/QbQuestionMapper.xml` | 死文件，或改为移到 resources |
 

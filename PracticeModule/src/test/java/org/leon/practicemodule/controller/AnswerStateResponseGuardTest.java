@@ -5,8 +5,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.leon.commonjwt.pojo.Result;
 import org.leon.practicemodule.exception.PracticeExceptionHandler;
+import org.leon.practicemodule.mapper.AttemptRecordCountRow;
+import org.leon.practicemodule.mapper.AttemptSubmitCountRow;
 import org.leon.practicemodule.mapper.FavoritePageRow;
 import org.leon.practicemodule.mapper.LatestAnswerRow;
+import org.leon.practicemodule.mapper.LatestAttemptRow;
+import org.leon.practicemodule.mapper.PaperCardRow;
+import org.leon.practicemodule.mapper.QbExamAttemptMapper;
+import org.leon.practicemodule.mapper.QbPaperMapper;
 import org.leon.practicemodule.mapper.QbQuestionMapper;
 import org.leon.practicemodule.mapper.QbQuestionOptionMapper;
 import org.leon.practicemodule.mapper.QbSubjectMapper;
@@ -16,15 +22,18 @@ import org.leon.practicemodule.mapper.QbUserWrongMapper;
 import org.leon.practicemodule.mapper.QuestionPageRow;
 import org.leon.practicemodule.mapper.QuestionPositionRow;
 import org.leon.practicemodule.mapper.WrongPageRow;
+import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestion;
 import org.leon.practicemodule.pojo.QbQuestionOption;
 import org.leon.practicemodule.pojo.QbSubject;
 import org.leon.practicemodule.service.FavoriteService;
+import org.leon.practicemodule.service.PaperService;
 import org.leon.practicemodule.service.PracticeMasker;
 import org.leon.practicemodule.service.QuestionReadService;
 import org.leon.practicemodule.service.UserIdentityService;
 import org.leon.practicemodule.service.WrongBookService;
 import org.leon.practicemodule.service.impl.FavoriteServiceImpl;
+import org.leon.practicemodule.service.impl.PaperServiceImpl;
 import org.leon.practicemodule.service.impl.QuestionReadServiceImpl;
 import org.leon.practicemodule.service.impl.WrongBookServiceImpl;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,6 +44,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
@@ -69,6 +79,8 @@ class AnswerStateResponseGuardTest {
     private QbSubjectMapper subjectMapper;
     private QbUserWrongMapper wrongMapper;
     private QbQuestionOptionMapper optionMapper;
+    private QbPaperMapper paperMapper;
+    private QbExamAttemptMapper attemptMapper;
     private MockMvc mockMvc;
 
     private static String body(MvcResult result) throws Exception {
@@ -83,6 +95,8 @@ class AnswerStateResponseGuardTest {
         subjectMapper = mock(QbSubjectMapper.class);
         wrongMapper = mock(QbUserWrongMapper.class);
         optionMapper = mock(QbQuestionOptionMapper.class);
+        paperMapper = mock(QbPaperMapper.class);
+        attemptMapper = mock(QbExamAttemptMapper.class);
         UserIdentityService identity = mock(UserIdentityService.class);
         when(identity.resolveUserId("alice")).thenReturn(10L);
 
@@ -94,10 +108,15 @@ class AnswerStateResponseGuardTest {
                 new WrongBookServiceImpl(wrongMapper, questionMapper, recordMapper, subjectMapper);
         FavoriteService favoriteService =
                 new FavoriteServiceImpl(favoriteMapper, questionMapper, subjectMapper);
+        // paper 侧不接 masker：卷面骨架里根本没有题目字段，守卫要盯的是 structure_json 里的
+        // 原文/答案会不会随实体或内嵌 record 一起出网（spec 9.1.2 把这两个接口列进同一份清单）。
+        PaperService paperService = new PaperServiceImpl(paperMapper, subjectMapper,
+                attemptMapper, recordMapper);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new PracticeQuestionController(readService, identity),
                         new PracticeWrongController(wrongBookService, identity),
-                        new PracticeFavoriteController(favoriteService, identity))
+                        new PracticeFavoriteController(favoriteService, identity),
+                        new PracticePaperController(paperService, identity))
                 .setControllerAdvice(new PracticeExceptionHandler())
                 .build();
     }
@@ -216,6 +235,58 @@ class AnswerStateResponseGuardTest {
         // 那会变成"谁在题干里写了'ANALYSIS_SENTINEL'这几个字谁就违规"的假阳性。
         // 真值列的防线由字段名清单 + question/current 那条选项哨兵守着。
         assertTrue(json.contains("题干甲"), "列表要能认出是哪道题：" + json);
+    }
+
+    @Test
+    @DisplayName("paper/page 与 paper/detail 的响应体干净（spec 9.1.2 的 paper 侧升级）")
+    void paperResponsesAreClean() throws Exception {
+        when(paperMapper.countForList(eq(1L), isNull(), isNull(), isNull(), eq(10L))).thenReturn(1L);
+        when(paperMapper.selectPage(eq(1L), isNull(), isNull(), isNull(), eq(10L), eq(0L), eq(20L)))
+                .thenReturn(List.of(new PaperCardRow(7L, 1L, "语文", "题干甲样例卷",
+                        2020, 7, 1, 65, new BigDecimal("30.00"), 1)));
+        when(attemptMapper.countSubmitted(eq(10L), any())).thenReturn(List.of());
+        when(attemptMapper.selectLatestByPapers(eq(10L), any())).thenReturn(List.of());
+
+        String pageJson = body(get("/practice/paper/page?subjectId=1"));
+        assertNoAnswerFields(pageJson, "\"badges\"");
+
+        // detail：交过卷才有原文，这里给出终态 attempt，让 originalText 真的出现在字节里——
+        // 用它证明"值哨兵不炸"：原文里写的不是答案字段，闸门放行是设计而非漏洞。
+        when(paperMapper.selectById(7L)).thenReturn(submittedPaper());
+        when(attemptMapper.countSubmitted(eq(10L), any()))
+                .thenReturn(List.of(new AttemptSubmitCountRow(7L, 1L)));
+        when(attemptMapper.selectLatestByPapers(eq(10L), any()))
+                .thenReturn(List.of(new LatestAttemptRow(7L, 3L, 2, null)));
+        when(recordMapper.countByAttempts(eq(10L), any()))
+                .thenReturn(List.of(new AttemptRecordCountRow(3L, 1L)));
+
+        String detailJson = body(get("/practice/paper/detail?paperId=7"));
+        assertNoAnswerFields(detailJson, "\"originalText\"");
+        assertTrue(detailJson.contains("样例原文"), "originalText 在交卷后必须真的出现：" + detailJson);
+        assertTrue(detailJson.contains("\"submitCount\":1"), detailJson);
+    }
+
+    /** 骨架只有一道题的样例卷：structure_json 里塞的是原文，不是答案 */
+    private static QbPaper submittedPaper() {
+        QbPaper paper = new QbPaper();
+        paper.setId(7L);
+        paper.setSubjectId(1L);
+        paper.setOwnerId(1L);
+        paper.setTitle("题干甲样例卷");
+        paper.setExamYear(2020);
+        paper.setExamMonth(7);
+        paper.setSetNo(1);
+        paper.setDurationMinutes(65);
+        paper.setTotalScore(new BigDecimal("30.00"));
+        paper.setQuestionCount(1);
+        paper.setStatus(1);
+        paper.setStructureJson("""
+                {"parts":[{"roman":"I","name":"L","cardLabel":"听力","score":7.00,"minutes":65,
+                 "sections":[{"label":"A","subTitle":"短新闻","direction":"d",
+                 "audioUrl":"https://cdn/a.mp3","originalText":"样例原文",
+                 "questions":[{"index":1,"questionId":1,"score":7.00}]}]}]}
+                """);
+        return paper;
     }
 
     @Test

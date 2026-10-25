@@ -390,7 +390,7 @@ git status --short
   - `QbUserAnswerRecordMapper`（追加）：`List<AttemptRecordCountRow> countByAttempts(Long userId, Collection<Long> attemptIds)`
   - Task 4.5/4.6 的 service 只用这四个查询 + `BaseMapper.selectById`
 
-- [ ] **Step 1：先改测试（红：编译期就缺类）**
+- [x] **Step 1：先改测试（红：编译期就缺类）**
 
 `QbEntityColumnTest` 里新增两条并修一条。全文照抄进该类的 `otherTables()` 之后：
 
@@ -423,7 +423,7 @@ git status --short
 
 把该类的 `@DisplayName("七个实体都显式声明非空 @TableName")` 改成九个，并在它检查的实体列表里加 `QbPaper.class, QbExamAttempt.class`（该类第四道门"每个实例字段都要显式 `@TableId`/`@TableField`"自动覆盖新实体，不用另写）。
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=QbEntityColumnTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -431,7 +431,7 @@ git status --short
 
 期望：**编译失败**，`找不到符号 QbPaper` / `找不到符号 QbExamAttempt`。这就是 TDD 的红灯形态（新列字段同样会报 `attempt_id` 不在期望集合之外的错——注意：改测试在前，实体在后，别倒过来）。
 
-- [ ] **Step 3：写 `QbPaper`**
+- [x] **Step 3：写 `QbPaper`**
 
 ```java
 package org.leon.practicemodule.pojo;
@@ -513,7 +513,7 @@ public class QbPaper implements Serializable {
 }
 ```
 
-- [ ] **Step 4：写 `QbExamAttempt`**
+- [x] **Step 4：写 `QbExamAttempt`**
 
 ```java
 package org.leon.practicemodule.pojo;
@@ -594,7 +594,7 @@ public class QbExamAttempt implements Serializable {
 }
 ```
 
-- [ ] **Step 5：`QbUserAnswerRecord` 加字段**
+- [x] **Step 5：`QbUserAnswerRecord` 加字段**
 
 ```java
     /** 考试作答ID，answer_mode=2 时非空；段 4 只加列与字段对齐，读写都在段 5 */
@@ -604,7 +604,7 @@ public class QbExamAttempt implements Serializable {
 
 插在 `subjectId` 之后（与列位置一致，纯为可读性——`assertColumns` 比集合）。
 
-- [ ] **Step 6：跑测试确认绿**
+- [x] **Step 6：跑测试确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test
@@ -612,7 +612,7 @@ public class QbExamAttempt implements Serializable {
 
 期望 **167/167**（段 3 的 165 + 两条新列集合用例）。若 `otherTables()` 里那条旧的 `QbUserAnswerRecord` 断言红了，说明 Step 1 的期望列清单没改到位。
 
-- [ ] **Step 7：写四个投影记录**
+- [x] **Step 7：写四个投影记录**
 
 ```java
 // PaperCardRow.java —— 卡片一页的原料，subjectName 已在 SQL 里 join 出来，不在 Java 里二次查
@@ -657,7 +657,7 @@ public record AttemptRecordCountRow(Long attemptId, long answeredCount) {
 }
 ```
 
-- [ ] **Step 8：写 `QbPaperMapper`**
+- [x] **Step 8：写 `QbPaperMapper`**
 
 ```java
 package org.leon.practicemodule.mapper;
@@ -718,7 +718,7 @@ public interface QbPaperMapper extends BaseMapper<QbPaper> {
 }
 ```
 
-- [ ] **Step 9：写 `QbExamAttemptMapper`**
+- [x] **Step 9：写 `QbExamAttemptMapper`**
 
 ```java
 package org.leon.practicemodule.mapper;
@@ -759,7 +759,7 @@ public interface QbExamAttemptMapper extends BaseMapper<QbExamAttempt> {
 }
 ```
 
-- [ ] **Step 9b：给 `QbUserAnswerRecordMapper` 加一条按 attempt 数行的查询**
+- [x] **Step 9b：给 `QbUserAnswerRecordMapper` 加一条按 attempt 数行的查询**
 
 这条查询的对象是 `qb_user_answer_record`，所以它 belong 在记录表的 mapper 上——不放到 `QbExamAttemptMapper` 里，否则"一个 mapper 管一张表"的现有纪律就出现第一个例外（`QbQuestionMapper.selectPositions` 也只查自己的表）。
 
@@ -776,7 +776,7 @@ public interface QbExamAttemptMapper extends BaseMapper<QbExamAttempt> {
                                                 @Param("attemptIds") Collection<Long> attemptIds);
 ```
 
-- [ ] **Step 10：db-it 先建两条"实体与 BaseMapper 可用"的用例**
+- [x] **Step 10：db-it 先建两条"实体与 BaseMapper 可用"的用例**
 
 `PaperSqlDbIT` 的骨架照 `QuestionReadSqlDbIT` 的 `open()/purge()` 写（同一份样板的第三次重复——段 3 已在接缝表里挂起抽取，本段仍不抽，理由见该表），差异只有：合成用户 `990004`、purge 的表是 `qb_exam_attempt` 与 `qb_user_answer_record`、`cfg.addMapper(...)` 要注册 **四张** mapper：`QbPaperMapper`、`QbExamAttemptMapper`、`QbUserAnswerRecordMapper`（Task 4.4 之后 Task 4.5 的聚合要用它）、`QbQuestionMapper`（Task 4.4 的 `selectBatchIds` 要用）。
 
@@ -873,7 +873,7 @@ class PaperSqlDbIT {
 1. `assertThrows` 的 lambda 是 `Executable`，它抛的是 `Throwable` 不是 `SQLException`，上面的 try/Statement 写法能编译；若把它写成 `SQLException` 受检的辅助方法就要自己包一层。
 2. 第二次 `executeUpdate` 在同一个 `Statement` 上复用没问题，但**异常类型**在 MyBatis 之外的裸 JDBC 是 `SQLIntegrityConstraintViolationException`，消息里含索引名——判据用 `contains("uk_attempt_user_paper_seq")` 而不是判异常类型，因为包装层的类型会变。
 
-- [ ] **Step 11：跑 db-it**
+- [x] **Step 11：跑 db-it**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperSqlDbIT -Dsurefire.excludedGroups=
@@ -881,7 +881,7 @@ class PaperSqlDbIT {
 
 期望 `Tests run: 2, Failures: 0, Errors: 0`。跑完用仓库外探针确认 `qb_exam_attempt WHERE user_id=990004` 与 `qb_paper WHERE title='实体读写冒烟卷'` 都是 0 行（中文标题在控制台乱码，所以这一步用 `SELECT COUNT(*) ... WHERE sort_order=999` 这类 ASCII 条件判）。
 
-- [ ] **Step 12：报告改动，停在提交前**
+- [x] **Step 12：报告改动，停在提交前**
 
 `git status --short` 并把新增/修改文件逐个列出来。**不 `git add`、不 `git commit`。** 建议的提交语（由用户执行）：`段4：qb_paper 与 qb_exam_attempt 落地，实体/mapper 与真库往返用例`。
 
@@ -904,7 +904,7 @@ class PaperSqlDbIT {
   - `QuestionBrief(Long questionId, Long subjectId, int status)`
   - Task 4.4 的 db-it 用它校验真数据，Task 4.6 的 `paper/detail` 用 `PaperStructure` 拼骨架，段 5 的 `exam/start` 用 `validate` 做写入闸门
 
-- [ ] **Step 1：写解析的失败测试（红：类不存在）**
+- [x] **Step 1：写解析的失败测试（红：类不存在）**
 
 `PaperStructureParserTest.java` 全文：
 
@@ -1016,7 +1016,7 @@ class PaperStructureParserTest {
 }
 ```
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperStructureParserTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -1024,7 +1024,7 @@ class PaperStructureParserTest {
 
 期望编译失败：`找不到符号 PaperStructure` / `PaperStructureParser`。
 
-- [ ] **Step 3：写 `PaperStructure`**
+- [x] **Step 3：写 `PaperStructure`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1085,7 +1085,7 @@ public record PaperStructure(List<Part> parts) {
 }
 ```
 
-- [ ] **Step 4：写 `PaperStructureParser`**
+- [x] **Step 4：写 `PaperStructureParser`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1221,11 +1221,17 @@ public final class PaperStructureParser {
 
     private static BigDecimal requireDecimal(JsonNode node, String field, String loc) {
         JsonNode v = node.get(field);
-        if (v == null || !v.isNumber() || !v.isBigDecimalNode() && !v.isIntegralNumber()) {
+        if (v == null || !v.isNumber()) {
             throw new PracticeException(PracticeErrorCode.BAD_REQUEST,
                     loc + " 的 " + field + " 必须是 JSON 数字");
         }
-        return v.decimalValue();
+        try {
+            // 数字节点的 asText 就是 JSON 里的那段字面量，转 BigDecimal 不经过二进制浮点
+            return new BigDecimal(v.asText());
+        } catch (NumberFormatException e) {
+            throw new PracticeException(PracticeErrorCode.BAD_REQUEST,
+                    loc + " 的 " + field + " 不是可用的十进制数字：" + v.asText());
+        }
     }
 
     private static String brief(Exception e) {
@@ -1239,31 +1245,20 @@ public final class PaperStructureParser {
 }
 ```
 
-**这里有一个必须当场验的假设**（别写完就当它对）：`requireDecimal` 的判据写成两段是刻意的——
+**计划原文在这里写错了，执行时按实测改掉（记下来，别当新发现）**：上面那份 `requireDecimal` 我原本给的判据是
+`if (v == null || !v.isNumber() || !v.isBigDecimalNode() && !v.isIntegralNumber())`，
+**本仓库的 Jackson 版本没有 `isBigDecimalNode()`**，第一次编译就报 `找不到符号 isBigDecimalNode()`。
+改成"`isNumber()` 单段判断 + `new BigDecimal(v.asText())`"：数字节点的 `asText()` 就是 JSON 里那段字面量，转 BigDecimal 不经过二进制浮点，`7.00` 就是 `7.00`——规则 3 的 `compareTo` 与零容差靠的正是这条精确性。判据换了，测试一个字没改。
 
-```java
-        if (v == null || !v.isNumber()) {
-            throw new PracticeException(PracticeErrorCode.BAD_REQUEST,
-                    loc + " 的 " + field + " 必须是 JSON 数字");
-        }
-        if (!v.isIntegralNumber() && !v.isBigDecimalNode()) {
-            throw new PracticeException(PracticeErrorCode.BAD_REQUEST,
-                    loc + " 的 " + field + " 必须是 JSON 数字");
-        }
-        return v.decimalValue();
-```
-
-`JsonNode.isNumber()` 对 `7.00` 为真且 `isBigDecimalNode()` 为真（Jackson 把带小数点的十进制读成 `DecimalNode`），所以合法输入不误报；`"7.00"`（字符串）`isNumber()` 为假，直接拒。**Step 5 跑测试时若 `parsesValidStructure` 红在 `score`，说明这个前提不成立，按实测改判据，不要改测试。**
-
-- [ ] **Step 5：跑解析测试确认绿**
+- [x] **Step 5：跑解析测试确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperStructureParserTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-期望 `Tests run: 7, Failures: 0, Errors: 0`。
+计划预估 7 条，实跑 **11 条**（写用例时多加了四条：可空字段整个缺键、第二题的定位、空 sections/questions、空白文本字段）。实测 `Tests run: 11, Failures: 0, Errors: 0`。
 
-- [ ] **Step 6：写四条校验的失败测试**
+- [x] **Step 6：写四条校验的失败测试**
 
 `PaperStructureValidatorTest.java` 全文（正例 1 条 + spec §9.1.7 要求的四条反例 + 三条边界）：
 
@@ -1410,7 +1405,7 @@ class PaperStructureValidatorTest {
 }
 ```
 
-- [ ] **Step 7：跑一次确认红**
+- [x] **Step 7：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperStructureValidatorTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -1418,7 +1413,7 @@ class PaperStructureValidatorTest {
 
 期望编译失败：`找不到符号 PaperStructureValidator`。
 
-- [ ] **Step 8：写 `PaperStructureValidator`**
+- [x] **Step 8：写 `PaperStructureValidator`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1514,16 +1509,16 @@ public final class PaperStructureValidator {
 }
 ```
 
-- [ ] **Step 9：跑校验测试确认绿**
+- [x] **Step 9：跑校验测试确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperStructureValidatorTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
 "$MVN" -o -pl PracticeModule -am test
 ```
 
-期望前者 `Tests run: 12, Failures: 0`；后者 **186/186**（167 + 解析 7 + 校验 12）。若数字不同，按实测报，别改测试凑数。
+计划预估校验 12 条、全量 186；实跑 **14 条**（多加了 index 重复与"两个 part 的题号跨 part 连续"两条）、全量 **192/192** = 段 3 收尾的 165 + 实体 2 + 解析 11 + 校验 14。差额全部来自"写用例时想到了计划没列的反例"，没有一条是放宽断言凑出来的。
 
-- [ ] **Step 10：报告改动，停在提交前**
+- [x] **Step 10：报告改动，停在提交前**
 
 `git status --short`。建议提交语：`段4：卷面结构解析与四条写入校验`。不 `git add`/`git commit`。
 
@@ -1539,7 +1534,7 @@ public final class PaperStructureValidator {
 - Consumes: Task 4.1 的表、Task 4.2 的 `QbPaperMapper`、Task 4.3 的 `PaperStructureParser` + `PaperStructureValidator`
 - Produces: `qb_paper` 里 4 行样例卷（`id` 由 AUTO 分配，**测试不许写死 id**，一律按 `sort_order` 或 `title` 查）。这 4 行是 Task 4.5/4.6 端到端的验收数据，也是 §9.3 "样例试卷的页面数据能铺满截图" 的那一套。
 
-- [ ] **Step 1：写 seed SQL（这就是全文，落盘到仓库外 `seg4/seed_paper.sql`）**
+- [x] **Step 1：写 seed SQL（这就是全文，落盘到仓库外 `seg4/seed_paper.sql`）**
 
 四套卷全部只引用现有题目（裁定一）：科目 1 用 qid 1/2/5/6，科目 2 用 qid 3/4/7。每套的 `Σ questions[].score` 都等于 `total_score`，`Σ parts[].minutes <= duration_minutes`，`question_count` 等于实际题数，题号从 1 起连续。
 
@@ -1581,7 +1576,7 @@ VALUES
    '样例卷：禁用态', 0, 3);
 ```
 
-- [ ] **Step 2：写执行器（读上面的 .sql，逐条执行，先确认表是空的）**
+- [x] **Step 2：写执行器（读上面的 .sql，逐条执行，先确认表是空的）**
 
 `seg4/Seg4Seed.java`：
 
@@ -1665,7 +1660,7 @@ public class Seg4Seed {
 }
 ```
 
-- [ ] **Step 3：执行并核对**
+- [x] **Step 3：执行并核对**
 
 ```bash
 cd C:/Users/Administrator/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg4
@@ -1683,7 +1678,7 @@ cd C:/Users/Administrator/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg4
 
 **这张表就是用 MySQL 自己算的分数独立复核了一遍 seed**——它与 Java 校验器口径不同（`JSON_TABLE` 的 `DECIMAL(6,2)` 会把 7.005 截成 7.00，而 Java 不会），所以两边都对上才算数据干净。题干中文用 Read 工具读 `seed-evidence.txt`，不在控制台打。
 
-- [ ] **Step 4：写 db-it 的三条真数据用例（先红：还没写实现就让它跑起来会缺 helper）**
+- [x] **Step 4：写 db-it 的三条真数据用例（先红：还没写实现就让它跑起来会缺 helper）**
 
 追加进 `PaperSqlDbIT`：
 
@@ -1739,7 +1734,7 @@ cd C:/Users/Administrator/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg4
 
 注意 `paperMapper.selectList(null)` 会连 `status=0` 的 P4 一起取回来——这正是这里想要的（下架卷的结构也该合法）。生产路径永远不用这种全表调用。
 
-- [ ] **Step 5：跑 db-it**
+- [x] **Step 5：跑 db-it**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperSqlDbIT -Dsurefire.excludedGroups=
@@ -1747,7 +1742,7 @@ cd C:/Users/Administrator/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg4
 
 期望 `Tests run: 5, Failures: 0, Errors: 0`（Task 4.2 的 2 条 + 本任务的 3 条），并且 `@AfterAll` 之后 `qb_exam_attempt WHERE user_id=990004` 是 0 行、`qb_paper` 仍是 4 行（样例卷不许被测试删）。
 
-- [ ] **Step 6：报告改动，停在提交前**
+- [x] **Step 6：报告改动，停在提交前**
 
 本任务的**仓库内改动只有测试文件**（seed SQL 与执行器都在仓库外）。报 `git status --short` + Step 3 的取证表原样贴进执行记录。建议提交语：`段4：4 套样例卷灌入并通过四条校验（数据在仓库外，脚本不进仓库）`。
 
@@ -1775,7 +1770,7 @@ cd C:/Users/Administrator/.qoder-cn/tmp/F--AAAJAVA-code-ezPracticeExercises/seg4
   - `PaperAttempts.Progress(long submitCount, Long latestAttemptId, Integer latestStatus, int answeredCount)` + `PaperAttempts.of(QbExamAttemptMapper, QbUserAnswerRecordMapper, Long userId, Collection<Long> paperIds) → Map<Long, Progress>`
   - Task 4.6 的 `detail` 复用 `PaperAttempts.of(..., List.of(paperId))` 与 `PaperCards.progressPercent`
 
-- [ ] **Step 1：写徽章与进度口径的失败测试（红：类不存在）**
+- [x] **Step 1：写徽章与进度口径的失败测试（红：类不存在）**
 
 `PaperCardsTest.java` 全文：
 
@@ -1839,7 +1834,7 @@ class PaperCardsTest {
 }
 ```
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperCardsTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -1847,7 +1842,7 @@ class PaperCardsTest {
 
 期望编译失败：`找不到符号 PaperCards`。
 
-- [ ] **Step 3：写 `PaperCards`**
+- [x] **Step 3：写 `PaperCards`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1933,7 +1928,7 @@ public final class PaperCards {
 }
 ```
 
-- [ ] **Step 4：写 `PaperAttempts`（三个查询的装配点，也是空 IN 的唯一挡点）**
+- [x] **Step 4：写 `PaperAttempts`（三个查询的装配点，也是空 IN 的唯一挡点）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -2019,7 +2014,7 @@ public final class PaperAttempts {
 }
 ```
 
-- [ ] **Step 5：写 `PaperCardVO`**
+- [x] **Step 5：写 `PaperCardVO`**
 
 ```java
 package org.leon.practicemodule.pojo.vo;
@@ -2064,7 +2059,7 @@ public class PaperCardVO {
 }
 ```
 
-- [ ] **Step 6：写 `PaperService` 接口与 `page` 的失败测试**
+- [x] **Step 6：写 `PaperService` 接口与 `page` 的失败测试**
 
 `PaperService.java`：
 
@@ -2255,7 +2250,7 @@ class PaperServiceTest {
 }
 ```
 
-- [ ] **Step 7：跑一次确认红**
+- [x] **Step 7：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperServiceTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -2263,7 +2258,7 @@ class PaperServiceTest {
 
 期望编译失败：`找不到符号 PaperServiceImpl`（接口里已声明 `detail`，所以实现类必须同时有 `detail`——本任务先让它抛 `UnsupportedOperationException`？**不**：那会让 Task 4.5 的编译绿依赖一个未实现的方法。改成：本任务的 Step 8 一次性写出 `page` 与 `detail` 两个方法的骨架，其中 `detail` 的 originalText 闸门逻辑已在裁定二定死，实现照写，测试到 Task 4.6 再补。）
 
-- [ ] **Step 8：写 `PaperServiceImpl`（本任务只写 `page` 的实现，`detail` 留到 Task 4.6，所以接口里先只声明 `page`）**
+- [x] **Step 8：写 `PaperServiceImpl`（本任务只写 `page` 的实现，`detail` 留到 Task 4.6，所以接口里先只声明 `page`）**
 
 **这一步按 Task 4.6 的依赖关系修正过**：接口分两次扩，避免"编译需要未实现方法"。所以 Step 6 的 `PaperService.java` 此刻只写 `page`，`detail` 由 Task 4.6 Step 1 追加；`PaperServiceTest` 的 `newService()` 构造器参数也就此定死为四个 mapper。
 
@@ -2358,7 +2353,7 @@ public class PaperServiceImpl implements PaperService {
 }
 ```
 
-- [ ] **Step 9：跑测试确认绿**
+- [x] **Step 9：跑测试确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest='PaperCardsTest,PaperServiceTest' -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -2366,7 +2361,7 @@ public class PaperServiceImpl implements PaperService {
 
 期望 `Tests run: 12, Failures: 0`（`PaperCardsTest` 5 + `PaperServiceTest` 7）。
 
-- [ ] **Step 10：写控制器与它的失败测试**
+- [x] **Step 10：写控制器与它的失败测试**
 
 `PracticePaperController.java`：
 
@@ -2519,7 +2514,7 @@ class PracticePaperControllerTest {
 }
 ```
 
-- [ ] **Step 11：跑控制器测试**
+- [x] **Step 11：跑控制器测试**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PracticePaperControllerTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -2527,7 +2522,7 @@ class PracticePaperControllerTest {
 
 期望 `Tests run: 4, Failures: 0`。**`badParams` 的第二条若回的是 500 而不是 40000，说明 `PracticeExceptionHandler` 没接 `MethodArgumentTypeMismatchException`**——那是段 1 的 handler 覆盖范围问题，按实测记下并补 handler（补之前先确认现有测试是否已钉过这条，别把已裁定的事再裁一遍）。
 
-- [ ] **Step 12：db-it 补一条"翻页稳定性"**
+- [x] **Step 12：db-it 补一条"翻页稳定性"**
 
 ```java
     @Test
@@ -2575,7 +2570,7 @@ class PracticePaperControllerTest {
 
 跑：`"$MVN" -o -pl PracticeModule -am test -Dtest=PaperSqlDbIT -Dsurefire.excludedGroups=`，期望 `Tests run: 6, Failures: 0`。**跑完必须用探针确认 `qb_paper` 仍只有 4 行**（`finally` 里删干净了）——样例卷是验收数据，测试不许动它。
 
-- [ ] **Step 13：全量单测 + 报告改动**
+- [x] **Step 13：全量单测 + 报告改动**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test
@@ -2601,7 +2596,7 @@ git status --short
   - `PaperService.detail(Long userId, Long paperId) → PaperDetailVO`
   - `PaperDetailVO` + 内嵌 `PartVO`/`SectionVO`/`QuestionRefVO`（段 5 的 `exam/*` 用同一份 `structure_json` 取题，但**不复用这个 VO**——考试的 index 来自卷面、还要带 score 与 audioUrl 的播放态）
 
-- [ ] **Step 1：写 `PaperDetailVO`**
+- [x] **Step 1：写 `PaperDetailVO`**
 
 ```java
 package org.leon.practicemodule.pojo.vo;
@@ -2671,7 +2666,7 @@ public class PaperDetailVO {
 }
 ```
 
-- [ ] **Step 2：写 `detail` 的失败测试**
+- [x] **Step 2：写 `detail` 的失败测试**
 
 追加进 `PaperServiceTest`：
 
@@ -2796,7 +2791,7 @@ public class PaperDetailVO {
 
 `detailErrorCodes` 里的 `verifyNoInteractions(attemptMapper, recordMapper)` 是**故意的强断言**：三条失败路径都必须在聚合之前返回，否则一个不存在的 paperId 也要发两条 SQL。`privatePaperOfAnotherUserIsForbidden` 同理。
 
-- [ ] **Step 3：跑一次确认红**
+- [x] **Step 3：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperServiceTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -2804,7 +2799,7 @@ public class PaperDetailVO {
 
 期望编译失败：`找不到符号 PaperDetailVO` / `PaperServiceImpl 不是抽象的，并且未覆盖 detail`。
 
-- [ ] **Step 4：接口加 `detail`，实现它**
+- [x] **Step 4：接口加 `detail`，实现它**
 
 `PaperService.java` 追加：
 
@@ -2899,7 +2894,7 @@ public class PaperDetailVO {
 
 `paper.getOwnerId() != PUBLIC_OWNER` 这里是 `Long` 与 `long` 比较，自动拆箱——`owner_id` 是 `NOT NULL DEFAULT 1`，所以 `getOwnerId()` 不会为 null，前面仍留了显式判空作防御（列有默认值但 `insert` 走实体时若不设值就是 NULL 覆盖默认值？不会——MyBatis-Plus 的 `insert` 只拼非 null 字段。**这条判空其实挡的是"将来有人把列改成可空"**，注释按这个写，别说成"防 NPE"）。
 
-- [ ] **Step 5：跑测试确认绿**
+- [x] **Step 5：跑测试确认绿**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PaperServiceTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -2907,7 +2902,7 @@ public class PaperDetailVO {
 
 期望 `Tests run: 12, Failures: 0`（Task 4.5 的 7 + 本任务 5）。
 
-- [ ] **Step 6：控制器加 `GET /detail` + 用例**
+- [x] **Step 6：控制器加 `GET /detail` + 用例**
 
 控制器追加：
 
@@ -2966,7 +2961,7 @@ public class PaperDetailVO {
     }
 ```
 
-- [ ] **Step 7：把两个 paper 接口纳入脱敏守卫（spec 9.1.2：段 5 之前就把它们加进同一份清单）**
+- [x] **Step 7：把两个 paper 接口纳入脱敏守卫（spec 9.1.2：段 5 之前就把它们加进同一份清单）**
 
 `AnswerStateResponseGuardTest` 用的是"真控制器 + 真服务 + 真 masker + mock mapper"。paper 侧不需要 masker（骨架不含题目），但**需要同一份禁止清单跑同一份字节**——这样将来有人在 `structure_json` 里塞答案、或把 `QbPaper` 实体直接返回，守卫当场红。
 
@@ -3028,7 +3023,7 @@ public class PaperDetailVO {
 
 **伪阳性必须做一次（缺这段就等于没做）**：临时把 `PaperDetailVO.SectionVO` 加一个 `private String answerJson;`，并在 `toPartVOs` 里 `sv.setAnswerJson("X")`，跑守卫 → 期望红并打印 `响应体泄漏了 answerJson`；回滚（`grep -c answerJson` 在该 VO 为 0），再跑全量。把两次报文都记进执行记录。
 
-- [ ] **Step 8：db-it 用真库真服务证一次裁定二**
+- [x] **Step 8：db-it 用真库真服务证一次裁定二**
 
 追加进 `PaperSqlDbIT`——这里把 `PaperServiceImpl` 直接 new 出来（它的四个 mapper 都能从 `session.getMapper(...)` 拿到），所以**这是本仓第一次在同一条用例里同时打真库与真服务**：
 
@@ -3129,7 +3124,7 @@ public class PaperDetailVO {
 
 跑：`"$MVN" -o -pl PracticeModule -am test -Dtest=PaperSqlDbIT -Dsurefire.excludedGroups=`，期望 `Tests run: 8, Failures: 0, Errors: 0`。`purge()` 会清掉本用例造的 attempt 与 record（都挂 `user_id=990004`），**样例卷一行都不动**。
 
-- [ ] **Step 9：全量 + 报告改动**
+- [x] **Step 9：全量 + 报告改动**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test
@@ -3152,7 +3147,7 @@ git status --short
 - Consumes: Task 4.1–4.6 的全部产物 + 段 3 已建立的登录链路（`/auth/captcha` → Redis db0 明文验证码 → `/auth/login` → 24h token，账号 `test918`，`user_id=10`）
 - Produces: 阶段二两个只读接口 + 阶段一 9 个接口的回归证据；文档与记忆的同步
 
-- [ ] **Step 1：重启 8102（本段代码变了，不重启就还在跑段 3 的 jar）**
+- [x] **Step 1：重启 8102（本段代码变了，不重启就还在跑段 3 的 jar）**
 
 ```bash
 # 旧持有者：以 netstat 为准，再与段 3 日志里的 with PID 对齐（两处必须一致）
@@ -3165,7 +3160,7 @@ taskkill //PID <n> //F
 
 判据只看三行：`Tomcat started on port(s): 8102`、`nacos registry ... 8102 register finished`、`Started PracticeModuleApplication in <n> seconds`。**包装层报 exit 1 不算失败**（环境坑 2），用 `netstat` 的新 PID + 日志锚点定案。
 
-- [ ] **Step 2：登录（口令从环境变量来，不进日志不进仓库）**
+- [x] **Step 2：登录（口令从环境变量来，不进日志不进仓库）**
 
 复用段 3 的 `seg3/e2e3b.py` 里那个最小 RESP 客户端读 Redis db0 的 `auth:captcha:<key>`（本机没有 `redis-cli`），`test918` 登录。`seg4/e2e4.py` 的开头：
 
@@ -3204,7 +3199,7 @@ def save(name, status, payload):
 
 期望一行 `login ok, token chars = <n>`（**只记长度**）。
 
-- [ ] **Step 3：正向矩阵（新接口 + 阶段一回归）**
+- [x] **Step 3：正向矩阵（新接口 + 阶段一回归）**
 
 | # | 调用 | 期望 |
 |---|---|---|
@@ -3224,7 +3219,7 @@ def save(name, status, payload):
 
 `<P1>` 的 id **不写死**：脚本先调 `paper/page?subjectId=1`，从 `list` 里按 `questionCount==4` 挑出 P1 的 `paperId`。AUTO 值随库漂移，写死 id 的用例三个月后就会假绿（段 3 已记过同一件事）。
 
-- [ ] **Step 4：负例矩阵（§5.7 落位）**
+- [x] **Step 4：负例矩阵（§5.7 落位）**
 
 | 调用 | 期望 `code` |
 |---|---|
@@ -3242,7 +3237,7 @@ def save(name, status, payload):
 
 `40300`（越权访问他人私有卷）在本段**无法端到端触发**——库里没有 `owner_id != 1` 的卷，造一条就等于往验收数据里加行。处置：由 `PaperServiceTest.privatePaperOfAnotherUserIsForbidden` 覆盖，端到端不做，并在自查第 11 条明写这个缺口（不假装覆盖过）。
 
-- [ ] **Step 5：响应字节扫描（paper 两个接口进同一份清单）**
+- [x] **Step 5：响应字节扫描（paper 两个接口进同一份清单）**
 
 `seg4/scan4.py` 照段 3 的 `scan3.py`：对 `resp-*.json` 逐个**大小写敏感**找 `answerJson` / `analysis` / `isCorrect` / `is_correct` / `correctAnswerJson`，跳过 `answer/submit`、`answer/self-judge`、登录与验证码四类。期望 `scanned=<n> leaks=0`。
 
@@ -3250,7 +3245,7 @@ def save(name, status, payload):
 - `questionCount` / `submitCount` / `answeredCount` 都含子串 `Count`，与禁止项无关；`totalScore` 含 `Score` 也无关。**扫描清单一个字都不许加。**
 - `originalText` 不是禁止字段（它是听力原文，不是 `analysis`），但段 4 的响应里它**必须**是 null 或不存在。扫描之外单加一条断言：`resp-09` 里 `"originalText"` 的出现形态只能是 `null`；若出现非 null，那是裁定二的闸门漏了，**真 bug 而非误报**。
 
-- [ ] **Step 6：库里取证**
+- [x] **Step 6：库里取证**
 
 仓库外 `seg4/Seg4State.java`（照 `Seg3Residue3.java` 的写法，只打数字）：
 - `SELECT COUNT(*) FROM qb_paper` → 4；`SELECT SUM(status=1) FROM qb_paper` → 3
@@ -3261,7 +3256,7 @@ def save(name, status, payload):
 - `SELECT id, question_count, total_score, status, JSON_VALID(structure_json) FROM qb_paper ORDER BY id` → 4 行，`JSON_VALID` 全 1
 - `SELECT COUNT(*) FROM qb_user_favorite WHERE user_id=10` → 收尾后 0（Step 3 #13 关回关闭态）
 
-- [ ] **Step 7：文档回写（写成带日期的"更正"，不覆盖历史）**
+- [x] **Step 7：文档回写（写成带日期的"更正"，不覆盖历史）**
 
 - **spec §4.1**：DDL 旁补"段 4 已执行（2026-10-24）"，写实测列数（`qb_paper` 16 / `qb_exam_attempt` 17 / `qb_user_answer_record` 10）、`attempt_id` 的 `ordinal_position=4`、索引名清单。
 - **spec §5.6**：按实现更正——`subjectId` 必填、三个徽章字段既给原值也给拼好的 `badges`、`submitCount` 是 `long`、`detail` 增 `description`/`latestAttemptId`/`latestAttemptStatus` 三个字段（卡片进详情要"继续考试"入口，原表没列）、`originalText` 闸门按裁定二、`QuestionRefVO` 只有 `index/questionId/score`（**不含 `type`**）。
@@ -3270,11 +3265,11 @@ def save(name, status, payload):
 - **spec §12**：把"执行 4.1 的 DDL"与"灌样例真题"两行标注为已消耗（2026-10-24，授权原话记在本计划的关卡状态表），并把"往 `qb_paper`、`qb_question` 写测试数据"改成"**只写了 `qb_paper`**（裁定一）"。
 - **roadmap**：段 4 状态 → 已完成；§3 新增第 **19** 条（`qb_paper.sort_order` 与 `qb_question.sort_order` 同样不保证唯一 → 分页必须 `(sort_order,id)`；且样例卷题量是 4/2/3/1，段 5 的验收要按这个真实规模设计）与第 **20** 条（**自增 id 用 `getGeneratedKeys`/实体回填判，不要用 DML 返回值判成败**——段 3 已实测 `ON DUPLICATE KEY UPDATE` 回 found rows，本段把同一族问题扩到 db-it 的 attempt 插入上）；运行环境表的 PracticeModule 行更新到段 4 的实例与重启口诀。
 
-- [ ] **Step 8：记忆同步**
+- [x] **Step 8：记忆同步**
 
 `practice-exam-initiative.md`（段 4 完成 + 裁定一~四 + DDL 已执行的实测列数 + 样例卷规模 + `40300` 未端到端覆盖的缺口 + 未做独立审查）、`local-service-topology.md`（8102 新 PID + 两张新表已在库里）、`MEMORY.md` 索引行。
 
-- [ ] **Step 9：报告改动，停在提交前**
+- [x] **Step 9：报告改动，停在提交前**
 
 `git status --short`（只应有 `PracticeModule/**` 与三个 docs 文件）、全量绿灯数字、端到端矩阵摘要、给用户的清理 SQL（本段端到端在 `test918(id=10)` 名下新增一条答题记录与统计增量、`qb_paper` 的 4 行样例卷是要保留的验收数据）。**不 `git add`/`git commit`。**
 
@@ -3286,17 +3281,41 @@ def save(name, status, payload):
 
 自查按"先看证据再看代码"，每条都要给文件与行号，不接受"我看过了"：
 
-- [ ] **1. 契约一致**：两个 paper 接口的路径/入参/字段与 spec §5.6 逐行对过；三处偏差（`detail` 多三个字段、`QuestionRefVO` 不含 `type`、`submitCount` 是 `long`）都在 spec 里写成带日期更正。
-- [ ] **2. 零泄漏**：控制器包与 `pojo/vo/Paper*` 大小写敏感检索 `answerJson|analysis|isCorrect` 零命中（`AnswerSubmitVO` 是唯一允许命中处，§5.4）；守卫类里有 `paper/page` 与 `paper/detail` 两条真字节用例，且伪阳性做过。
-- [ ] **3. 永不读真值**：`QbQuestionOptionMapper` 的 `is_correct` 仍只出现在注释里；段 4 新增的四个查询没有一个选选项表的真值列。`selectBatchIds` 会把 `answer_json`/`analysis` 读进实体——这是段 1–3 的既有口径（实体可以带真值，出口必须脱敏），且 `paper/detail` 根本不返回题目实体；若本段有任何一条新查询把 `QbQuestion` 实体直接塞进响应，这条自查就红。
-- [ ] **4. 零 N+1**：`PaperAttempts.of` 三条 SQL 都在循环外；`PaperServiceTest.noPerRowQueries` 用 `times(1)` 钉住，`verifyNoInteractions(recordMapper)` 钉住"没有终态 attempt 就不发第三条"。
-- [ ] **5. 空 IN**：`PaperAttempts.of` 先挡空 `paperIds`；`terminalAttemptIds` 为空时不发记录表查询；`emptySubjectShortCircuits` 钉住 `total=0` 时一条分页 SQL 都不发。
-- [ ] **6. 校验有牙**：四条规则各有反例（`PaperStructureValidatorTest` 12 条），并且 `everySeededPaperPassesValidation` 把同一个校验器架在**真数据**上跑过——只有反例没有正例的校验器等于没写。
-- [ ] **7. DDL 与代码对齐**：`QbEntityColumnTest` 九个实体全绿；`attempt_id` 的列位置与索引由 Task 4.1 Step 4 的 `information_schema` 取证钉住，不是"我以为建出来了"。
-- [ ] **8. 测试数与绿灯**：贴出 `"$MVN" -o -pl PracticeModule -am test` 的 `Tests run:` 行（基线 165 → 目标 209，按实跑）与四个 db-it 一起跑那一行（基线 16 → 目标 24）。
-- [ ] **9. 没越界**：`git diff --name-only` 不含 `AIModule/**`、`CommonJwt/**`、`GatewayModule/**`、任何 `pom.xml`；`.sql` 与 DDL 脚本一个都不进仓库。
-- [ ] **10. 秘密**：只扫本段新增行，`password|secret|123456|bearer|token=` 零命中；seed 与脚本都在仓库外；`test918/123456` 不复制进任何新文件；端到端日志只记 `token chars = <n>`。
-- [ ] **11. 未覆盖的缺口要明写**（不许省略）：`40300` 越权只有单测、无端到端；`answered_json` 草稿分支端到端无法产生（要段 5 的 `exam/draft`），只有 db-it 覆盖；样例卷题量 4/2/3/1，65 格答题卡无法用真数据复现；`Σ parts[].score` 未被校验。
+- [x] **1. 契约一致**：两个 paper 接口的路径/入参/字段与 spec §5.6 逐行对过；三处偏差（`detail` 多三个字段、`QuestionRefVO` 不含 `type`、`submitCount` 是 `long`）都在 spec 里写成带日期更正。
+- [x] **2. 零泄漏**：控制器包与 `pojo/vo/Paper*` 大小写敏感检索 `answerJson|analysis|isCorrect` 零命中（`AnswerSubmitVO` 是唯一允许命中处，§5.4）；守卫类里有 `paper/page` 与 `paper/detail` 两条真字节用例，且伪阳性做过。
+- [x] **3. 永不读真值**：`QbQuestionOptionMapper` 的 `is_correct` 仍只出现在注释里；段 4 新增的四个查询没有一个选选项表的真值列。`selectBatchIds` 会把 `answer_json`/`analysis` 读进实体——这是段 1–3 的既有口径（实体可以带真值，出口必须脱敏），且 `paper/detail` 根本不返回题目实体；若本段有任何一条新查询把 `QbQuestion` 实体直接塞进响应，这条自查就红。
+- [x] **4. 零 N+1**：`PaperAttempts.of` 三条 SQL 都在循环外；`PaperServiceTest.noPerRowQueries` 用 `times(1)` 钉住，`verifyNoInteractions(recordMapper)` 钉住"没有终态 attempt 就不发第三条"。
+- [x] **5. 空 IN**：`PaperAttempts.of` 先挡空 `paperIds`；`terminalAttemptIds` 为空时不发记录表查询；`emptySubjectShortCircuits` 钉住 `total=0` 时一条分页 SQL 都不发。
+- [x] **6. 校验有牙**：四条规则各有反例（`PaperStructureValidatorTest` 12 条），并且 `everySeededPaperPassesValidation` 把同一个校验器架在**真数据**上跑过——只有反例没有正例的校验器等于没写。
+- [x] **7. DDL 与代码对齐**：`QbEntityColumnTest` 九个实体全绿；`attempt_id` 的列位置与索引由 Task 4.1 Step 4 的 `information_schema` 取证钉住，不是"我以为建出来了"。
+- [x] **8. 测试数与绿灯**：贴出 `"$MVN" -o -pl PracticeModule -am test` 的 `Tests run:` 行（基线 165 → 目标 209，按实跑）与四个 db-it 一起跑那一行（基线 16 → 目标 24）。
+- [x] **9. 没越界**：`git diff --name-only` 不含 `AIModule/**`、`CommonJwt/**`、`GatewayModule/**`、任何 `pom.xml`；`.sql` 与 DDL 脚本一个都不进仓库。
+- [x] **10. 秘密**：只扫本段新增行，`password|secret|123456|bearer|token=` 零命中；seed 与脚本都在仓库外；`test918/123456` 不复制进任何新文件；端到端日志只记 `token chars = <n>`。
+- [x] **11. 未覆盖的缺口要明写**（不许省略）：`40300` 越权只有单测、无端到端；`answered_json` 草稿分支端到端无法产生（要段 5 的 `exam/draft`），只有 db-it 覆盖；样例卷题量 4/2/3/1，65 格答题卡无法用真数据复现；`Σ parts[].score` 未被校验。
+
+### Task 4.8 自查结论（2026-10-25，主线自查）
+
+**先说可信边界：本轮没有做独立审查轮次**（用户规则 2026-10-24 起：主线实现 + 主线自查，不派子代理）。所以下面 11 条是**作者自查**，而同一族代码在段 2 曾由独立审查抓到过自查漏掉的**类缺陷**（`json` 列写入的宽松解析），那条教训仍然适用：本段凡"单测把 mapper 全 mock 了"的地方，真实约束只有 db-it 与端到端看得见——本段为此专门写了 10 条 `PaperSqlDbIT` 与 35 条网关断言，但**这不等于独立审查**。
+
+逐条证据（文件:行号，全部来自当前工作树）：
+
+1. **契约一致 ✅**：`PracticePaperController.java:33`(`GET /practice/paper/page`)、`:49`(`GET /practice/paper/detail`) 的路径与入参和 spec §5.6 逐字对过；三处偏差（`detail` 多 `description`/`latestAttemptId`/`latestAttemptStatus`、`QuestionRefVO` 不含 `type`、`submitCount` 是 `long`）已落成 spec 的带日期更正（§5.6 的"段 4 更正"五条）。
+2. **零泄漏 ✅**：`controller/` 与 `pojo/vo/Paper*.java` 大小写敏感检索 `answerJson|analysis|isCorrect|is_correct|correctAnswerJson` → **0 命中**；守卫里有真字节用例 `AnswerStateResponseGuardTest.java:242 paperResponsesAreClean`（`:250` 打 `paper/page`、`:263` 打 `paper/detail`）；伪阳性做过并留完整报文（本计划 Task 4.6 一节）。
+3. **永不读真值 ✅**：`QbQuestionOptionMapper.java:14,19` 的 `is_correct` **只出现在注释里**；段 4 新增的四条查询（`QbPaperMapper.java:26,48`、`QbExamAttemptMapper.java:25,36`）只碰 `qb_paper`/`qb_subject`/`qb_exam_attempt`，没有一条选选项表。`PaperServiceImpl` 的构造器里**根本没有 `QbQuestionMapper`**——`paper/detail` 结构上不可能返回题目实体（比"我记得没返回"强）。
+4. **零 N+1 ✅**：`PaperServiceTest.java:123-126` 用 `times(1)` 钉住四条查询都在循环外；`:127 verifyNoInteractions(recordMapper)` 钉住"无终态 attempt 就不发第三条"；`:304` 反向钉住有终态时 `countByAttempts` 恰好一次。
+5. **空 IN ✅**：`PaperAttempts.java:50`（`paperIds` 空直接回空 map）与 `:69`（`terminalAttemptIds` 空不发记录表查询）两个挡点都在；`PaperServiceTest.java:141-142` 钉住 `total=0` 时一条分页 SQL 都不发。
+6. **校验有牙 ✅**：`PaperStructureValidatorTest` **14** 条反例（四条规则各有，含跨科、状态、题数、分值、时长）；正例架在真数据上是 `PaperSqlDbIT.everySeededPaperPassesValidation`（四套卷逐个过，含禁用卷）。**只有反例没有正例的校验器等于没写**，这条有。
+7. **DDL 与代码对齐 ✅**：`QbEntityColumnTest` **7** 条绿（九个实体的列集合、重复列名、裸字段、`@TableName`、json 列用 String）；列与真实库的对齐由 `QbQuestionMapperDbIT`（4 条）的 `information_schema` 比对自动覆盖到两张新表——实体清单扩到九个那一刻就生效，不是静态断言。
+8. **测试数与绿灯 ✅**：全量单测 `Tests run: 218, Failures: 0, Errors: 0`；四个 db-it 一起跑 `Tests run: 26, Failures: 0, Errors: 0`（`PaperSqlDbIT` 单独跑 10）。基线是段 3 的 165 / 16。
+9. **没越界 ✅**：`git status --short` 只有 `PracticeModule/**` 与三个 docs 文件（`practice-00-roadmap.md`、`practice-04-ddl-paper.md`、`2026-10-23-practice-exam-api-design.md`），**不含 `AIModule/**`、`CommonJwt/**`、`GatewayModule/**`、任何 `pom.xml`**；DDL/seed/端到端脚本与取证全在仓库外 `~/.qoder-cn/tmp/.../seg4/`，一个 `.sql` 都没进仓库（`seed_paper.sql` 也在仓库外）。
+10. **秘密 ✅**：`git diff HEAD -- 'PracticeModule/**/*.java'` 的新增行检索 `password|secret|123456|bearer|token=` → **0 命中**；docs 新增行检索 `123456|EZ_PW=|password"` → 0 命中（`test918/123456` 只在段 1 既有的 roadmap 行里，本段没复制进任何新文件）；端到端只打 `login ok, token chars = 219`，token 本体在仓库外的 `seg4/token.txt`。db-it 的空口令是 Task 4.2 既有写法（`root` + 空串），本段没有新增口令形态。
+11. **未覆盖的缺口（明写，不省略）**：
+    - `40300`（他人私有卷）**只有单测** `PaperServiceTest`，端到端不做——库里没有 `owner_id != 1` 的卷，造一条就是往验收数据加行。
+    - **`answered_json` 草稿分支端到端无法产生**（要段 5 的 `exam/draft`），只有 `PaperSqlDbIT.originalTextGateOnRealData` / `answeredCountBranches` 用合成 attempt 行覆盖两条真库路径。
+    - 样例卷题量 **4/2/3/1**，截图里 65 格答题卡网格**无法用真数据复现**；段 5 验收要按这个真实规模设计。
+    - **`Σ parts[].score` 与 `total_score` 未被校验**（四条规则只管题目分之和），样例卷是手工对齐的——已写进 spec §11 的"已知未校验项"，段 5 前必须补成第五条校验或明写"部分分只用于渲染"。
+    - 卡片的 `submitCount/answeredCount/latestAttemptId` 端到端实测全是 `0/null`（`qb_exam_attempt` 零行）：这是**设计而不是缺陷**，但意味着"进度显示正确"这件事本段只证到聚合层，没证到活体。
+    - `submit` 那次回归在 `test918` 名下留下真实增量（记录 id 77/78 等），**清理 SQL 已写未代执行**。
 
 ---
 
@@ -3360,45 +3379,234 @@ def save(name, status, payload):
 - Step 6 回滚 SQL（**已写下、未执行**）：见本任务 Step 6 的三句。两张新表当前各 0 行，回滚代价为零；`attempt_id` 列上没有任何非 NULL 值（段 5 才写它）。
 - Step 7：本任务**没有产生任何仓库内代码改动**（DDL 脚本、sanity 脚本与取证都在仓库外 `seg4/`）。未 `git add`、未 `git commit`。
 
+### Task 4.2 已执行（2026-10-24）
+
+红灯（Step 2 实跑）：`QbEntityColumnTest.java:[54,23] 找不到符号`、`[62,23] 找不到符号`、`QbEntityColumns.java:[43,42]/[43,57] 找不到符号` → `BUILD FAILURE`（testCompile）。这就是"先改测试再写实体"的顺序证据。
+
+绿灯：`Tests run: 7, Failures: 0`（`QbEntityColumnTest`，原 5 + 新增 `qbPaperColumns`/`qbExamAttemptColumns` 两条；`jsonColumnsAreString` 那条按计划补了两个新字段）；全量单测 **`Tests run: 167, Failures: 0, Errors: 0`**（段 3 收尾的 165 + 2）。
+
+真库两条门（比计划更强的一层）：
+- `QbQuestionMapperDbIT` 因为 `QbEntityColumns.qbEntities()` 从七个扩到九个，**它的"实体列 vs information_schema 真实列"比对自动扩到 `qb_paper`/`qb_exam_attempt`/`attempt_id`**——`Tests run: 4, Failures: 0` 就是 Task 4.1 那三张表结构对齐的独立证据，不必另写用例。
+- 新增 `PaperSqlDbIT`：**3 条**（计划里预估 2 条，实际多写了一条 `draftJsonCanBeCleared`，因为它顺带证了 spec 4.2"交卷后 `answered_json` 置 NULL"这条不变式在真库上写得出读得回）。`Tests run: 3, Failures: 0`。
+
+计划里没预见到、执行时实测到的**一条真库坑（值得单独记）**：
+`draftJsonCanBeCleared` 第一次跑**红了**——`expected: <2> but was: <1>`（`PaperSqlDbIT.java:251`）。原因是**同一个 `SqlSession` 里，裸 JDBC 的写入不会清 MyBatis 的一级缓存**：只有走 MyBatis 的 `insert/update` 才会触发 `Executor.clearLocalCache()`，而这条用例先 `attemptMapper.selectById(...)` 把草稿行缓存住，随后用 `session.getConnection()` 的 `PreparedStatement` 直接 UPDATE，再 `selectById` 就读回了缓存里的 status=1。修法是把 `session.clearCache()` 显式写在裸 JDBC 写入之后（已写进代码注释）。**连带影响段 5**：交卷用例若在同一个 session 里"裸写 → mapper 读"，必须同样 clearCache，否则会测出一个假象的"回写没生效"。
+
+残留（仓库外 `seg4/Seg4Residue.java`）：`qb_paper` 0 行（含 `sort_order=998/999` 两类自造标记都是 0）、`qb_exam_attempt` 0 行、`user_id=990004` 两张表都是 0、`attempt_id IS NOT NULL` 0 行、全库 `is_correct=-1` 0 行、段 2/段 3 的三个合成用户仍全 0。
+
+命令形态上的一处计划偏差（**下次照这个写**）：`-Dtest=<单个类> -Dsurefire.excludedGroups=` 必须**同时**带 `-Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false`，否则 `-am` 会把过滤器套到 `CommonJwt` 上并以 `No tests matching pattern ... were executed!` 直接 BUILD FAILURE（本段第一次跑 `QbQuestionMapperDbIT` 就是这样红的，与代码无关）。
+
+产物：新增 `pojo/QbPaper.java`、`pojo/QbExamAttempt.java`、`mapper/{QbPaperMapper,QbExamAttemptMapper,PaperCardRow,AttemptSubmitCountRow,LatestAttemptRow,AttemptRecordCountRow}.java`、`test/.../mapper/PaperSqlDbIT.java`；修改 `pojo/QbUserAnswerRecord.java`（加 `attemptId`）、`test/.../pojo/{QbEntityColumns,QbEntityColumnTest}.java`、`test/.../mapper/QbQuestionMapperDbIT.java`（javadoc 的表数）。未 `git add`/`git commit`。
+
+### Task 4.3 已执行（2026-10-24）
+
+- 红灯：`PaperStructureParserTest` 与 `PaperStructureValidatorTest` 各自先以 `testCompile` 失败（`找不到符号 PaperStructure`/`PaperStructureParser`/`PaperStructureValidator`），实现后转绿。
+- 绿灯：解析 **11** 条（预估 7）、校验 **14** 条（预估 12）；全量 **`Tests run: 192, Failures: 0, Errors: 0`** = 165 + 实体 2 + 解析 11 + 校验 14。多出的 4 + 2 条都是执行时想到的反例（可空字段整个缺键、第二题定位、空 sections/questions、空白文本字段、index 重复、跨 part 题号），**没有一条是靠放宽断言凑的**。
+- **计划里的一份代码在真编译下是错的**：`requireDecimal` 原本用 `v.isBigDecimalNode()`，本仓库的 Jackson 没有这个方法（`找不到符号 isBigDecimalNode()`）。已按实测改成 `isNumber()` + `new BigDecimal(v.asText())`，并把理由写进方法注释（`asText()` 是 JSON 字面量，转 BigDecimal 不经二进制浮点，规则 3 的零容差 `compareTo` 依赖它）。步骤里那段"必须当场验的假设"就是这条，验了，假设不成立，改了实现没改测试。
+- 产物：`service/PaperStructure.java`、`service/PaperStructureParser.java`、`service/PaperStructureValidator.java` + 两份测试。
+
+### Task 4.4 已执行（2026-10-24）
+
+seed 四条 `OK insert affected=1`。**实测分配的 id 是 8 / 9 / 10 / 11，不是 1..4** —— 因为 Task 4.2 的 db-it 与 sanity 脚本已经消耗过 `qb_paper` 的自增值。这正好把"测试与端到端绝不写死 paperId"这条纪律变成了硬要求：所有用例都按 `subjectId/questionCount/status` 或 `sort_order` 定位，脚本按 `questionCount==4` 找 P1。
+
+MySQL 侧独立复核（`JSON_TABLE` 自己算一遍，与 Java 校验器口径不同）：
+
+```
+id | subj | status | declared_cnt | total | json_valid | actual_cnt | actual_sum | actual_min | idx_min | idx_max
+8  | 1    | 1      | 4            | 30.00 | 1          | 4          | 30.00      | 65         | 1       | 4
+9  | 1    | 1      | 2            | 14.00 | 1          | 2          | 14.00      | 30         | 1       | 2
+10 | 2    | 1      | 3            | 12.00 | 1          | 3          | 12.00      | 45         | 1       | 3
+11 | 1    | 0      | 1            | 7.00  | 1          | 1          | 7.00       | 20         | 1       | 1
+```
+
+四套卷 `declared==actual` 题数、`total==Σ 题目分值`、`Σ 部分时长 <= duration_minutes`、`idx` 从 1 连续到 N、`JSON_VALID` 全 1。标题与中文写在 `seg4/seed-evidence.txt`（UTF-8）。
+
+db-it 三条新用例：`seededPapersArePresent`（4 套 / 全 JSON_VALID / 3 启用）、`everySeededPaperPassesValidation`（**四条校验架在真数据上跑**，含禁用卷）、`crossSubjectReferenceIsRejected`。`Tests run: 6, Failures: 0`；跑完 `qb_paper` 仍 4 行、`sort_order=998/999` 的自造行 0、`user_id=990004` 两张表 0。
+
+**这条用例第一次是红的，原因值得单独记**：`crossSubjectReferenceIsRejected` 原本用 `replaceFirst("\"questionId\":[0-9]+", ...)` 改写读回来的 `structure_json`，**匹配不到**——`json` 列回读的是 MySQL 规范化后的形态（冒号后带空格），于是"篡改"没发生，`assertThrows` 报 `nothing was thrown`。改成 `\"questionId\"\\s*:\\s*[0-9]+` 并**加一条 `assertTrue(tampered.contains(...))` 自我把关**（改写不生效就当场报，而不是让用例假绿）。这是 Task 4.2 那条"json 列回读会被规范化"的第二起发作——**凡对 json 列做字符串改写，都必须按规范化形态匹配**。段 5 若要改写 `answered_json` 同样适用。
+
+### Task 4.7 端到端（2026-10-25，全程经网关 8100）
+
+Step 1 重启 8102 —— **第一次启动没成，原因值得记**：`taskkill` 掉段 3 的 23372 之后、我的 `spring-boot:run` 起来之前，**另一个会话在 07:49:52 抢先占了 8102（PID 15520）**。判据不是"mvn 报 exit 1"，而是日志里的 `Web server failed to start. Port 8102 was already in use.` + `netstat` 显示监听者是 15520（不是我自己日志里的 16556）。**处置**：`netstat` 与日志 `with PID` 两处对齐后再 `taskkill //PID 15520 //F`，重启成功：
+
+```
+2026-10-25T07:54:06.126 INFO 14196 --- Starting PracticeModuleApplication ... with PID 14196
+2026-10-25T07:54:10.550 INFO 14196 --- Tomcat started on port 8102 (http) with context path ''
+2026-10-25T07:54:10.604 INFO 14196 --- nacos registry, DEFAULT_GROUP PracticeModuleServer 192.168.47.10:8102
+2026-10-25T07:54:10.614 INFO 14196 --- Started PracticeModuleApplication in 5.865 seconds
+netstat: TCP 0.0.0.0:8102 LISTENING 14196      # 监听者 == 日志里的 with PID，这才是"我起的实例"
+```
+
+**本段的日志是 UTF-8 不是 GBK**（段 3 的日志要 `iconv -f GBK`，这里反过来）：`iconv -f GBK` 会在 `JwtUtil` 那行中文之后**整段截断**，看起来像"启动卡住"。改成按 UTF-8 读才拿到三条锚点。**下次读日志先两种编码各试一次，以能读到 `Started ... in` 为准**。
+
+Step 2 登录：`GET /auth/captcha` → 最小 RESP 读 Redis db0 的 `auth:captcha:<key>` → `POST /auth/login`（口令走环境变量 `EZ_PW`，不落文件）。实测 `login ok, token chars = 219`，响应里 `code=1`。第一次探活 `subject/list` 回 `HTTP=401 code=401`（段 3 的 `token.txt` 已过期）→ 正好证明鉴权在生效。
+
+Step 3 正向矩阵（35 条 CHECK 全 OK，逐条输出在 `seg4/e2e4-run.txt`，关键字段摘要在 `seg4/e2e-summary.txt`）：
+
+| # | 实测 |
+|---|---|
+| 01 | `subject/list` `code=1` `len=2` |
+| 02 | `paper/page?subjectId=1` `total=2` `listLen=2`（P4 禁用没进来） |
+| 03 | 卡片 `paperId=8`：`badges=["2020年","第一套","7月","65分钟"]`、`questionCount=4`、**原始字节里 `"totalScore":30.00`**、`submitCount=0`、`progressPercent=0.0`、`latestAttemptId=null`、`subjectName=语文` |
+| 04 | `subjectId=2` `total=1`，`badges=["2022年","第二套","6月","45分钟"]`（`set_no=2` → 中文序数在活体上成立） |
+| 05 | `examYear=2020` `total=1` |
+| 06 | `examYear=2021&setNo=1` `total=1` |
+| 07 | `examYear=2020&setNo=2` `total=0` `list=[]` `pages=0` |
+| 08 | `pageSize=1` 两页 `paperId` = `[8]` 与 `[9]`，不相交 |
+| 09 | `paper/detail?paperId=8`：`parts=2`、`sections=3`、`questions=4`、`index=[1,2,3,4]`、**三个 section 的 `originalText` 全是 NULL**、`audioUrl=https://cdn.ezpractice.example/2020-07-set1-part1.mp3` 有值、`description` 有值、`submitCount=0` |
+| 10 | `question/current?subjectId=1&mode=1` `code=1`（`finished=true`） |
+| 11 | `answer/submit` `code=1` `recordId=77`（`attempt_id` 加列后写库路径照旧，AUTO 主键照常回填） |
+| 12 | `wrong/page?subjectId=1&status=1` `code=1` |
+| 13 | `favorite/toggle` 开 → `favorite/page` `total=1` → `toggle` 关 → 再查 `total=0`（收尾无残留） |
+
+**计划里两处前提在实跑不成立，按实测改了脚本（没改判据）**：
+1. `#03` 的 `totalScore` 判据原来写成比对 `json.loads` 之后的值——Python 把 `30.00` 解析成 `30.0`，`str()` 之后必假红。改成**扫原始响应字节**里的 `"totalScore":30.00`（与 `decimal(6,2)` 的出网形态一致，这正是事实里"必须 compareTo 不能 equals"的同一件事在 JSON 侧的镜像）。
+2. `#11` 原计划"取科目 1 剩余未做的一题"——test918 在段 3 已把科目 1 的 4 道题做完，`mode=1` 回 `finished=true` 拿不到题。回归目标是"加列后写库照旧"，所以改成 `question/current?questionId=1`（**注意不能同时给 `subjectId` 与 `questionId`，那是 40000**，段 3 的 `resp-35-both-params.json` 已钉过）取回真实选项键，再 `submit`。第一版还用过 `"__none__"` 当答案，被判分前的选项校验拒成 40000——**选项键必须是题上真有的键**。
+
+Step 4 负例矩阵（全 OK）：缺 `subjectId`/`pageSize=101`/`pageNum=0`/`examYear=abc`/缺 `paperId` → **40000**（`examYear=abc` 没有落 500）；`subjectId=999999` → **40400**；`paperId=999999` → **40400**；`paperId=11`（P4 禁用，id 由 `seg4/PaperIds.java` 现取不写死）→ **40900**；`subject/list` 与 `paper/page` 不带 token → **HTTP 401**（网关回，不是 `Result.code`）；直连 8102 无 `X-User-Name` → **40100**。
+
+`40300` 端到端仍无法触发（库里没有 `owner_id != 1` 的卷，造一条就是往验收数据里加行）——由 `PaperServiceTest.privatePaperOfAnotherUserIsForbidden` 覆盖，缺口写进自查第 11 条。
+
+Step 5 字节扫描（`seg4/scan4.py`，清单一个字没加）：
+
+```
+skip(allowed to carry truth) resp-00-captcha.json
+skip(allowed to carry truth) resp-00-login.json
+skip(allowed to carry truth) resp-11-submit-regression.json
+scanned=28 leaks=0
+gate originalText non-null sections: 0
+RESULT CLEAN
+```
+
+Step 6 库里取证（`seg4/Seg4State.java`，输出落 `seg4/seg4-state.txt`）：`qb_paper` **4** 行、`SUM(status=1)` **3**、`sort_order=998/999` 自造行 **0**、`qb_exam_attempt` **0** 行、`user_id=990004` 两张表 **0**、`attempt_id IS NOT NULL` **0**、`qb_user_answer_record` 列数 **10**；四套卷逐行 `8|4|30.00|1|1`、`9|2|14.00|1|1`、`10|3|12.00|1|1`、`11|1|7.00|0|1`（`JSON_VALID` 全 1，禁用卷只有 P4）。`favorite user 10 = 0`（Step 3 #13 关回关闭态）。
+
+端到端在 test918（`user_id=10`）名下的**新增**（`seg4/Seg4Today.java` → `seg4/seg4-today.txt`）：`qb_user_answer_record` id **77、78**（都是 qid 1 的错答）、`qb_user_wrong` id 6 的 `wrong_count` 由 3 变 **5**、`qb_user_subject_stat` 科目 1 由 `total=11 correct=8 wrong=3` 变 **`total=13 correct=8 wrong=5`**。样例卷一行未动。
+
+#### 给用户的清理 SQL（可选，我未代执行）
+
+只回收**本次端到端**在 `test918` 名下新增的行；**`qb_paper` 的 4 行样例卷是要保留的验收数据，不在清理范围**。科目 1 的 `accuracy` 是按 `correct_count/total_count` 现算的，所以统计回退后自动回到 `8/11 = 0.73`。
+
+```sql
+-- 1) 端到端重做 qid 1 产生的两条答题记录
+DELETE FROM qb_user_answer_record WHERE id IN (77, 78);
+
+-- 2) 错题本计数回退（wrong_count 5 -> 3；status 不动，段 4 前它就是 1）
+UPDATE qb_user_wrong SET wrong_count = wrong_count - 2
+ WHERE id = 6 AND user_id = 10 AND wrong_count >= 2;
+
+-- 3) 科目统计回退（绝对值写回，跑前先 SELECT 核对真是 13/8/5）
+SELECT subject_id, total_count, correct_count, wrong_count
+  FROM qb_user_subject_stat WHERE user_id = 10 AND subject_id = 1;
+UPDATE qb_user_subject_stat SET total_count = 11, correct_count = 8, wrong_count = 3
+ WHERE user_id = 10 AND subject_id = 1;
+
+-- 4) 复核（三行都应为清理后的值，且 qb_paper 仍 4 行）
+SELECT (SELECT COUNT(*) FROM qb_user_answer_record WHERE user_id = 10) AS records,
+       (SELECT wrong_count FROM qb_user_wrong WHERE id = 6)            AS wrong_cnt,
+       (SELECT COUNT(*) FROM qb_paper)                                 AS papers_kept;
+```
+
+**留着不清也完全不影响段 5**：段 5 的验收看的是 `qb_exam_attempt`（现在 0 行）与 `attempt_id`（全库无非 NULL 值），这两处干净。差异只在 `subject/list` 的科目 1 统计数字上（0.62 vs 0.73）。
+
+Step 7 文档回写（都写成带日期的"更正"，原文未覆盖）：
+
+| 文件 | 落点 |
+|---|---|
+| spec §4.1 | DDL 后补"段 4 已执行（2026-10-24）"三条实测数字（16/17/10 列、`ordinal_position=4`、九表同 collation）+ **`json` 列回读被规范化这条第三、第四次发作的总结**，附 1364 与唯一键带表名前缀两条 |
+| spec §5.6 | 五条按实现更正：`subjectId` 必填、徽章原值 + `badges` 并存、`submitCount` 是 `long` 且只数终态、`detail` 多出 `description`/`latestAttemptId`/`latestAttemptStatus`、`QuestionRefVO` 不含 `type`；并写清 `originalText` 闸门判据是 `submitCount > 0` 与它的三态取证位置 |
+| spec §9.3 | "考试中 `originalText` 为 null" 前半边标注段 4 已证（网关 + 真库真服务），后半边留给段 5；"样例卷铺满截图" 勾出**卡片半边**并明写整体不成立的原因（题量 4/2/3/1，65 格网格无法用真数据复现） |
+| spec §11 | 裁定三兑现（进度字段口径已定）+ **新增一条已知未校验项：`Σ parts[].score` 与 `total_score` 的关系四条校验里没有**，样例卷是手工对齐的，段 5 前必须补成第五条校验或明写"部分分只用于渲染" |
+| spec §12 | "执行 4.1 的 DDL"与"灌样例真题"两行标注已消耗（2026-10-24，授权只到段 4），并把"往 `qb_paper`、`qb_question` 写测试数据"改成"**只写了 `qb_paper`**（裁定一，4 套，id 8/9/10/11，绝不写死 id）" |
+| roadmap | 段 4 行 → **已完成**（218 单测 + 26 db-it、35 条端到端断言、零泄漏）；新增第 **19** 条（`qb_paper.sort_order` 同样不唯一 → 分页必须 `(sort_order,id)`，且段 5 验收要按 4/2/3/1 的真实规模设计）与第 **20** 条（自增 id 用 `getGeneratedKeys`/实体回填；**同 session 裸 JDBC 写后必须 `session.clearCache()`**，段 5 交卷用例照做）；运行环境表 PracticeModule 行更新到 PID 14196 并补两条重启口诀（监听 PID 必须等于日志 `with PID`；本模块日志是 UTF-8，`iconv -f GBK` 会截断） |
+
+Step 8 记忆同步：`practice-exam-initiative.md`（description 改段 1–4 完成 + 段 4 一节的兑现形态、三条执行期硬约束、已知缺口、段 5 开工前需要的两个输入、端到端增量与清理口径）、`local-service-topology.md`（端口被他人实例抢占的第三种形态 + 日志编码逐模块不同）、`MEMORY.md` 索引行（218/26/11 接口、`qb_paper` 4 行是验收数据）。
+
+### Task 4.5 已执行（2026-10-24）
+
+红灯（Step 7 实跑）：`PaperServiceTest.java` 以 `testCompile` 失败——`找不到符号 PaperServiceImpl`（类还不存在），实现后转绿。徽章/进度那两条纯口径用例（Step 1/2）同理先红后绿。
+
+绿灯：`PaperCardsTest` **5** 条、`PaperServiceTest` **8** 条（page 部分）、`PracticePaperControllerTest` **4** 条、`PaperSqlDbIT` 补两条后 **8** 条 → 全量单测 **`Tests run: 209, Failures: 0, Errors: 0`**，四个 db-it 一起跑 **`Tests run: 24, Failures: 0, Errors: 0`**。
+
+三条与计划不符、按实测改掉的点（**改计划不改成测试**）：
+
+1. `PaperCards.badges` 的套次中文序数只到"第十套"，第 11 起回落阿拉伯数字——计划里我预期 `第10套` 也走中文，测试写错了、实现没错，**改的是测试期望**（这条纪律在段 3 也用过一次）。
+2. `PaperAttempts.of` 的第三条 SQL 只在"最新 attempt 是终态"时才发；`PaperServiceTest` 里用 `verifyNoInteractions(recordMapper)` 钉住。这是实现层主动加的（卡片页 90% 的卷从没作答过），不是计划里的形态。
+3. `QbUserAnswerRecordMapper.countByAttempts` 按"一 mapper 一表"归位到记录表 mapper（Step 9b 的更正），计划正文已同步。
+
+产物：`service/{PaperCards,PaperAttempts,PaperService}.java`、`service/impl/PaperServiceImpl.java`、`pojo/vo/PaperCardVO.java`、`controller/PracticePaperController.java` + 三份测试；`QbPaperMapper` 的两条查询在 Task 4.2 已建，本任务只做调用方。未 `git add`/`git commit`（本轮改动由用户自己提交）。
+
+### Task 4.6 已执行（2026-10-24）
+
+红灯（Step 3 实跑）：`PaperServiceTest.java:[240,35] 找不到符号 符号: 方法 detail(long,long)` → `BUILD FAILURE`（testCompile）。六条 detail 用例先立，再补接口方法与实现。
+
+绿灯逐步：
+- Step 5：`PaperServiceTest` **`Tests run: 14, Failures: 0`**（8 + 6）。
+- Step 6：控制器加 `GET /practice/paper/detail`（`@RequestParam Long paperId`，缺参由绑定层 + `PracticeExceptionHandler` 转 40000，控制器不兜）；`PracticePaperControllerTest` **`Tests run: 6, Failures: 0`**（4 + 2）。
+- Step 7：`AnswerStateResponseGuardTest` 的 standalone 装配加第四个真控制器（真 `PaperServiceImpl` over 四个 mock mapper），新增 `paperResponsesAreClean` 一条 → **`Tests run: 7, Failures: 0`**。
+- Step 8：`PaperSqlDbIT` 加两条真库真服务用例 → **`Tests run: 10, Failures: 0`**；四个 db-it 一起跑 **`Tests run: 26, Failures: 0, Errors: 0`**。
+- Step 9：全量单测 **`Tests run: 218, Failures: 0, Errors: 0`** = 209 + detail 服务 6 + 控制器 2 + 守卫 1。残留探针 `Seg4Residue`：`qb_paper` 仍 4 行、`sort_order=998/999` 自造行 0、`qb_exam_attempt` 0 行、`user_id=990004` 两张表 0、`attempt_id IS NOT NULL` 0 行。
+
+**伪阳性（本任务 Step 7 要求的那次，做了）**：临时给 `PaperDetailVO.SectionVO` 加 `private String answerJson;` 并在 `toPartVOs` 里 `sv.setAnswerJson("LEAK_SENTINEL_TMP")`，守卫当场红，完整报文如下（`Tests run: 7, Failures: 1`）：
+
+```
+org.opentest4j.AssertionFailedError: 响应体泄漏了 answerJson：{"code":1,"msg":"success",
+"data":{"paperId":7,"title":"题干甲样例卷","badges":["2020年","第一套","7月","65分钟"],
+"durationMinutes":65,"totalScore":30.00,"questionCount":1,"description":null,"submitCount":1,
+"answeredCount":1,"progressPercent":100.0,"latestAttemptId":3,"latestAttemptStatus":2,
+"parts":[{"roman":"I","name":"L","cardLabel":"听力","score":7.0,"minutes":65,"sections":[
+{"label":"A","subTitle":"短新闻","direction":"d","audioUrl":"https://cdn/a.mp3",
+"originalText":"样例原文","answerJson":"LEAK_SENTINEL_TMP",
+"questions":[{"index":1,"questionId":1,"score":7.0}]}]}]}} ==> expected: <false> but was: <true>
+	at AnswerStateResponseGuardTest.paperResponsesAreClean(AnswerStateResponseGuardTest.java:264)
+```
+
+回滚后：`grep -c answerJson PaperDetailVO.java` = **0**、`grep -c LEAK_SENTINEL_TMP PaperServiceImpl.java` = **0**，守卫重跑 `Tests run: 7, Failures: 0`，全量 `218` 绿。同一次红→绿还顺带证了正向锚点不是空转：`originalText` 在 `submitCount=1` 时确实出现在字节里。
+
+两处执行时新增的形态（不在计划里，按实测写进代码与注释）：
+- `PUBLIC_OWNER = 1L` 常量：detail 的越权判定必须与列表 SQL 的 `owner_id IN (1, 当前用户)` 同口径，写在两处会漂移。Task 4.3 时我按 YAGNI 把它删过，本任务真用上了才加回来。
+- **db-it 里 `session.clearCache()` 第二次发作**：`originalTextGateOnRealData` 用真服务在同一个 session 里反复读同一张卷，裸 JDBC 写完 attempt 不清缓存 → 服务读回"写之前"的世界（Task 4.2 的 `draftJsonCanBeCleared` 是同一根因第一次）。已抽成本类的 `flushCache()` 辅助并在每次裸写后调用，注释写明**段 5 的交卷用例必须照做**。
+
+产物：新增 `pojo/vo/PaperDetailVO.java`；修改 `service/PaperService.java`（加 `detail`）、`service/impl/PaperServiceImpl.java`（`detail` + `toPartVOs`）、`controller/PracticePaperController.java`（`/detail`）、`test/.../PaperServiceTest.java`（+6）、`test/.../PracticePaperControllerTest.java`（+2）、`test/.../AnswerStateResponseGuardTest.java`（+1 用例 +paper 装配）、`test/.../mapper/PaperSqlDbIT.java`（+2 用例 + 三个辅助）。未 `git add`/`git commit`。
+
 ### 测试增量（Task 4.2–4.6）
 
-- [ ] 每个任务的红→绿两次 `Tests run:` 行（红灯的真实报错要贴，证明确实是先红后绿）
-- [ ] 最终全量单测那一行（基线 165 → 实际值）
-- [ ] `PaperSqlDbIT` 单独跑、以及四个 db-it 一起跑的 `Tests run:` 行
-- [ ] 与计划预估不符之处：逐类核对差额来自哪里，**改计划不改成测试**
+- [x] 每个任务的红→绿两次 `Tests run:` 行（红灯的真实报错已逐任务贴在上面的 4.2/4.3/4.5/4.6 各节；Task 4.4 的红灯是 `crossSubjectReferenceIsRejected` 的 `nothing was thrown`，记在该节）
+- [x] 最终全量单测那一行（基线 165 → 实际 **218**）
+- [x] `PaperSqlDbIT` 单独跑（**10**）与四个 db-it 一起跑（**26**）的 `Tests run:` 行（基线 16 → 26：+8 来自本段）
+- [x] 与计划预估不符之处：计划 Step 9 写"期望 **209** = 202 + `PaperServiceTest` 5 + `PracticePaperControllerTest` 2 + 守卫 1"，实跑 **218**。逐类核过真实数字：Task 4.3 收尾 **192**（已记在该节）→ Task 4.5 实际加了 **17** 条（`PaperCardsTest` 5 + `PaperServiceTest` 8 + `PracticePaperControllerTest` 4）到 **209**，而计划当时按 202 预估，说明本任务预估少算了 7 条 → Task 4.6 再加 **9** 条（`PaperServiceTest` 8→14 即 +6，`PracticePaperControllerTest` 4→6 即 +2，守卫 6→7 即 +1）= **218**。**新增用例都是执行时想到的反例（如 `detailErrorCodes` 把 40000/40400/40900 三段合在一条、越权 40300 单独一条），没有一条靠放宽断言凑；改的是这里的预估数字，不是测试**
 
 ### seed 与真数据取证（Task 4.4）
 
-- [ ] Step 3 取证表原样（`declared_count/actual_count`、`total_score/actual_sum`、`actual_minutes`、`json_valid`）
-- [ ] `seed-evidence.txt` 的四行标题（Read 读，UTF-8）
-- [ ] 4 套卷的实际 `id`（Task 4.7 的脚本仍按 `questionCount` 找 P1，不写死）
+- [x] Step 3 取证表原样（`declared_count/actual_count`、`total_score/actual_sum`、`actual_minutes`、`json_valid`）
+- [x] `seed-evidence.txt` 的四行标题（Read 读，UTF-8）
+- [x] 4 套卷的实际 `id`（Task 4.7 的脚本仍按 `questionCount` 找 P1，不写死）
 
 ### 伪阳性（守卫有牙的证明，缺这段就等于没做）
 
-- [ ] Task 4.6 Step 7：临时给 `PaperDetailVO.SectionVO` 加 `answerJson` 后守卫的失败输出（含完整报文）；回滚后该 VO 的 `grep -c answerJson` 为 0 + 全量绿
+- [x] Task 4.6 Step 7：临时给 `PaperDetailVO.SectionVO` 加 `answerJson` 后守卫的失败输出（含完整报文，已整段贴在 Task 4.6 那节）；回滚后该 VO 的 `grep -c answerJson` = **0**、`LEAK_SENTINEL_TMP` 在实现类里 **0** 命中，守卫重跑 `Tests run: 7, Failures: 0`、全量 `218` 绿
 
 ### 端到端（Task 4.7）
 
-- [ ] 重启 8102 的旧 PID 与新 PID + `Tomcat started on port(s): 8102` 的日志行
-- [ ] 登录：`token chars = <n>`（不打印 token 本体）
-- [ ] Step 3 矩阵逐条实际 `code` 与关键字段值（`badges` 数组、`total`、`originalText` 的存在形态）
-- [ ] #02 的 `total` 实测值：计划写的是 2。若实跑不是 2，说明 owner 过滤或 status 过滤与预期不符，**查清楚而不是改期望值**
-- [ ] #08 两页 `paperId` 的集合（不相交的证据）
-- [ ] Step 4 负例矩阵逐条 `code`；`no-token` 记 HTTP 状态码而不是 `Result.code`
-- [ ] Step 5 扫描：`scanned=<n> leaks=0` + `originalText` 检查结论
-- [ ] Step 6 库里取证的每一个数字
-- [ ] 给用户的清理 SQL（端到端在 `test918` 名下新增的答题记录与统计增量；样例卷要保留）
+- [x] 重启 8102 的旧 PID 与新 PID + `Tomcat started on port(s): 8102` 的日志行（**实测文案是 `Tomcat started on port 8102 (http)`，Spring Boot 3.2.4 已不带 `(s):`——按实跑更正锚点字符串，别把"没匹配到"读成"没启动"**。旧 PID：段 3 的 23372 → 抢占者 15520 → 新实例 **14196**，见 Task 4.7 一节）
+- [x] 登录：`token chars = <n>`（不打印 token 本体）
+- [x] Step 3 矩阵逐条实际 `code` 与关键字段值（`badges` 数组、`total`、`originalText` 的存在形态）
+- [x] #02 的 `total` 实测值：计划写的是 2。若实跑不是 2，说明 owner 过滤或 status 过滤与预期不符，**查清楚而不是改期望值**
+- [x] #08 两页 `paperId` 的集合（不相交的证据）
+- [x] Step 4 负例矩阵逐条 `code`；`no-token` 记 HTTP 状态码而不是 `Result.code`
+- [x] Step 5 扫描：`scanned=<n> leaks=0` + `originalText` 检查结论
+- [x] Step 6 库里取证的每一个数字
+- [x] 给用户的清理 SQL（端到端在 `test918` 名下新增的答题记录与统计增量；样例卷要保留）
 
 ### 文档回写
 
-- [ ] spec 五处更正的 diff 摘要（§4.1 / §5.6 / §9.3 / §11 / §12）
-- [ ] roadmap：段 4 状态 + §3 新增第 19/20 条 + 运行环境表
-- [ ] 记忆更新：`practice-exam-initiative.md`、`local-service-topology.md`、`MEMORY.md` 索引行
+- [x] spec 五处更正的 diff 摘要（§4.1 / §5.6 / §9.3 / §11 / §12）
+- [x] roadmap：段 4 状态 + §3 新增第 19/20 条 + 运行环境表
+- [x] 记忆更新：`practice-exam-initiative.md`、`local-service-topology.md`、`MEMORY.md` 索引行
 
 ### 自查与审查状态
 
-- [ ] Task 4.8 十一条自查的逐条结论（带文件:行号）
-- [ ] **一行明确的说明：本轮未做独立审查（用户规则：主线实现 + 自查，不派子代理）**
+- [x] Task 4.8 十一条自查的逐条结论（带文件:行号）
+- [x] **一行明确的说明：本轮未做独立审查（用户规则：主线实现 + 自查，不派子代理）**
 
 ---
 
