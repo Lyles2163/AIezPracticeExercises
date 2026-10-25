@@ -980,7 +980,7 @@ Expected: 通过。`toTurn` 的入参类型直接取自 `ChatMessage`（F2）—
 3. `onThoughtStep` 只在 `handlers` 里改 `turn.steps`，别处不写 `steps`；`toTurn`（历史）恒 `steps: []` —— 这是
    "reasoning 不落库 → 刷新后思考线消失"的落点。
 
-- [ ] **Step 4: 提交并推送**
+- [x] **Step 4: 提交并推送**
 
 ```bash
 git add src/composables/useChat.ts
@@ -1029,7 +1029,8 @@ Vue 响应式 + Vite 专用变量在 Node 里跑不通）。它的正确性靠 S
 `grep -c MUTCHECK2` = 0。
 
 **提交状态**：commit `e11012a`（1 file, 370 insertions，`git show --stat` 复验只含自己的文件）。
-**推送两次失败**：`Failed to connect to github.com port 443` —— 网络问题，不是 git 冲突；提交在本地，待网络恢复补推。
+当时推送三次失败 `Failed to connect to github.com port 443`（HTTPS 不通，后端仓库走 SSH 正常），
+提交留在本地；F4 装完依赖后网络恢复，随 `247098d..f361991` 一并推上去了。
 
 ---
 
@@ -1048,13 +1049,13 @@ Vue 响应式 + Vite 专用变量在 Node 里跑不通）。它的正确性靠 S
   - `toSafeHtml(src: string): string`（marked → DOMPurify，外链补 `rel="noopener"`）
   - `MarkdownBody.vue` props：`{ source: string; done?: boolean }`
 
-- [ ] **Step 1: 装依赖（关卡 GF1）**
+- [x] **Step 1: 装依赖（关卡 GF1）**
 
 Run: `npm i marked dompurify`
 Expected: `package.json` 的 `dependencies` 多出这两项。规格 §5.4 已选定这两个库，
 理由必须留在计划里：**模型输出是不可信内容，`v-html` 直插是 XSS 口子**，所以 sanitize 不是可选项。
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 `src/components/AI/__tests__/streamMarkdown.test.ts`。坑的具体形状：模型吐到 ```` ```java ```` 而闭合围栏还没来时，
 marked 会把后面整段吞进代码块，正文突然整块变灰。
@@ -1082,12 +1083,12 @@ test('补出来的围栏一定在行首（marked 只认行首围栏）', () => {
 })
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `node --test src/components/AI/__tests__/`
 Expected: 模块不存在 → 红。
 
-- [ ] **Step 4: 写实现**
+- [x] **Step 4: 写实现**
 
 `src/components/AI/streamMarkdown.ts`：
 
@@ -1151,7 +1152,7 @@ test('decorateLinks：有 target 才补 rel，已有 noopener 的不重复补', 
 **执行时先跑一遍再看实际值**：如果 `FENCE` 匹配到 4 个（把 `x` 行也算进去），就把期望值改成不补齐。
 两种结果都可接受，但必须写清是哪种、为什么。
 
-- [ ] **Step 5: 写渲染组件**
+- [x] **Step 5: 写渲染组件**
 
 `src/components/AI/MarkdownBody.vue`：
 
@@ -1256,12 +1257,12 @@ onBeforeUnmount(() => {
 它写成纯字符串函数而不是 DOMPurify hook，原因是 DOMPurify 需要 `window`、hook 在 Node 里测不了，
 而这条规则恰恰需要一条能跑的用例。
 
-- [ ] **Step 6: 跑测试 + 类型检查**
+- [x] **Step 6: 跑测试 + 类型检查**
 
-Run: `node --test src/components/AI/__tests__/` && `npm run type-check`
-Expected: 全绿（围栏用例的期望值按 Step 4 的推导修正后）。
+Run: `node --test src/components/AI/__tests__/streamMarkdown.test.ts src/api/__tests__/sse.test.ts` && `npm run type-check`
+Actual: **`tests 15 / pass 15 / fail 0`**（10 条 F1 + 5 条 F4）；`vue-tsc --build` 无输出。
 
-- [ ] **Step 7: 提交并推送**
+- [x] **Step 7: 提交并推送**
 
 ```bash
 git add src/components/AI/streamMarkdown.ts src/components/AI/MarkdownBody.vue src/components/AI/__tests__/streamMarkdown.test.ts package.json package-lock.json
@@ -1270,7 +1271,35 @@ git show --stat --oneline HEAD
 git push origin dev
 ```
 
+提交 `f361991`（5 files, 201 insertions：3 个新文件 + package.json +package-lock.json），
+推送 `247098d..f361991`（这一推同时把 F3 的 `e11012a` 带上了：GitHub HTTPS 之前连不上 443，SSH 侧一直正常）。
+
 **检查点**：Node 用例全绿；`type-check` 绿；`package.json` 只多两个 dependency，没动 devDependencies。
+实测新增 `"dompurify": "^3.4.17"`、`"marked": "^18.1.1"`，devDependencies 未变。
+
+**F4 执行记录**
+
+1. **GF1 实装的版本**：`marked@18.1.1`、`dompurify@3.4.17`（DOMPurify 3.x 自带类型，无需 `@types/*`）。
+2. **围栏期望值是按 `FENCE` 实跑推导的，没有为了让用例好看改断言**（Step 4 留的那个问题）：
+   - `'```` 外层\n``` 内层\n````'` → 行首匹配到 ```` ```` ````、` ``` `、```` ```` ````**共 3 个** → 奇数 → 补齐，
+     期望 `'…\n````'`。这条是**已知取舍**：流式期间多包一层围栏只影响瞬时外观，`done` 后用原文重解析定稿。
+   - 顺带把「`` 内层」（2 个反引号）也写成用例：`{3,}` 不匹配它 → 匹配数 2 → 偶数 → 原样。
+   - 波浪号围栏 `'x\n~~~sh'` → 补的是同字符同长度的 `~~~`，不是 ` ``` `。
+3. **变异取证 6/6 全被杀**（脚本 `mutcheck-stream.mjs` 跑完即删，`applied=6/6 restored=true`；
+   每条变异前强制校验"补丁确实改了文件"，因为上一轮 `/tmp` 路径在 Git Bash 与 Node 之间不一致导致 6 次空跑）：
+   - M1 删「偶数原样」→ 第 8 行那条红（`failingTestLines=[5,8]`）。
+   - M2 补齐串写死成 ` ``` ` → 第 12/16 与 19/21 两条红（四反引号 + 波浪号）。
+     **上一版 M2 无效**：它把整个文件语法改坏，测试是以"模块加载失败"的方式红的，不算证据；改成只替换表达式后重跑。
+   - M3 去掉 `^` 锚定 → 新加的第 24 行那条红（`行首不是围栏 ```x`）。
+   - M4 `{3,}`→`{1,}` → 第 24 行那条里**行首单反引号**的断言红（`'`a` 行首就是行内代码'`）。
+     这条断言是补出来的：原先只测"行中出现"与"奇数个行内反引号"时，M4 会存活 ——
+     因为 `^` 还在，`{1,}` 只放宽长度不放宽位置。**这是本轮唯一一次"变异存活=用例缺口"，处理方式是补用例。**
+   - M5 去掉「没有 target 就不动」→ decorateLinks 那条红。
+   - M6 去掉「已有 noopener 不重复补」→ decorateLinks 那条红。
+4. **覆盖范围如实说**：`streamMarkdown.ts` 的两个纯函数有 Node 用例 + 6 条变异取证；
+   `MarkdownBody.vue`（rAF 合并、`done` 定稿、每帧 sanitize）**没有任何自动化覆盖**，正确性只有 F6 的浏览器取证。
+5. 与计划的偏差：无功能级偏差；只有 ① 用例比计划多 3 条（`~~~`、行首单反引号、行中围栏），
+   ② 变异脚本第一版空跑被"必须校验补丁生效"这条自查抓到。
 
 ---
 
