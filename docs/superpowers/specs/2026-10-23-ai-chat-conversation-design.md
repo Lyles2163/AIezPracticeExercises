@@ -16,7 +16,7 @@
 | 不做的东西 | 为什么不做 |
 |---|---|
 | RAG 检索、知识库引用、降级 | 用户决定"先完成对话功能，后接 RAG"。`ai_message_citation` 表也一并推到 RAG 阶段 |
-| 思考链路（`ai_thought_step` 表、`thought_step`/`thought_end` 事件、reasoning 切句摘要） | 本期无检索、无工具调用，四类步骤里只有 `reasoning` 有真实来源，其余三类没有生产者。事件名在契约里预留 |
+| 思考链路（`ai_thought_step` 表、`thought_step`/`thought_end` 事件、reasoning 切句摘要） | 本期无检索、无工具调用，四类步骤里只有 `reasoning` 有真实来源，其余三类没有生产者。事件名在契约里预留 → **E 段已实现 `thought_step`/`thought_end`（不落库，零 DDL），见 `2026-10-24-ai-chat-thinking-line-design.md`** |
 | 附件上传（`ai_attachment`） | 本期服务端不解析任何文件，建表即空表 |
 | `effort` 改模型 | 前端模型下拉与 effort 滑块是**两个独立控件**，`PromptBarSendDetail` 同时带 `model` 和 `effort`。经用户确认：`modelKey` 决定调哪个上游模型，`effort` **只决定服务端参数**（temperature / max_tokens），两者互不干涉。`deepseek-chat` + Max 就是低温度大上限，**不会**冒出 reasoning |
 | 语音输入（PromptBar 的 `onDictate`） | 前端本地 Web Speech API，后端无接口 |
@@ -226,12 +226,19 @@ ChatModelGateway       ← 接口；SpringAiChatModelGateway 实现包住 ChatCl
 |---|---|---|---|
 | `meta` | 1，最先 | `{conversationId, messageId, modelKey, effort, supportsThinking}` | 前端拿到 `messageId` 才能调 #8；`supportsThinking=false` 时不渲染思考线 |
 | `delta` | 0..n | `{text}` | 正文增量 |
-| `usage` | 0..1 | `{promptTokens, completionTokens}` | 需 `stream-usage: true`，取上游最后一个 chunk |
+| `usage` | 0..1 | `{promptTokens, completionTokens, reasoningTokens}` | E 段起自建房带 `stream_options.include_usage`（不再依赖 `stream-usage: true`）；`reasoningTokens` 是 `completionTokens` 的**拆分不是加数**，且不落库 |
 | `done` | 1，最后 | `{finishReason}` = `done`/`stopped`/`length`/`upstream` | 发完即 `complete()` |
-| `error` | 0..1 | `{errorCode, msg, retryable}` | 紧跟一帧 `done{upstream}` |
+| `thought_step` | 0..n | `{text}` | 一条可读推理短句（E 段实测：一次 `17*23` 得 6 条）。仅 `supportsThinking=true` 时出现 |
+| `thought_end` | 0..1 | `{seconds}` | 思考相结束，`seconds` 是"首条 reasoning → 首条正文"的秒数（一位小数） |
+| `error` | 0..1 | `{errorCode, msg, retryable}` | 紧跟一帧 `done{upstream}`；`retryable` 按上游状态判：401/403 为 false，408/429/5xx 及其余为 true |
 | `ping` | 每 15s | `{t}` | 防网关/代理空闲断流 |
 
-`thought_step` / `thought_end` **在本契约中预留但本期不产生**。前端（将来）按"没有 `thought_step` 就不渲染思考线"处理。
+~~`thought_step` / `thought_end` 在本契约中预留但本期不产生~~ —— **E 段（2026-10-25）已兑现**：
+换成自建 `WebClient` transport 后 `delta.reasoning_content` 才拿得到，两个事件成为正式契约。
+帧序为 `meta → thought_step* → thought_end → delta* → usage → done`，
+`thought_end` 之后才会出现 `delta`（相不交错，实测 index 7 vs 8）。
+无思考能力的模型（`deepseek-chat`，或 `chat.thinking-enabled=false`）**一帧 thought 都不发**，
+前端据此不渲染思考线，而不是渲染一条空的。
 
 响应头：`Content-Type: text/event-stream;charset=UTF-8`、`Cache-Control: no-cache, no-transform`、`X-Accel-Buffering: no`。
 
@@ -403,7 +410,10 @@ spring:
 - **usage 只挂在最后一帧**，且 Spring AI 的兜底 metadata 让每一帧的 `getUsage()` 都非 null、值为 0/0。所以适配器必须把 0 归一为 null（`positive()`），否则中间帧会带着 0/0 活下来、被编排层当成 usage 帧发出去。
 - **`max-tokens` 真的被上游执行**：Max 档 16384 那条回答正好停在 16384 completion tokens，并回 `finish_reason=length`（Spring AI 交付成大写 `LENGTH`，见 5.2.1）。
 - **`temperature` 在 `deepseek-reasoner` 上是否被忽略：无法判定，不要写成"已证实"**。同题跑 Low/Medium/Max（1.3/1.0/0.2）三档，输出各不相同（completion 43/50/75 tokens）——但采样本身就有随机性，"输出不同"不能证明 temperature 生效，反之亦然。能确定的只有两件事：请求里带 `temperature` 上游不报错（无 400），以及 effort 在该模型上**至少**通过 `max-tokens` 起作用。
-- **reasoner 的推理内容根本到不了我们**：那条请求 `completionTokens=34` 而正文只有 3 个字符，思考部分被计入 token 却没进 `getOutput().getText()`（Spring AI 不映射 `reasoning_content`）。所以 `supports-thinking: true` 目前是一个前端无法兑现的旗子——本期不产思考链，按 5.2 的预留处理；将来要产 `thought_step`，必须去取 reasoning 字段，不能指望 `delta`。
+- **reasoner 的推理内容根本到不了我们**：那条请求 `completionTokens=34` 而正文只有 3 个字符，思考部分被计入 token 却没进 `getOutput().getText()`（Spring AI 不映射 `reasoning_content`）。所以 `supports-thinking: true` 当时是一个前端无法兑现的旗子——本期不产思考链，按 5.2 的预留处理。
+  **E 段（2026-10-25）把这面旗子兑现了**：`SpringAiChatModelGateway` 被自建 `OpenAiStreamChatModelGateway` 取代，
+  推理以 `thought_step` 实时下发、`reasoningTokens` 进 `usage`，且**不落库**（零 DDL、写次数不变式一行没动）。
+  原文（`reasoning_text`）仍然不存——当时的判断"将来要产 `thought_step`，必须去取 reasoning 字段，不能指望 `delta`"是这条链路的起点。
 
 ---
 
@@ -444,6 +454,8 @@ spring:
 - [x] 同一 `clientMsgId` 重试不产生第二条用户消息 —— 用户消息恒为 1 条，旧助手行转 superseded，新助手行 `client_msg_id=NULL`（R15）
 - [ ] 不属于本人的 `conversationId` 在 #4/#5/#6/#7/#8 上返回同一文案 —— **只有单测覆盖**。真链路需要第二个账号，G3 只批了复用 `test918`。间接证据：段 B 实测网关**覆盖**客户端自带的 `X-User-Name`，注入路径是关的
 - [x] 全程不出现 `thought_step` 事件 —— 所有取证的帧种类只有 `meta/delta/usage/done/ping/error`
+      （**E 段后此条只对 `deepseek-chat` 与 `thinking-enabled=false` 成立**；reasoner 已按 5.2 发 `thought_step`/`thought_end`，
+      E 段实测 `meta → thought_step×6 → thought_end → delta×72 → usage → done`）
 - [x] 五档 effort 两两不同，非法档位拒绝建流 —— 单测断言；真链路 `不支持的档位: Ultra`（段 B）
 - [x] 实测 `deepseek-reasoner` 是否忽略 `temperature` —— **无法判定，已按"无法判定"写回 7.1**，同时测到一个更硬的结论：reasoning 内容压根不经过 `getOutput().getText()`
 - [x] #1 的 `efforts` 与前端 `DEFAULT_EFFORTS` 逐字一致、`models` 含 `key/name/tag` —— `['Low','Medium','High','Extra','Max']`，两个模型带 `tag`/`supportsThinking`

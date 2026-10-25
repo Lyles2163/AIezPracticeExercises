@@ -1566,7 +1566,7 @@ Expected: 全绿（`ChatStreamServiceTest` 从 22 涨到 28）。
 - Consumes: Task 13–18 全部
 - Produces: 一个 `ChatModelGateway` bean；段 D 的 13 项回归证据
 
-- [ ] **Step 1: 核对旧测试的每条断言都有新归宿**
+- [x] **Step 1: 核对旧测试的每条断言都有新归宿**
 
 ```
 旧用例                                     新归宿
@@ -1580,7 +1580,7 @@ toMessage 的两条                      →  删除（新实现直接构 JSON�
 ```
 若某条在新测试里没有对应，**先补新用例再删旧文件**，不许净减少覆盖。
 
-- [ ] **Step 2: 删旧类、加 `@Component`**
+- [x] **Step 2: 删旧类、加 `@Component`**
 
 ```java
 @Component
@@ -1590,7 +1590,7 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
 Run: `grep -rn "SpringAiChatModelGateway" AIModule/src`
 Expected: 0 处引用（有就先改）。
 
-- [ ] **Step 3: 全量单测 + IT**
+- [x] **Step 3: 全量单测 + IT**
 
 ```
 "$MVN" -pl AIModule clean test
@@ -1598,7 +1598,7 @@ Expected: 0 处引用（有就先改）。
 ```
 Expected: 单测全绿，总数 **172** 条 = 现有 144 + 本计划新增 36（Task 13 三、14 十二、15 二、16 八、17 五、18 六）− 随旧网关一起删除的 8 条。**如果实际数对不上，先搞清楚少了哪条或多哪条再往下走**，不要改期望值凑绿。IT 仍 8/8。
 
-- [ ] **Step 4: 真上游取证（会计费，够用即止）**
+- [x] **Step 4: 真上游取证（会计费，够用即止）**
 
 诊断实例方式（不改 `application.yaml`、不注册进 Nacos）：
 
@@ -1613,15 +1613,16 @@ CP="AIModule/target/classes;$(cat $TEMP/ai-cp.txt)"
 3. `usage` 里 `reasoningTokens > 0` 且 `reasoningTokens < completionTokens`；
 4. 换 `deepseek-chat` 再打一条 → **零** `thought_step`/`thought_end` 帧。
 
-- [ ] **Step 5: 段 D 的 13 项回归重跑（换了 transport 就必须重跑）**
+- [ ] **Step 5: 段 D 的 13 项回归重跑（换了 transport 就必须重跑）** —— **部分完成**：服务级 9 项已在新 transport 下全绿
+  （取证日志 §4），网关级 4 项待用户重启 8105 后补（取证日志 §5 说明了为什么不能在 8106 直连上做）。
 
 按 `docs/superpowers/plans/2026-10-23-ai-chat-e2e-log.md` 的清单逐项重做，至少覆盖：逐字一致（拼 delta 与库内 `cmp`）、写次数（`dur_ms` 等于生成耗时）、`length` 收尾（Max 档数到 9000）、幂等三发同 `clientMsgId`、并发拒绝走 JSON、stop 中途 `truncated/stopped`、断连 `client_disconnect`、软删后 #6/#7 拒绝、坏 cursor、44s 长流经网关不断、`event:ping` 仍出现、`Accept` 四值矩阵仍全 200 JSON。
 
-- [ ] **Step 6: 数据与进程清理**
+- [x] **Step 6: 数据与进程清理**
 
 JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai_message` 归零；停掉 8106；**不 commit**。
 
-- [ ] **Step 7: 回写文档**
+- [x] **Step 7: 回写文档**
 
 - spec §5.2 事件表把 `thought_step`/`thought_end` 从"预留不产生"改成正式契约（载荷 `{text}` / `{seconds}`，并注明 `data:` 无空格）。
 - spec §6.4 错误矩阵加 `retryable` 按状态判定那两行。
@@ -1775,3 +1776,34 @@ JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai
 - 三路 `onChunk` 的落点：`reasoning` 只喂 tracker 与发帧，**不进 `stream.append`**（不落库由此保证）；
   正文相由 `closeThinking` 收口（发残留短句 + `thought_end`）；error 相走 `drainThinking`（发短句、不发 `thought_end`）。
 - 恢复后 `grep -rn MUTATION AIModule/src/` = 0。
+
+### Task 19 切换唯一实现、删旧类、段 D 回归重跑 — 服务级完成，网关级待 8105 重启
+- Step 1 的逐条核对**抓出 3 条真实覆盖缺口**（旧文件里有、新测试里没有对应断言）：
+  1. `choices` 是空数组但 `usage` 有值（DeepSeek 的真实收尾形状）必须留住 → `usageOnlyWithEmptyChoicesSurvives`；
+  2. 正文与 `finish_reason` **同一帧**到达时两者都要保留 → `textAndFinishReasonInOneFrame`；
+  3. 空白 `finish_reason`（`"  "`）归 null，不能误报流结束 → `blankFinishReasonBecomesNull`。
+  按计划要求先补用例再删文件。计划的映射表把 1/2/3 分别错映射到 `roleOnlyFrameDropped` /
+  `finishFrameCarriesUsage` / `finishReasonLowerCased`，那三条其实都覆盖不到对应形状。
+- Step 2：删 `SpringAiChatModelGateway(+Test)`，`grep -rn SpringAiChatModelGateway AIModule/src` = 0；
+  新类加 `@Component` 成为唯一 bean；R17 的"上游交付过大写 LENGTH"教训以注释留在 `lower()` 上。
+- Step 3：单测 **175/175**（计划预测 172，差额就是上面补的 3 条），`ChatMapperDbIT` **8/8**。
+- Step 4 真上游取证：9/9 PASS。帧序 `meta → thought_step×6 → thought_end → delta×72 → usage → done`，
+  `thought_end{seconds:0.4}`，`usage{44,128,55}`（`0 < reasoningTokens < completionTokens`），
+  步骤最短 12 字符（是短句不是单词碎片），换 `deepseek-chat` 零 thought 帧且 `meta.supportsThinking=false`。
+  完整取证与读法见 `docs/superpowers/plans/2026-10-25-ai-chat-thinking-line-e2e-log.md`。
+  取证用**诊断实例 8106**（计划规定的做法，不注册进 Nacos、不改 yaml，用户的 8105 没被动过）。
+- Step 5 服务级 9 项全 PASS（逐字一致 / 终态字段 / `length` 收尾 / 幂等 / 并发拒绝走 JSON /
+  stop / 断连 / 软删后拒绝 / 坏 cursor）。其中 `length` 一项第一次取证**没触发截断条件**
+  （Max 档 16384 让模型自然说完，`completionTokens=11964`、`finishReason=done`）——
+  那是我的取证设计问题不是代码缺陷，改用 `max_tokens=4096` 的 Medium 档逼出 `delta×4096 + done{length}` 后才 PASS。
+  **网关级 4 项没跑**：它们测的就是"经不经过网关"，在 8106 直连上做等于把要证明的东西假设掉；
+  且 8105 跑的是今天 07:49 的旧代码（不含 Task 19 的 bean 切换）→ 需要用户重启 8105 后补。
+- Step 6 清理：`ai_message` 删 19 行、`ai_conversation` 删 8 行（删除前确认 `user_name` 只有 `test918`），
+  复查两表计数均为 0；8106 已停（无 LISTENING）。零 DDL。
+- Step 7 文档回写：本期 spec 新增 E 段设计文档与计划执行记录；上一期 spec 的 §5.2 事件表把
+  `thought_step`/`thought_end` 从"预留不产生"改成正式契约（含帧序、`data:` 无空格、`seconds` 语义、
+  `reasoningTokens` 是拆分不是加数），§6.4 的 `error` 行补上 `retryable` 按状态判定，
+  §7.1 的"reasoner 推理到不了我们"那条判断标注 E 段已兑现，8.3 的"全程不出现 thought_step"限定为
+  只对无思考能力的模型成立。新增取证日志一份。
+- **与计划的偏差**：Step 5 只完成服务级子集（原因如上），这是本任务唯一未闭合的项，
+  已在计划复选框上就地标明，没有"整体打勾"。
