@@ -1565,7 +1565,7 @@ Run: `npm run type-check`
 Expected: 通过（`.vue` 文件由 vue-tsc 检查）。若 `ThoughtLine` 的 props 类型不匹配，
 **以 `ThoughtLine.vue` 的实际 `defineProps` 为准调整传参**，不改那个组件（它已在线，改它有回归面）。
 
-- [ ] **Step 4: 提交并推送**
+- [x] **Step 4: 提交并推送**
 
 ```bash
 git add src/components/AI/ConversationList.vue src/components/AI/MessageItem.vue
@@ -1588,8 +1588,8 @@ git push origin dev
 - **type-check 对这个 .vue 真的有效**：往 `MessageItem.vue` 注入 `const MUT: number = props => props` 后
   `vue-tsc --build` 报 `src/components/AI/MessageItem.vue(7,7): error TS2322`（外加 TS7006），撤掉后 `grep -c "error TS"` = 0。
 - 提交 `6fa96a3`（2 files, 224 insertions，`git show --stat` 只含自己的文件）。
-  **推送未成**：GitHub HTTPS 反复 `Failed to connect to github.com port 443`（同一时段后端仓库走 SSH 正常），
-  Step 4 因此保持未勾，提交在本地等补推。
+  **当时推送未成**：GitHub HTTPS 反复 `Failed to connect to github.com port 443`（同一时段后端仓库走 SSH 正常），
+  Step 4 当时保持未勾；后来网络恢复，随 `f361991..1a6f06d` 一次补推成功（F5+F6 都在其中）。
 - 组件渲染本身**没有任何自动化覆盖**，只有类型检查；像素级正确性等 F6 浏览器取证。
 
 ---
@@ -1831,7 +1831,7 @@ Actual: `npm run type-check` 无输出；`npm run build-only` `✓ built in 1.69
   这些能力本期一个都不存在（附件与 RAG 都在"显式不做"里），挂在 @ 菜单上就是错内容。
 - **新增一条计划没有的守卫**：自动跟随滚动有两个触发源 —— `messages.length`（新增行）与
   最后一行 `content.length`（流式增长）。只看前者会出现"正文在长、视图不跟"。
-- 提交 `1a6f06d`（1 file, 181 insertions / 80 deletions）。推送同 F5 一样卡在 GitHub HTTPS 故障，Step 5 保持未勾。
+- 提交 `1a6f06d`（1 file, 181 insertions / 80 deletions）。推送同 F5 一样先卡在 GitHub HTTPS 故障，随后随 `f361991..1a6f06d` 成功。
 
 **Step 3 浏览器验收：未执行，等两个前置（不假装验过）**
 1. **8105 必须重启成 E 段代码**（当前还是 pid 8064 的老进程）。B/C/D/F/H 六项都要 `thought_step` / `thought_end`，
