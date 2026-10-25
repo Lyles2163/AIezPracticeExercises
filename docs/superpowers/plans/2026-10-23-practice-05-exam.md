@@ -473,7 +473,7 @@ git status --short
   - `static List<PaperDetailVO.PartVO> PaperSkeleton.toPartVOs(PaperStructure structure, boolean originalTextVisible)`
   - `static boolean PaperSkeleton.originalTextVisible(long submitCount)`（裁定二的唯一表达式，两个出口都用它）
 
-- [ ] **Step 1：写 `ExamDeadlineTest`（红：类不存在）**
+- [x] **Step 1：写 `ExamDeadlineTest`（红：类不存在）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -524,7 +524,7 @@ class ExamDeadlineTest {
 }
 ```
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamDeadlineTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -532,7 +532,7 @@ class ExamDeadlineTest {
 
 期望编译失败：`找不到符号 ExamDeadline`。
 
-- [ ] **Step 3：写 `ExamDeadline`**
+- [x] **Step 3：写 `ExamDeadline`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -564,11 +564,11 @@ public final class ExamDeadline {
 }
 ```
 
-- [ ] **Step 4：跑 `ExamDeadlineTest` 确认绿**
+- [x] **Step 4：跑 `ExamDeadlineTest` 确认绿**
 
 同上命令，期望 `Tests run: 4, Failures: 0`。
 
-- [ ] **Step 5：抽 `PaperLoad`（行为不变，位置变了）**
+- [x] **Step 5：抽 `PaperLoad`（行为不变，位置变了）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -613,13 +613,10 @@ public final class PaperLoad {
         }
         return paper;
     }
-
-    /** 交过卷才给听力原文（段 4 裁定二）。判据就是聚合出来的 submitCount，不多发一条 SQL */
-    public static boolean originalTextVisible(long submitCount) {
-        return submitCount > 0L;
-    }
 }
 ```
+
+（**`originalTextVisible` 不在这里**——它在 Step 6 的 `PaperSkeleton` 里，见执行记录的偏差 1：判据与 `toPartVOs` 的入参是一对，放一起调用方只需一个 import。）
 
 `PaperServiceImpl.detail` 改为调用它（**删掉类内的 `PUBLIC_OWNER` 常量与那段四道门的内联代码**）：
 
@@ -632,13 +629,13 @@ public final class PaperLoad {
         boolean originalTextVisible = PaperLoad.originalTextVisible(progress.submitCount());
 ```
 
-- [ ] **Step 6：抽 `PaperSkeleton`（把 `toPartVOs` 整体搬过去，一行不改）**
+- [x] **Step 6：抽 `PaperSkeleton`（把 `toPartVOs` 整体搬过去，一行不改）**
 
 `PaperServiceImpl` 里的 `private static List<PaperDetailVO.PartVO> toPartVOs(...)` 整段移动到新建的 `PaperSkeleton`，签名改为 `public static`，`originalTextVisible ? section.originalText() : null` 那行原样保留（它旁边的注释也一起搬）。`PaperServiceImpl` 里改成 `PaperSkeleton.toPartVOs(structure, originalTextVisible)`，并删掉不再需要的 import（`PaperDetailVO` 仍要，返回类型用）。
 
 搬而不是重写的原因：段 4 那条"三层逐字段复制"的注释讲的是**同一个约束**（内存形态与出网形态必须是两个类型），注释跟着代码走才不会漂。
 
-- [ ] **Step 7：跑段 4 的两个测试类，确认行为未变**
+- [x] **Step 7：跑段 4 的两个测试类，确认行为未变**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest='PaperServiceTest+AnswerStateResponseGuardTest+PracticePaperControllerTest' -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -646,7 +643,7 @@ public final class PaperLoad {
 
 期望 `Tests run: 14`、`7`、`6` 全绿。**这一步是重构的判据**：这三类的断言若需要改才能过，说明抽出来的东西改变了行为，那就不是重构——停下来重新裁定，别把断言改了蒙过去。
 
-- [ ] **Step 8：全量绿 + 报告改动**
+- [x] **Step 8：全量绿 + 报告改动**
 
 期望 **228/228**（218 + `ExamAnswersTest` 6 + `ExamDeadlineTest` 4，数字按实跑）。产物：三个新类 + 两个既有文件瘦身 + 两份新测试。
 
@@ -3599,7 +3596,32 @@ git push origin dev
 
 **提交**：`git add -- <5 个文件 + 本计划>` 显式 pathspec，`git commit`（本段每任务一提交一推送，用户 2026-10-25 裁定；共享工作树在 Task 5.1 首次尝试时被别人的回滚吞过一次未提交改动，见 memory）。
 
-### Task 5.2（待执行）
+### Task 5.2（完成，2026-10-25）
+
+先红（"类不存在"那种红）：
+
+```
+[ERROR] /F:/.../ExamDeadlineTest.java:[21,21] 找不到符号  符号: 类 ExamDeadline
+```
+
+**重构的判据兑现了**（Step 7 的三个类，断言一字未改）：
+
+```
+Tests run: 14, Failures: 0 -- PaperServiceTest               （原样绿）
+Tests run: 7,  Failures: 0 -- AnswerStateResponseGuardTest    （真字节脱敏，原样绿）
+Tests run: 6,  Failures: 0 -- PracticePaperControllerTest      （原样绿）
+Tests run: 228, Failures: 0 -- 全量单测（224 + ExamDeadlineTest 4）
+Tests run: 13, Failures: 0 -- PaperSqlDbIT 10 + AnswerFlowDbIT 3（真库跑过抽出来的 PaperLoad/PaperSkeleton）
+```
+
+`ExamDeadlineTest` 4 条里的边界三条按计划成立：`grace=60` 时 `now == D+60_000` **不算**过期（判据是 `>` 不是 `>=`），`D+60_001` 才算；`deadlineAt == null` 不算过期。
+
+**对计划的两处偏差**：
+
+- **偏差 1（计划自相矛盾，按 Interfaces 块定）**：`originalTextVisible` 落在 **`PaperSkeleton`**。计划 Task 5.2 的 Interfaces 块写 `PaperSkeleton.originalTextVisible`，而 Step 5 的代码清单里把它抄进了 `PaperLoad` ——两处不一致。按 Interfaces 块执行：它是"出网形态该不该带这一段原文"的判据，与 `toPartVOs` 的 `originalTextVisible` 参数是一对，放在一起调用方只需一个 import。`PaperLoad` 只有 `loadVisible` 与 `PUBLIC_OWNER`。Task 5.6 的 `toStartVO` 传 `false`（草稿态永远不给原文），不经过这个方法。
+- **偏差 2**：`PaperDetailVO.PartVO/SectionVO/QuestionRefVO` **留在 `pojo/vo/PaperDetailVO` 里没搬**。计划原本想让 `PaperSkeleton` 拥有这三个类型，但段 4 的 `PracticePaperControllerTest:95-99` 与 `PaperServiceTest:273` 直接按 `PaperDetailVO.PartVO` 写死了——搬类型就得改那些引用，而 Step 7 的判据是"既有测试一个字不改"。所以 `PaperSkeleton.toPartVOs` 返回 `List<PaperDetailVO.PartVO>`，`ExamStartVO.structure` 也用同一个类型（这是刻意的复用：答题卡骨架在两个接口必须长一样，多一个类型就多一份会漂的形态）。
+
+`PaperServiceImpl` 因此少了 2 个 import（异常类）、多了 2 个（`PaperLoad`/`PaperSkeleton`），类内 `PUBLIC_OWNER` 常量与私有 `toPartVOs` 删除。
 
 ### Task 5.3（待执行）
 
