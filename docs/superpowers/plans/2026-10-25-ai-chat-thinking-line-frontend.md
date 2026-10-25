@@ -1313,7 +1313,7 @@ git push origin dev
 - Consumes: F3 的 `ChatTurn`；`ThoughtLine.vue`（现成组件，props 见 Step 2）；F4 的 `MarkdownBody.vue`
 - Produces: 两个组件的 props/emits 契约（F6 的 `Chat.vue` 依赖它们）
 
-- [ ] **Step 1: 写 ConversationList.vue**
+- [x] **Step 1: 写 ConversationList.vue**
 
 ```vue
 <script setup lang="ts">
@@ -1452,7 +1452,7 @@ void props
 所以列表组件本身不掺和显隐逻辑 —— 由父级 `v-if` 控制，`display:none` 那条媒体查询删掉，
 改成父级控制。**执行时按这条改**（计划正文已把结论写死：组件不做显隐）。
 
-- [ ] **Step 2: 写 MessageItem.vue（思考线接线的落点）**
+- [x] **Step 2: 写 MessageItem.vue（思考线接线的落点）**
 
 `ThoughtLine` 的真实契约（已读源码核对）：`steps: string[]`、`working: boolean`、`elapsed?: number`（**单位秒**，
 组件内 `Math.round(elapsed * 10)` 转成内部的十分之一秒）、`doneLabel?: string`、`collapseOnSettle`（默认 true）、
@@ -1559,7 +1559,7 @@ import { computed } from 'vue'
 把 `defineEmits<{ retry: [] }>` 改掉。理由：重试的语义是"复用上一次的 payload 与幂等键"，
 状态在 `useChat` 里，气泡不该决定重试哪一条。
 
-- [ ] **Step 3: 类型检查**
+- [x] **Step 3: 类型检查**
 
 Run: `npm run type-check`
 Expected: 通过（`.vue` 文件由 vue-tsc 检查）。若 `ThoughtLine` 的 props 类型不匹配，
@@ -1576,6 +1576,22 @@ git push origin dev
 
 **检查点**：`type-check` 绿。
 
+**F5 执行记录**
+- 计划自带的两处修正照做：`import { computed } from 'vue'` 放到脚本顶部；`retry` 不发 `turn.id`
+  （`defineEmits<{ retry: []; regenerate: [] }>()`），理由是重试语义属于 `useChat` 的 payload/幂等键。
+- `ConversationList` 按计划结论**不做显隐**：删掉 `display:none` 那条媒体查询，也删掉了计划代码里的 `void props`；
+  显隐由 `Chat.vue` 的 `v-if="showList"` 控制。
+- 新增一条计划没有的守卫：**历史失败行不显示重试/重新生成**（`showActions = failed && !fromHistory`）。
+  历史行手里没有那一轮的 `lastPayload`，给按钮就是给一个点了没反应的按钮。
+- 传参以 `ThoughtLine.vue` 的真实 `defineProps` 为准（读过源码：`steps?`、`working?`、`elapsed?: number`（秒）、
+  `settleAfter?`、`label?`、`doneLabel?` 全部可选），组件本身没动。
+- **type-check 对这个 .vue 真的有效**：往 `MessageItem.vue` 注入 `const MUT: number = props => props` 后
+  `vue-tsc --build` 报 `src/components/AI/MessageItem.vue(7,7): error TS2322`（外加 TS7006），撤掉后 `grep -c "error TS"` = 0。
+- 提交 `6fa96a3`（2 files, 224 insertions，`git show --stat` 只含自己的文件）。
+  **推送未成**：GitHub HTTPS 反复 `Failed to connect to github.com port 443`（同一时段后端仓库走 SSH 正常），
+  Step 4 因此保持未勾，提交在本地等补推。
+- 组件渲染本身**没有任何自动化覆盖**，只有类型检查；像素级正确性等 F6 浏览器取证。
+
 ---
 
 ## Task F6: Chat.vue 接线 + 浏览器验收
@@ -1587,7 +1603,7 @@ git push origin dev
 - Consumes: F3 的 `useChat()`、F5 两个组件、`PromptBar`（现成，props 已知）
 - Produces: 可用的 `/ai` 对话页
 
-- [ ] **Step 1: 重写 Chat.vue**
+- [x] **Step 1: 重写 Chat.vue**
 
 必须显式处理的坑（spec §5.3）：`PromptBar` 的 `DEFAULT_MODELS` 是 `gpt-5.5` 那类演示值。
 **不传 `:models` 与 `:efforts`，用户选到的 model 就是假的**，发出去被后端拒成"不支持的模型"。
@@ -1799,10 +1815,34 @@ onMounted(async () => {
    模板里 Vue 只自动解构顶层 ref，`chat.messages` 是嵌套属性 → 模板必须写 `chat.messages.value`（上面已这么写）。
    如果你觉得别扭，就在 script 顶部 `const { messages, sending } = chat` 解构后使用 —— 二者选一，**别混用**。
 
-- [ ] **Step 2: 类型检查 + 构建**
+- [x] **Step 2: 类型检查 + 构建**
 
 Run: `npm run type-check` 然后 `npm run build-only`
 Expected: 都通过（`build-only` = `vite build`，会真跑一遍打包，能抓到模板里的引用错误）。
+Actual: `npm run type-check` 无输出；`npm run build-only` `✓ built in 1.69s`，
+`dist/assets/Chat-BdecomRm.js 124.66 kB (gzip 42.32 kB)` —— 这一包的体量涨了就说明 `marked` + `dompurify` 确实进了 Chat 分片。
+
+**F6 Step 1/2 执行记录**
+- 计划的两处硬修正照做：删掉 `void chat.$expose` 残留；`useChat()` 返回的 ref 在脚本顶部一次性解构使用，
+  模板里不再出现 `chat.messages.value`（避免两种写法混用）。
+- `:models` / `:efforts` / `:default-model` / `:default-effort` 全部来自 #1 的目录，不依赖 `DEFAULT_MODELS` 的演示值。
+- **新增一条计划没有的决定**：`:sources="[]"`、`:commands="[]"`。
+  `PromptBar` 自带的 `DEFAULT_SOURCES` 是 `Photos & files / Web search / Sales data / Documents / Mail / Calendar`，
+  这些能力本期一个都不存在（附件与 RAG 都在"显式不做"里），挂在 @ 菜单上就是错内容。
+- **新增一条计划没有的守卫**：自动跟随滚动有两个触发源 —— `messages.length`（新增行）与
+  最后一行 `content.length`（流式增长）。只看前者会出现"正文在长、视图不跟"。
+- 提交 `1a6f06d`（1 file, 181 insertions / 80 deletions）。推送同 F5 一样卡在 GitHub HTTPS 故障，Step 5 保持未勾。
+
+**Step 3 浏览器验收：未执行，等两个前置（不假装验过）**
+1. **8105 必须重启成 E 段代码**（当前还是 pid 8064 的老进程）。B/C/D/F/H 六项都要 `thought_step` / `thought_end`，
+   老进程根本不发这两类帧；这正是关卡 GF2。
+2. **需要一个可见的浏览器面**：in-app Browser 截图报 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE (viewport=0x0, visibilityState=hidden)`，
+   且登录要真验证码 —— 我看不到验证码图就没法走 `test918/123456` 的真实登录链（不许塞令牌、不许读 Redis 抄答案）。
+
+已经能取到的两条前置证据（与 E 段无关，纯接线）：
+- 路由守卫生效：`http://localhost:5173/ai` → `location.href = http://localhost:5173/login?redirect=/ai`，
+  页面渲染出登录表单（用户名/密码/验证码/记住我）。
+- dev proxy 打通：`GET /gw/ai/chat/models` → **401**（无令牌，符合网关行为），说明 `/gw → 127.0.0.1:8100` 这条链是通的。
 
 - [ ] **Step 3: 浏览器验收（关卡 GF2：需要用户重启 8105）**
 
