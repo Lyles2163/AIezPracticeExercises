@@ -12,6 +12,7 @@ import org.leon.practicemodule.pojo.QbExamAttempt;
 import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestion;
 import org.leon.practicemodule.pojo.QbQuestionOption;
+import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.pojo.vo.QuestionVO;
@@ -32,9 +33,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 套卷考试的状态机（spec 4.4）。
@@ -153,6 +156,89 @@ public class ExamServiceImpl implements ExamService {
         vo.setQuestion(masked);
         vo.setUserAnswerJson(ExamAnswers.decode(attempt.getAnsweredJson()).get(questionId));
         return vo;
+    }
+
+    /**
+     * 存草稿：<b>整包覆盖</b>，这次没带的题号就等于删掉——不做增量合并，
+     * 否则前端"清空重来"永远传不出"删掉某题"这个动作。
+     *
+     * <p>三条闸门的顺序就是响应码的顺序：归属（40400/40300）→ 终态（41002）→ 超时（41001）。
+     * 超时这一条<b>只拒绝写入、不归档</b>：§6.4 说到点之后只有 submit 能收这次作答，
+     * 在这里顺手归档会把"用户看一眼屏幕发现超时"变成"已经被判了分"，那是两种产品事实。
+     */
+    @Override
+    @Transactional
+    public ExamDraftVO draft(Long userId, Long attemptId, Map<String, String> answers) {
+        if (attemptId == null) {
+            throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法");
+        }
+        QbExamAttempt attempt = loadOwnAttempt(userId, attemptId);
+        if (attempt.getStatus() == null || attempt.getStatus() != 1) {
+            throw new PracticeException(PracticeErrorCode.EXAM_SUBMITTED, "该次作答已提交");
+        }
+        long now = System.currentTimeMillis();
+        if (ExamDeadline.expired(attempt.getDeadlineAt(), now, graceSeconds())) {
+            throw new PracticeException(PracticeErrorCode.EXAM_EXPIRED, "考试已结束，请交卷");
+        }
+        Map<Long, String> normalized = toLongKeyed(answers);
+
+        // 题号归属与题数都要读卷面，读的还是同一张卷子：一次 loadVisible + parse，两处传引用
+        QbPaper paper = PaperLoad.loadVisible(paperMapper, userId, attempt.getPaperId());
+        PaperStructure structure = PaperStructureParser.parse(paper.getStructureJson());
+        requireKeysOnPaper(normalized.keySet(), structure);
+        String encoded = ExamAnswers.encode(normalized);
+
+        QbExamAttempt patch = new QbExamAttempt();
+        patch.setId(attempt.getId());
+        patch.setAnsweredJson(encoded);
+        attemptMapper.updateById(patch);
+
+        ExamDraftVO vo = new ExamDraftVO();
+        vo.setSavedAt(now);
+        vo.setAnsweredCount(normalized.size());
+        vo.setProgressPercent(ExamResults.progressPercentOf(normalized.size(),
+                paper.getQuestionCount() == null ? 0 : paper.getQuestionCount()));
+        return vo;
+    }
+
+    /** 题号字符串 → Long：非数字、≤0 与"两个写法指向同一题"（{@code "1"} 与 {@code "01"}）都是 40000 */
+    private static Map<Long, String> toLongKeyed(Map<String, String> answers) {
+        if (answers == null || answers.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> out = new LinkedHashMap<>(answers.size());
+        for (Map.Entry<String, String> e : answers.entrySet()) {
+            long questionId;
+            try {
+                questionId = Long.parseLong(e.getKey());
+            } catch (NumberFormatException | NullPointerException ex) {
+                throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "答案的题号不合法：" + e.getKey());
+            }
+            if (questionId <= 0L) {
+                throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "答案的题号不合法：" + e.getKey());
+            }
+            if (out.containsKey(questionId)) {
+                throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "题号重复：" + questionId);
+            }
+            out.put(questionId, e.getValue());
+        }
+        return out;
+    }
+
+    /** 草稿里不许长出这张卷子没有的答案：键必须全是卷面上的题号 */
+    private static void requireKeysOnPaper(Set<Long> keys, PaperStructure structure) {
+        if (keys.isEmpty()) {
+            return;
+        }
+        Set<Long> onPaper = new HashSet<>();
+        for (PaperStructure.QuestionRef ref : structure.questionsInOrder()) {
+            onPaper.add(ref.questionId());
+        }
+        for (Long key : keys) {
+            if (!onPaper.contains(key)) {
+                throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "该题不在这张卷子里：" + key);
+            }
+        }
     }
 
     /** attempt 归属判据：不存在 40400，不是本人 40300（spec 5.7 的两码必须在同一处分支上分开） */

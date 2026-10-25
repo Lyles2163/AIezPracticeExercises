@@ -73,7 +73,7 @@ JAR="/c/Users/Administrator/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mys
 14. **绿灯基线**：段 5 开工时全量单测 **218**、四个 db-it **26**（`PaperSqlDbIT` 10 条）。本段所有"新增几条"的预估都从这两个数起。
 15. **执行中实测补的两条事实**（Task 5.5/5.6 各撞一次，都改了计划）：
     - **`subTitle` 是 `PaperStructureParser` 的 `requireText` 字段**，`null` 或空串一律 40000。所以任何手写的卷面 JSON（测试夹具、端到端 payload）都必须给非空 `subTitle`——段 4 的 `direction`/`audioUrl`/`originalText` 可以为 null，`subTitle` 不行。
-    - **MyBatis-Plus 的 `BaseMapper.insert` 有两个重载**（`insert(T)` 与 `insert(Collection<T>)`），所以 Mockito 的 `verify(mapper).insert(any())` **编译不通过**（"对 insert 的引用不明确"）。本段一律写 `insert(any(QbExamAttempt.class))` / `insert(any(QbUserAnswerRecord.class))`。
+    - **MyBatis-Plus 的 `BaseMapper.insert` 与 `updateById` 各有两个重载**（`insert(T)` / `insert(Collection<T>)`、`updateById(T)` / `updateById(Collection<T>)`），所以 Mockito 的 `verify(mapper).insert(any())` 与 `updateById(any())` 都**编译不通过**（"对 insert 的引用不明确"）。本段一律写 `insert(any(QbExamAttempt.class))` / `updateById(any(QbExamAttempt.class))`。（`updateById` 那半边是 Task 5.8 实测撞到的，计划初稿只写了 `insert`。）
 16. **本段执行到 Task 5.6 时的实测数**：单测 **252**（218 → +6 ExamAnswers → +4 ExamDeadline → +5 ExamGrading → +3 ExamResults → +3 ExamBriefs → +11 ExamService → +2 控制器）、db-it **30**（26 + 1 批量选项键 + 3 ExamFlowDbIT）。
 
 ## 六条裁定（写代码前先定，代码注释里要能引用到）
@@ -2824,7 +2824,7 @@ public class PracticeExamController {
   - `ExamDraftVO {savedAt, answeredCount, progressPercent}`
   - `POST /practice/exam/draft`（body `{attemptId, answers}`）
 
-- [ ] **Step 1：追加失败测试**
+- [x] **Step 1：追加失败测试**
 
 ```java
     @Test
@@ -2903,9 +2903,9 @@ public class PracticeExamController {
     }
 ```
 
-- [ ] **Step 2：跑一次确认红**（`找不到符号 draft`）
+- [x] **Step 2：跑一次确认红**（`找不到符号 draft`）
 
-- [ ] **Step 3：实现 `draft`**
+- [x] **Step 3：实现 `draft`**
 
 ```java
     @Override
@@ -2946,7 +2946,7 @@ public class PracticeExamController {
 1. `attemptMapper.updateById(patch)` 走 MyBatis-Plus 的非空字段更新，因此只会写 `answered_json` 一列——`status`/`deadline_at` 不在 patch 里就不会被动。**这条要在 db-it 里验**（Task 5.9 Step 3 追加一条"存草稿不碰 deadline_at"），因为它是框架行为不是我们的 SQL。
 2. `questionCountOf(paperId)` 会再查一次 `qb_paper`（`paperMapper.selectById`）。同一请求里 `requireKeysOnPaper` 也要结构——**两个 helper 共用一次查询**：实现时把它们合并成一次 `loadVisible` + `parse`，然后两处传引用。别留两条相同的 SELECT（自查第 4 条会抓它）。
 
-- [ ] **Step 4：请求体、控制器与测试**
+- [x] **Step 4：请求体、控制器与测试**
 
 ```java
 @Data
@@ -2970,7 +2970,7 @@ public class ExamDraftReq {
 
 `answers` 为 `null` 时的口径：**当作空 map**（整包覆盖 → 清空草稿），因为"我删光了所有答案再保存"与"传空 map"是同一件事；`ExamServiceTest` 追加一条 `nullBecomesEmptyDraft` 钉住它（断言 `answeredCount=0` 且 `updateById` 被调用）。
 
-- [ ] **Step 5：全量绿 + 报告改动**
+- [x] **Step 5：全量绿 + 报告改动**
 
 期望 **263** 左右（`ExamServiceTest` +6、控制器 +2，按实跑报，**数字对不上就逐类核对来源，不许改断言凑数**）。
 
@@ -3778,7 +3778,47 @@ AnswerStateResponseGuardTest  Tests run: 8, Failures: 2
 5. `masked.setIndex/setScore` 与 `vo.setIndex/setScore` **两处都填**（照计划实现）。顶层 `ExamQuestionVO.index/score` 是答题卡通用位置，`question.*` 里那两个是"这道题在卷面上的位置"，同一份值两个位置——前端读哪一处都行，不做取舍。
 
 
-### Task 5.8（待执行）
+### Task 5.8（完成，2026-10-25）
+
+先红（Step 2 的真实报错，GBK 终端把中文打成乱码，按原文抄）：
+
+```
+[ERROR] PracticeExamControllerTest.java:[9,36]  找不到符号   （import ...pojo.ExamDraftReq）
+[ERROR] PracticeExamControllerTest.java:[11,39] 找不到符号   （import ...pojo.vo.ExamDraftVO）
+[ERROR] ExamServiceTest.java:[19,39]            找不到符号   （import ...pojo.vo.ExamDraftVO）
+[INFO] BUILD FAILURE
+```
+
+第二次编译又红一轮，红在 matcher 上（**计划没预料到的那条**，见偏差 1）：
+
+```
+[ERROR] ExamServiceTest.java:[394,27] 对 updateById 的引用不明确
+  BaseMapper 中的方法 updateById(T) 与 BaseMapper 中的方法 updateById(java.util.Collection<T>) 都匹配
+（共 8 处）
+```
+
+绿灯（都是实跑 `Tests run:` 行）：
+
+```
+Tests run: 26, Failures: 0 -- ExamServiceTest（18 → 26，+8）
+Tests run: 5,  Failures: 0 -- PracticeExamControllerTest（3 → 5，+2）
+Tests run: 31, Failures: 0 -- 两类定点跑
+Tests run: 271, Failures: 0, Errors: 0, Skipped: 0 -- 全量单测 / BUILD SUCCESS
+Tests run: 30, Failures: 0 -- 五个 db-it 类全跑（本任务零新 SQL，这一步是回归确认）
+```
+
+计划期望的 263 偏低：基线 261 + 8 + 2 = 271。差的 6 条来自我把service 用例从 5 条加到 8 条（见偏差 2/3）。
+
+**对计划的偏差**：
+
+1. **`updateById` 与 `insert` 一样有 `Collection<T>` 重载**，`updateById(any())` 编译不过（8 处）。事实清单第 15 条原来只写了 `insert`，已就地补成"两个方法各有两个重载"。这条会在 Task 5.9 的 `ExamSubmitTest` 里再撞到第二次，那里直接用带类字面量的写法。
+2. **service 用例 8 条而不是计划的 5 条 + `nullBecomesEmptyDraft`**。多出的两条都是"计划清单里没人管"的入口：
+   - `draftRejectsBadQuestionIdKeys`：题号 `"abc"`/`"0"`/`"-3"` → 40000 且零写入。计划的 `toLongKeyed` 只写了"非法 40000"四个字，没给用例；而 `Long.parseLong` 对 `null` key 抛的是 NPE，不接住就是 code=0（谎）。实现里 `catch (NumberFormatException | NullPointerException)` 就是这条逼出来的。
+   - `draftPatchCarriesOnlyAnsweredJson`：断言送进 `updateById` 的 patch 只有 `id` + `answered_json`，`status`/`deadline_at`/`score` 必须为 null。计划把"MP 的非空字段更新只写一列"这件事交给 db-it 去验（Step 3 注 1），但那是**框架行为**；先在这条纯单测里钉住"我们根本没往 patch 上挂别的字段"，db-it 那条才只验框架、两件事不混。db-it 那条按计划留在 Task 5.9 Step 3（"存草稿不碰 deadline_at"），本任务不提前动 `ExamFlowDbIT`。
+3. **`toLongKeyed` 里加了"题号重复"一条判据**（`"1"` 与 `"01"` 都指向题 1）：计划的实现是 `Map.put` 直接覆盖，那样会**静默丢掉一份答案**——用户写了两次，存进去一份。这条也算 40000。属于计划没写、但对"整包覆盖"这个语义必要的补。
+4. **`null` 与"空 map"合并处理**（`toLongKeyed` 头两行 `answers == null || answers.isEmpty()` → `Map.of()`），比计划的口径更靠前一步：计划的控制器把 null 一路带到 `ExamAnswers.encode`，而 `encode` 对 null 抛的是"答案不能为空"40000——那会把"我想清空草稿"这个合法动作拒掉。现在 null → `{}` 落库，`decode("{}")` 是空 map，与"从没存过"在草稿语义上同义（Task 5.1 的 `encode` 注释就是这么写的）。
+5. `draft` 加了 `@Transactional`（计划如此），但这条路径只有**一条** UPDATE，事务其实不承载任何东西——留着是因为它与 `submit`/`start` 同一族，且将来加"更新 `qb_paper.submit_count`"之类会立刻需要它。这条不是偏差，是照计划执行时确认过没写错。
+
 
 ### Task 5.9（待执行）
 

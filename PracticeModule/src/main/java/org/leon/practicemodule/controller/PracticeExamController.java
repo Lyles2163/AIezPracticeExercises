@@ -1,7 +1,9 @@
 package org.leon.practicemodule.controller;
 
 import org.leon.commonjwt.pojo.Result;
+import org.leon.practicemodule.pojo.ExamDraftReq;
 import org.leon.practicemodule.pojo.ExamStartReq;
+import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.service.ExamService;
@@ -46,5 +48,14 @@ public class PracticeExamController {
                                           @RequestParam Long questionId) {
         Long userId = userIdentityService.resolveUserId(userName);
         return Result.success(examService.question(userId, attemptId, questionId));
+    }
+
+    /** 存草稿：整包覆盖。前端每 30 秒自动存一次与"保存草稿"按钮都打这里。 */
+    @PostMapping("/draft")
+    public Result<ExamDraftVO> draft(@RequestHeader("X-User-Name") String userName,
+                                     @RequestBody(required = false) ExamDraftReq req) {
+        Long userId = userIdentityService.resolveUserId(userName);
+        ExamDraftReq body = req == null ? new ExamDraftReq() : req;
+        return Result.success(examService.draft(userId, body.getAttemptId(), body.getAnswers()));
     }
 }

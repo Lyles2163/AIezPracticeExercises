@@ -16,15 +16,18 @@ import org.leon.practicemodule.mapper.QuestionOptionKeyRow;
 import org.leon.practicemodule.pojo.QbExamAttempt;
 import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestionOption;
+import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.QbUserAnswerRecord;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.service.impl.ExamServiceImpl;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -381,5 +384,134 @@ class ExamServiceTest {
 
         verify(questionMapper, times(1)).selectBatchIds(any());
         verify(optionMapper, never()).selectOptionKeysByQuestions(any());
+    }
+
+    @Test
+    @DisplayName("存草稿：整包覆盖 answered_json，返回已答数与进度")
+    void draftOverwritesWholeMap() {
+        QbExamAttempt draft = draft(1, "{\"1\":\"A\"}");
+        when(attemptMapper.selectById(500L)).thenReturn(draft);
+        when(attemptMapper.updateById(any(QbExamAttempt.class))).thenReturn(1);
+
+        ExamDraftVO vo = service.draft(USER, 500L, Map.of("2", "[\"A\",\"B\"]", "5", "\"我的简答\""));
+
+        assertEquals(2, vo.getAnsweredCount(), "整包覆盖：旧的 qid1 不在了，新 map 有 2 个 key");
+        assertEquals(50.0, vo.getProgressPercent(), 1e-9);
+        ArgumentCaptor<QbExamAttempt> cap = ArgumentCaptor.forClass(QbExamAttempt.class);
+        verify(attemptMapper).updateById(cap.capture());
+        assertEquals(500L, cap.getValue().getId());
+        Map<Long, String> saved = ExamAnswers.decode(cap.getValue().getAnsweredJson());
+        assertEquals(2, saved.size());
+        assertEquals("[\"A\",\"B\"]", saved.get(2L));
+        assertNull(saved.get(1L), "整包覆盖的语义就是\"这次没带的等于删掉\"");
+    }
+
+    @Test
+    @DisplayName("卷面之外的题号 → 40000，且不写库（草稿里不许长出这张卷子没有的答案）")
+    void draftRejectsQuestionsOffPaper() {
+        QbExamAttempt draft = draft(1, null);
+        when(attemptMapper.selectById(500L)).thenReturn(draft);
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("99", "\"A\""))).errorCode());
+        verify(attemptMapper, never()).updateById(any(QbExamAttempt.class));
+    }
+
+    @Test
+    @DisplayName("非法 value（尾随内容 / Infinity / 空串）→ 40000，且不写库")
+    void draftRejectsMysqlUnsafeValues() {
+        QbExamAttempt draft = draft(1, null);
+        when(attemptMapper.selectById(500L)).thenReturn(draft);
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("1", "\"A\" \"B\""))).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("1", "1e999"))).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("1", "  "))).errorCode());
+        verify(attemptMapper, never()).updateById(any(QbExamAttempt.class));
+    }
+
+    @Test
+    @DisplayName("非法题号（非数字 / 0 / 负数）→ 40000，且不写库")
+    void draftRejectsBadQuestionIdKeys() {
+        QbExamAttempt draft = draft(1, null);
+        when(attemptMapper.selectById(500L)).thenReturn(draft);
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("abc", "\"A\""))).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("0", "\"A\""))).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("-3", "\"A\""))).errorCode());
+        // "1" 与 "01" 都指向题 1：合并会静默丢掉一份答案，只能拒
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 500L, Map.of("1", "\"A\"", "01", "\"B\""))).errorCode());
+        verify(attemptMapper, never()).updateById(any(QbExamAttempt.class));
+    }
+
+    @Test
+    @DisplayName("已提交 → 41002；越权 → 40300；不存在 → 40400")
+    void draftErrorCodes() {
+        QbExamAttempt submitted = draft(1, null);
+        submitted.setStatus(2);
+        when(attemptMapper.selectById(502L)).thenReturn(submitted);
+        assertEquals(PracticeErrorCode.EXAM_SUBMITTED, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 502L, Map.of("1", "\"A\""))).errorCode());
+
+        QbExamAttempt foreign = draft(1, null);
+        foreign.setUserId(999L);
+        when(attemptMapper.selectById(504L)).thenReturn(foreign);
+        assertEquals(PracticeErrorCode.FORBIDDEN, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 504L, Map.of("1", "\"A\""))).errorCode());
+
+        when(attemptMapper.selectById(777L)).thenReturn(null);
+        assertEquals(PracticeErrorCode.NOT_FOUND, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 777L, Map.of("1", "\"A\""))).errorCode());
+        verify(attemptMapper, never()).updateById(any(QbExamAttempt.class));
+    }
+
+    @Test
+    @DisplayName("超时 → 41001，且**不写** answered_json（§6.4：draft 拒绝，submit 才收）")
+    void expiredDraftIsRejected() {
+        QbExamAttempt stale = draft(1, null);
+        stale.setDeadlineAt(new Date(System.currentTimeMillis() - 120_000L));
+        when(attemptMapper.selectById(503L)).thenReturn(stale);
+
+        assertEquals(PracticeErrorCode.EXAM_EXPIRED, assertThrows(PracticeException.class,
+                () -> service.draft(USER, 503L, Map.of("1", "\"A\""))).errorCode());
+        verify(attemptMapper, never()).updateById(any(QbExamAttempt.class));
+    }
+
+    @Test
+    @DisplayName("answers 为 null 当作空 map：清空草稿并写回 {}（\"删光了再保存\"也是保存）")
+    void nullBecomesEmptyDraft() {
+        QbExamAttempt draft = draft(1, "{\"1\":\"A\"}");
+        when(attemptMapper.selectById(500L)).thenReturn(draft);
+        when(attemptMapper.updateById(any(QbExamAttempt.class))).thenReturn(1);
+
+        ExamDraftVO vo = service.draft(USER, 500L, null);
+
+        assertEquals(0, vo.getAnsweredCount());
+        assertEquals(0.0, vo.getProgressPercent(), 1e-9);
+        ArgumentCaptor<QbExamAttempt> cap = ArgumentCaptor.forClass(QbExamAttempt.class);
+        verify(attemptMapper).updateById(cap.capture());
+        assertEquals("{}", cap.getValue().getAnsweredJson());
+    }
+
+    @Test
+    @DisplayName("存草稿只碰 answered_json：patch 里不能出现 status / deadline_at")
+    void draftPatchCarriesOnlyAnsweredJson() {
+        QbExamAttempt draft = draft(1, null);
+        when(attemptMapper.selectById(500L)).thenReturn(draft);
+        when(attemptMapper.updateById(any(QbExamAttempt.class))).thenReturn(1);
+
+        service.draft(USER, 500L, Map.of("1", "\"A\""));
+
+        ArgumentCaptor<QbExamAttempt> cap = ArgumentCaptor.forClass(QbExamAttempt.class);
+        verify(attemptMapper).updateById(cap.capture());
+        QbExamAttempt patch = cap.getValue();
+        assertEquals(500L, patch.getId());
+        assertNotNull(patch.getAnsweredJson());
+        assertNull(patch.getStatus(), "patch 带上 status，MP 的非空字段更新就会把状态改掉");
+        assertNull(patch.getDeadlineAt());
+        assertNull(patch.getScore());
     }
 }

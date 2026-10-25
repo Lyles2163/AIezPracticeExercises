@@ -6,13 +6,19 @@ import org.junit.jupiter.api.Test;
 import org.leon.commonjwt.pojo.Result;
 import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
+import org.leon.practicemodule.pojo.ExamDraftReq;
 import org.leon.practicemodule.pojo.ExamStartReq;
+import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.UserIdentityService;
 
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -74,5 +80,35 @@ class PracticeExamControllerTest {
         assertEquals(1, r.getCode());
         assertEquals(1L, r.getData().getQuestionId());
         verify(examService).question(10L, 500L, 1L);
+    }
+
+    @Test
+    @DisplayName("draft：attemptId 与 answers 原样透传，进度由服务层算")
+    void draftPassesThrough() {
+        when(identity.resolveUserId("alice")).thenReturn(10L);
+        ExamDraftVO vo = new ExamDraftVO();
+        vo.setAnsweredCount(2);
+        Map<String, String> answers = Map.of("1", "\"A\"", "2", "[\"A\",\"B\"]");
+        when(examService.draft(10L, 500L, answers)).thenReturn(vo);
+        ExamDraftReq req = new ExamDraftReq();
+        req.setAttemptId(500L);
+        req.setAnswers(answers);
+
+        Result<ExamDraftVO> r = controller.draft("alice", req);
+
+        assertEquals(1, r.getCode());
+        assertEquals(2, r.getData().getAnsweredCount());
+        verify(examService).draft(10L, 500L, answers);
+    }
+
+    @Test
+    @DisplayName("draft 的空 body：attemptId null 进服务层（40000 在那儿报），answers null 不兜成空 map")
+    void draftEmptyBodyGoesToService() {
+        when(identity.resolveUserId("alice")).thenReturn(10L);
+        when(examService.draft(eq(10L), isNull(), isNull())).thenThrow(
+                new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法"));
+
+        assertThrows(PracticeException.class, () -> controller.draft("alice", null));
+        verify(examService).draft(10L, null, null);
     }
 }
