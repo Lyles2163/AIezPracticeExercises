@@ -3533,17 +3533,17 @@ git push origin dev
 
 每条都要给文件:行号，不接受"我看过了"：
 
-- [ ] **1. 契约一致**：六个接口的路径/入参/字段与 spec §5.6 对过；四处偏差（`ExamResultVO` 多 `pendingSelfJudgeCount`、`accuracy` 口径、`attempt/page` 的 pending 由减法、`exam/question` 回 `userAnswerJson`）都在 spec 里写成带日期更正。
-- [ ] **2. 答题态零泄漏**：`exam/question` 的响应字节过守卫（含伪阳性两次实测的证据）；`ExamSubmitTest` 与守卫类里没有把 `exam/submit`/`attempt/detail` 当答题态扫（它们**允许**带真值，误扫会假阳性）。
-- [ ] **3. 永不读真值列**：`QbQuestionOptionMapper` 新增的 `selectOptionKeysByQuestions` 只选 `question_id, option_key`；`grep -n is_correct mapper/QbQuestionOptionMapper.java` 仍只在注释里。
-- [ ] **4. 零 N+1**：`ExamBriefs.load` 两条 SQL 在循环外，`ExamBriefsTest` 用 `times(1)` 钉住；`ExamFinalizer.expandRecords` 的逐题 `insert` 是**写入**不是查询，注释里已写明为什么不用多值 INSERT——自查时要确认这条理由仍然成立（"几十题、同事务、不引入拼接 SQL"），不要因为"看起来像 N+1"就改掉它。
-- [ ] **5. 空 IN / 空集合**：`ExamBriefs.load` 先挡空 ids；`selectOptionKeysByQuestions` 只在 `singleChoice` 非空时发；`attemptPage` 的 `total=0` 短路。
-- [ ] **6. 幂等**：`finalizeIfDraft` 是唯一的闸门，`ExamSubmitTest.secondSubmitWritesNothing` + `ExamFlowDbIT.finalizeIfDraftIsTheIdempotencyGate`（真库）+ 端到端 #11/#12 三层都在。
-- [ ] **7. 统计口径**：`verifyNoInteractions(statMapper)` 与 `examRecordsLeaveSubjectStatUntouched`（真库）+ 端到端 Step 4 的前后快照，三层锁死 spec 7.1。
-- [ ] **8. 状态机**：草稿→2、草稿→3（超时 submit）、草稿→3（start forceNew / 过期）、终态不可回退（条件更新回 0）四条转换都有测试；`answered_json` 在两条终态路径上都被置 NULL。
-- [ ] **9. 测试数与绿灯**：贴全量 `Tests run:` 与五个 db-it 一起跑的那一行（基线 218 / 26，按实跑）。
-- [ ] **10. 没越界 / 秘密**：`git status --short` 不含 `AIModule/**`、`CommonJwt/**`、`GatewayModule/**`、任何 `pom.xml`；新增行 `password|secret|123456|bearer|token=` 零命中；`grace-seconds: 60` 是唯一新增配置。
-- [ ] **11. 未覆盖的缺口要明写**（不许省略）：`40300`（他人 attempt）只有单测无端到端（库里没有别人的 attempt，插一条就是往验收数据加行）；`attempt/detail` 不含听力原文（原文只在 `paper/detail` 交卷后可见，spec 那句话的"非 null"半边按此更正）；**考试简答题没有自评入口**（裁定一），成绩单里它永远是"待自评"；样例卷题量 4/2/3/1，65 格网格与"25 题压弯正确率"的真实压力无法用现有数据复现；`forceNew` 的归档判分会给一次"用户从没点过交卷"的作答打上成绩（裁定三的代价，已明写）。
+- [x] **1. 契约一致**：六个接口的路径/入参/字段与 spec §5.6 对过；四处偏差（`ExamResultVO` 多 `pendingSelfJudgeCount`、`accuracy` 口径、`attempt/page` 的 pending 由减法、`exam/question` 回 `userAnswerJson`）都在 spec 里写成带日期更正。
+- [x] **2. 答题态零泄漏**：`exam/question` 的响应字节过守卫（含伪阳性两次实测的证据）；`ExamSubmitTest` 与守卫类里没有把 `exam/submit`/`attempt/detail` 当答题态扫（它们**允许**带真值，误扫会假阳性）。
+- [x] **3. 永不读真值列**：`QbQuestionOptionMapper` 新增的 `selectOptionKeysByQuestions` 只选 `question_id, option_key`；`grep -n is_correct mapper/QbQuestionOptionMapper.java` 仍只在注释里。
+- [x] **4. 零 N+1**：`ExamBriefs.load` 两条 SQL 在循环外，`ExamBriefsTest` 用 `times(1)` 钉住；`ExamFinalizer.expandRecords` 的逐题 `insert` 是**写入**不是查询，注释里已写明为什么不用多值 INSERT——自查时要确认这条理由仍然成立（"几十题、同事务、不引入拼接 SQL"），不要因为"看起来像 N+1"就改掉它。
+- [x] **5. 空 IN / 空集合**：`ExamBriefs.load` 先挡空 ids；`selectOptionKeysByQuestions` 只在 `singleChoice` 非空时发；`attemptPage` 的 `total=0` 短路。
+- [x] **6. 幂等**：`finalizeIfDraft` 是唯一的闸门，`ExamSubmitTest.secondSubmitWritesNothing` + `ExamFlowDbIT.finalizeIfDraftIsTheIdempotencyGate`（真库）+ 端到端 #11/#12 三层都在。
+- [x] **7. 统计口径**：`verifyNoInteractions(statMapper)` 与 `examRecordsLeaveSubjectStatUntouched`（真库）+ 端到端 Step 4 的前后快照，三层锁死 spec 7.1。
+- [x] **8. 状态机**：草稿→2、草稿→3（超时 submit）、草稿→3（start forceNew / 过期）、终态不可回退（条件更新回 0）四条转换都有测试；`answered_json` 在两条终态路径上都被置 NULL。
+- [x] **9. 测试数与绿灯**：贴全量 `Tests run:` 与五个 db-it 一起跑的那一行（基线 218 / 26，按实跑）。
+- [x] **10. 没越界 / 秘密**：`git status --short` 不含 `AIModule/**`、`CommonJwt/**`、`GatewayModule/**`、任何 `pom.xml`；新增行 `password|secret|123456|bearer|token=` 零命中；`grace-seconds: 60` 是唯一新增配置。
+- [x] **11. 未覆盖的缺口要明写**（不许省略）：`40300`（他人 attempt）只有单测无端到端（库里没有别人的 attempt，插一条就是往验收数据加行）；`attempt/detail` 不含听力原文（原文只在 `paper/detail` 交卷后可见，spec 那句话的"非 null"半边按此更正）；**考试简答题没有自评入口**（裁定一），成绩单里它永远是"待自评"；样例卷题量 4/2/3/1，65 格网格与"25 题压弯正确率"的真实压力无法用现有数据复现；`forceNew` 的归档判分会给一次"用户从没点过交卷"的作答打上成绩（裁定三的代价，已明写）。
 
 ---
 
@@ -3961,6 +3961,36 @@ UPDATE qb_user_wrong SET wrong_count = wrong_count - 1 WHERE user_id = 10 AND qu
 ### 伪阳性（缺这段就等于没做）
 
 - [x] Task 5.7 Step 4：泄漏 `analysis` 与 `isCorrect` 两次实测的失败报文（完整响应体），回滚后 `grep -c` 为 0 + 全量绿（实测见 Task 5.7 记录）
+
+### Task 5.11（完成，2026-10-25）—— 主线自查
+
+**审查状态：本轮没有独立审查轮次。** 用户规则（2026-10-24）是"实现与审查都在主线、不派子代理"，所以下面 11 条全部是**作者自查**。可信边界要说清楚：段 2 曾有的一次独立审查抓到过自查漏掉的**类缺陷**（Jackson 宽松度 vs MySQL 严格度，影响五种题型里的四种），所以本段的"11 条全过"与"经独立审查"不是同一件事。段 5 的风险敞口与段 2 同类的是"判分/编码两处各写一份口径"，我在裁定五上刻意复用了 `AnswerGrader.parseSingleValue` 而没有第二份实现——这条是自查想到的，不是审查逼出来的。
+
+每条给文件:行号（路径都相对 `PracticeModule/src/`）：
+
+1. **契约一致**：六个接口 `PracticeExamController.java:40/49/58/67/76/86`（`/start` `/question` `/draft` `/submit` `/attempt/page` `/attempt/detail`）与 spec §5.6 的表逐条对上；四处偏差全部写成了带日期的更正，在 `docs/superpowers/specs/2026-10-23-practice-exam-api-design.md` 的"段 5 更正"块里第 1/2/5/7 条（`pendingSelfJudgeCount`、`accuracy` 口径、`exam/question` 的 `data` 全形态、`attempt/page` 的减法与"不过下架闸门"）。
+2. **答题态零泄漏**：守卫用例 `AnswerStateResponseGuardTest.java:228 examQuestionResponseIsClean`，类内**只**打 `/practice/exam/question`（同文件 236 行），`exam/submit` 与 `attempt/detail` 一条都没扫——它们允许带真值，误扫就是假阳性。伪阳性两次实测的完整报文在 Task 5.7 记录里，两次都是 2 红（`exam/question` + `question/current`，因为漏的是共享类型 `QuestionVO`）。
+3. **永不读真值列**：`mapper/QbQuestionOptionMapper.java:35` 的 `SELECT question_id AS questionId, option_key AS optionKey`，`grep -n is_correct` 在该文件只命中三行注释（15/20/30）；判分要字母集合不要对错，`AnswerGrader` 读的是 `qb_question.answer_json`。整段代码里 `is_correct` 的**写入**只发生在 `ExamFinalizer.expandRecords`（落 `-1`）与段 2 的自评路径。
+4. **零 N+1**：`service/ExamBriefs.java:46` 空 ids 先挡、`:84` 两条批量 SQL 都在循环外；测试用 `times(1)` 钉住（`ExamBriefsTest.java:54/55`），交卷侧另有一条 `ExamSubmitTest.java:230 submitGradingIsBatchNotPerQuestion`（`selectBatchIds` 恰 1 次、`selectOptionKeysByQuestions` 恰 1 次、`selectById` **0 次**）。`ExamFinalizer.java:93` 的逐题 `insert` 理由复核仍然成立：那是**写入**不是查询，同事务几十条 INSERT 比拼多值 SQL 少一个注入面，且行数由 `ExamSubmitTest.java:105 submitExpandsOnlyAnswered` 钉成"= 已答题数"。没有因为它"看着像 N+1"就改掉。
+5. **空 IN / 空集合**：`ExamBriefs.java:46`（`loadQuestions` 空 ids 不发 SQL）、`ExamBriefs.java:83`（`singleChoice` 非空才发第二条）、`ExamServiceImpl.java:308`（`attemptPage` 的 `total == 0L` 短路，连分页查询都不发，反证在 `ExamServiceTest.attemptPageSkipsListQueryWhenEmpty` 的 `verifyNoInteractions`）。
+6. **幂等**：闸门只有一处 SQL——`mapper/QbExamAttemptMapper.java:73 finalizeIfDraft`，唯一调用者 `ExamFinalizer.java:66`。三层证据：`ExamSubmitTest.java:139 secondSubmitWritesNothing`（闸门回 0 → 零 insert、零错题本）与 `:164 terminalAttemptSubmitIsReadOnly`（本来就是终态时连闸门都不碰）、`mapper/ExamFlowDbIT.java:158 finalizeIfDraftIsTheIdempotencyGate`（真库第二次回 0 行、带错 `user_id` 也回 0 行）、端到端 #11/#12（两次响应逐字节相同 + 库里 `attempt=95 rows=2` 恒定）。
+7. **统计口径**：三层同样在。`ExamSubmitTest.java:127/155 verifyNoInteractions(statMapper)`（`statMapper` 不是任何类的依赖，mock 出来只为被证明"没被调用"）、`ExamFlowDbIT.java:310 examRecordsLeaveSubjectStatUntouched`（真库全表快照逐值不变）、端到端 `seg5/state-before.txt` 与 `state-after.txt` 的 `stat subj=` 段 **diff 为空**。`grep -rn QbUserSubjectStat service/ExamFinalizer.java service/impl/ExamServiceImpl.java` 命中 **0**。
+8. **状态机四条转换都有测试**：草稿→2（`ExamServiceTest.java:216 createsFirstAttempt` + `ExamSubmitTest.java:105`）、草稿→3（超时 submit：`ExamSubmitTest.java:212 expiredSubmitArchivesAsThree`；开考时归档：`ExamServiceTest.java:259 expiredDraftIsArchivedThenNewOneCreated` 与 `:278 forceNewArchivesEvenWhenActive`）、终态不可回退（`ExamFlowDbIT.java:158` 的条件更新回 0）。`answered_json` 在两条终态路径上都置 NULL：SQL 在 `QbExamAttemptMapper` 的 `finalizeIfDraft` 里（写 `answered_json = NULL`），真库证据两处（`ExamFlowDbIT.java:158` 与 `:264 fullFlowOnRealData`），端到端复核 `95|1|2|…|1`、`96|2|3|…|1` 的最后一位 `answeredNull=1`。
+9. **测试数与绿灯**（本条是刚重跑的，不是抄前文）：基线 218/26 → 现在
+   `Tests run: 285, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS`（默认组）；
+   五个 db-it 一起跑 `Tests run: 34, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS`。
+   逐任务实测轨迹（每一步都是跑出来的 `Tests run:` 行）：218 → 224（5.1）→ 228（5.2）→ 233（5.3）→ 236（5.4）→ 252（5.6，含 5.5 的夹具修复）→ 261（5.7）→ 271（5.8）→ 285（5.9，5.11 重跑一致）。**其中 239 那个数是算出来的、不是跑出来的**（Task 5.5 收尾只跑了 `ExamFlowDbIT`，记录里已就地更正并说明它如何被 5.6 的全量跑暴露）——这条轨迹里唯一一处"计算冒充实测"就是那次，留着不删是因为它正是本段最该记住的教训。db-it 的 +8 = `QuestionReadSqlDbIT` 9→10（批量选项键那条）+ `ExamFlowDbIT` 新增 7 条（闸门/唯一键/草稿 3 条 + patch 单列、真库全链路、统计不变、练习侧最近作答 4 条）。
+10. **没越界 / 秘密**：`git status --short` 干净；段 5 的十个提交（`b117789..2310276`）里 `AIModule|CommonJwt|GatewayModule|UserModule|pom.xml` 的命中数是 **0**；`git diff -U0 ef2348c~1..HEAD -- 'PracticeModule/**/*.java'` 的新增行里 `password|secret|123456|bearer|token=` 命中 **0**（端到端口令只从 `EZ_PW` 环境变量进脚本，日志只记 `token chars = 219`）；唯一新增配置是 `application.yaml:48 grace-seconds: 60` + `PracticeProperties.java:38`。
+11. **未覆盖的缺口（明写，不省略）**：
+    - `40300` 只有 service 层单测（`ExamServiceTest.java:146 otherUsersAttemptIsForbidden`、`:457 draftErrorCodes`、`:583 attemptDetailErrorCodes` 与 `ExamSubmitTest` 的 `submitErrorCodes`）加真库侧"闸门带错 `user_id` 回 0 行"，**没有端到端**：库里只有 `user_id=10` 自己的 attempt，造别人的行就是往验收数据加行，规则不许。
+    - `attempt/detail` **不含听力原文**——spec §9.3 那句"交卷后 `attempt/detail` 里非 null"的表述本身是错的，已就地更正；实测由 `paper/detail` 在交卷后覆盖（`originalText` 1/3 节非 null）。
+    - **考试简答题没有自评入口**（裁定一）：成绩单里它永远是"待自评"，`is_correct=-1` 的行在真库里现在确实有 1 行（`record_mode2_pending=1`），而 `self-judge` 照旧拒 `mode=2`。
+    - 样例卷题量 4/2/3/1：截图那张 65 格答题卡网格与"25 题一套压弯科目正确率"的真实压力**无法用现有数据复现**（这是数据问题不是接口问题；扩数据是另一条授权）。
+    - **裁定三的代价**：`forceNew` 与过期懒判都会给"用户从没点过交卷"的那次作答打上成绩（`status=3` 带完整快照）。端到端里那条 `id=96` 就是实例——整场一道没答，交卷回 `0+0+4+0` 且 `score=0.00`。产品若认为"放弃即无成绩"，要重新裁这条。
+    - `pendingSelfJudgeCount` 是**减出来的**，依赖"三个快照都可空 + `question_count` 与卷面一致"。若有人加 `pending_count` 列而不同改成绩单与 `attempt/page`，9.3 的等式会静默失效（接缝表已记）。
+    - 超时懒判没有后台任务：**没人再点进来，过期草稿就一直躺在 `status=1`**。端到端收尾时 `attempt_draft_rows_user10=0` 只证明"本次跑完没留过期草稿"，不是一种全局保证。
+
+
 
 ---
 
