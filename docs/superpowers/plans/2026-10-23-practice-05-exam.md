@@ -3426,7 +3426,7 @@ class ExamSubmitTest {
 
 **全程走网关 8100，不留直连 8102 的口子**（直连只用于一条负例）。响应一律落 `seg5/resp-*.json`，屏幕只打 ASCII。
 
-- [ ] **Step 1：重启 8102（口诀见段 4 的 Task 4.7）**
+- [x] **Step 1：重启 8102（口诀见段 4 的 Task 4.7）**
 
 ```bash
 netstat -ano | grep -a ":8102" | grep -a LISTENING          # 先看现在的持有者是谁
@@ -3437,7 +3437,7 @@ python -c "print([l for l in open('practice-seg5.log',encoding='utf-8',errors='r
 netstat -ano | grep -a ":8102" | grep -a LISTENING          # 监听 PID 必须 == 日志里的 with PID
 ```
 
-- [ ] **Step 2：端到端矩阵（`seg5/e2e5.py`）**
+- [x] **Step 2：端到端矩阵（`seg5/e2e5.py`）**
 
 正向（新接口 + 回归），每条都要落盘并打 ASCII 摘要：
 
@@ -3480,14 +3480,14 @@ netstat -ano | grep -a ":8102" | grep -a LISTENING          # 监听 PID 必须 
 
 超时那条要单独跑一次**过期后 submit**（#18）：`code=1`、`status=3`、仍给成绩（§6.4 + 裁定三）。跑完把 `deadline_at` 改回原值或删掉该行——**不许把过期状态的行留在库里影响后续段的起点**。
 
-- [ ] **Step 3：字节扫描（`seg5/scan5.py`）**
+- [x] **Step 3：字节扫描（`seg5/scan5.py`）**
 
 清单照段 4，**一个字都不许加**；白名单在段 4 的三条之上加**本段的真值出口**：`exam/submit`、`exam/attempt/detail`（成绩单允许带 `correctAnswerJson`/`analysis`/`isCorrect`，spec 5.4）。另外三条专属断言：
 - `resp-*-exam-question-*` 里必须**不含** `isCorrect`/`answerJson`/`analysis`，且必须含 `userAnswerJson` 与 `score`（值哨兵 `ANSWER_SENTINEL_GUARD` 不在其中）。
 - `resp-*-attempt-detail` 里必须**含** `correctAnswerJson`（反向锚点：证明扫描没把成绩单误吞，也证明 #12 的"逐字相同"不是两个空响应）。
 - `resp-*-paper-detail`（交卷后）里 `originalText` 至少有一节非 null（#14 的机器版本）。
 
-- [ ] **Step 4：库里取证（`seg5/Seg5State.java`，只打 ASCII 数字）**
+- [x] **Step 4：库里取证（`seg5/Seg5State.java`，只打 ASCII 数字）**
 
 - `SELECT COUNT(*) FROM qb_paper` → **4**（样例卷没被动过）
 - `SELECT SUM(status=1) FROM qb_paper` → 3
@@ -3499,7 +3499,7 @@ netstat -ano | grep -a ":8102" | grep -a LISTENING          # 监听 PID 必须 
 - `SELECT COUNT(*) FROM qb_exam_attempt WHERE user_id=990005` → 0（db-it 零残留）
 - 连点两次 submit 后：`SELECT COUNT(*) FROM qb_user_answer_record WHERE attempt_id=<id>` 两次相同（幂等的库侧证据）
 
-- [ ] **Step 5：文档回写（写成带日期的"更正"，不覆盖历史）**
+- [x] **Step 5：文档回写（写成带日期的"更正"，不覆盖历史）**
 
 - **spec §5.6**：`ExamResultVO` 补两个字段并明写口径——`pendingSelfJudgeCount`（裁定一：四个计数之和必须等于 `question_count`，原表少这一位）、`accuracy = correct/(correct+wrong)`（裁定六：未答与待自评都不进分母，分母 0 给 `0.0`）；`exam/question` 的 `data` 写清是 `{attemptId,index,questionId,score,question,userAnswerJson}`；`attempt/page` 的 `pendingSelfJudgeCount` 由减法算出（库里没这列，段 4 实测 17 列）且草稿行为 NULL。
 - **spec §4.4**：状态机图旁补一句"归档即判分"（裁定三），并写清"3 的两条来源：超时提交与开考时放弃旧草稿，**两条都有分数快照**"。
@@ -3509,11 +3509,11 @@ netstat -ano | grep -a ":8102" | grep -a LISTENING          # 监听 PID 必须 
 - **roadmap**：段 5 状态 → 已完成；§3 新增第 **21** 条（**四个计数之和 = `question_count` 是成绩单的唯一自洽判据，`is_correct=-1` 必须有一位独立计数**——否则 `correct+wrong+unanswered` 永远少 1，而用户一眼能看出来）与第 **22** 条（**"未答不落行"是 `user_answer_json` 是 `json NOT NULL` 逼出来的，不是设计偏好**：任何"给未答题写一行空答案"的想法在真库上是 1364）；运行环境表 PracticeModule 行更新到段 5 的实例。
 - **段 4 计划的接缝表**：把"`qb_exam_attempt` 本段零写入 → 段 5"与"考试简答题的待自评 → 段 5（必须裁定）"两条标为已接住，写上裁定一与实测数字。
 
-- [ ] **Step 6：记忆同步**
+- [x] **Step 6：记忆同步**
 
 `practice-exam-initiative.md`（段 5 完成 + 裁定一~六 + 提交号 + 端到端留下的增量与清理 SQL + `40300`/`attempt/detail 原文`两处缺口）、`local-service-topology.md`（8102 新 PID）、`MEMORY.md` 索引行（17 接口全部可用）。
 
-- [ ] **Step 7：提交并推送（逐条 pathspec）**
+- [x] **Step 7：提交并推送（逐条 pathspec）**
 
 ```bash
 git status --short                       # 只应有 PracticeModule/** 与三个 docs 文件
@@ -3870,19 +3870,93 @@ Seg5Residue: qb_paper=4 attempt_990005=0 record_990005=0 attempt_ALL=0 question=
 9. 计划正文 `setUp` 里 `new PracticeMasker());        when(...)` 两行被写在同一行（复制粘贴缺陷），已拆开。
 
 
-### Task 5.10 端到端与文档回写（待执行）
+### Task 5.10（完成，2026-10-25）
 
-- [ ] 旧 PID 与新 PID + `Tomcat started` / `Started ... in` 两行日志（UTF-8 读）
-- [ ] 登录 `token chars = <n>`（只记长度）
-- [ ] 正向 17 条逐条 `code` 与关键数字（`seqNo`、`deadlineAt-serverNow`、`answeredCount`、`progressPercent`、`status`、四个计数、`originalText` 交卷前后形态）
-- [ ] **#04 的 `attemptId` 与 #03 相同**（9.3 的第一硬判据）
-- [ ] **#11 与 #10 的成绩逐字相同** + 库里行数相同（幂等）
-- [ ] **#12 与 #10 的 `data` 完全相同**（刷新不丢解析）
-- [ ] **#14 `paper/detail` 交卷后 `originalText` 非 null**（段 4 裁定二的活体闭环）
-- [ ] 负例矩阵逐条 `code`；`no-token` 记 HTTP 状态码
-- [ ] 扫描 `scanned=<n> leaks=0` + 三条专属断言结论
-- [ ] 库里取证每一个数字（含 `qb_user_subject_stat` 前后不变）
-- [ ] 清理 SQL 与"未代执行"的说明
+**Step 1 重启 8102**：旧持有者 `PID 14196`（段 4 起的那个实例，`netstat` 与 `Get-CimInstance` 双查确认命令行是 `PracticeModule/target/classes`，确认是我自己这条线起的）→ `taskkill //PID 14196 //F` → `mvn -o -DskipTests install`（exit 0）→ `nohup mvn -o -pl PracticeModule spring-boot:run`。日志两行（UTF-8 读，与段 4 的口诀一致）：
+
+```
+Tomcat started on port 8102 (http) with context path ''      （PID 23372）
+Started PracticeModuleApplication in 6.23 seconds (process running for 6.619)
+netstat: TCP 0.0.0.0:8102 LISTENING 23372                    （监听 PID == 日志 PID）
+```
+
+**Step 2 端到端矩阵（全程 8100，账号 `test918`，口令只从 `EZ_PW` 环境变量来，日志只记长度 **`token chars = 219`**）**
+
+正向 18 条全绿（关键数字，逐条 CHECK 都在 `seg5/e2e5.py` 的输出里）：
+
+| # | 实测 |
+|---|---|
+| 01 | `subject/list` `code=1` len=2（段 3 回归） |
+| 02 | `paper/page?subjectId=1` `code=1` total=2（段 4 回归） |
+| 03 | `exam/start{paperId:8}` `code=1` `attemptId=95` `seqNo=1` `questionCount=4` `answeredCount=0`、**`deadlineAt-serverNow = 3900000` 恰等 65×60000**、`structure` 2 parts / 3 sections / 4 questions、`answeredMap` 空、`remainingMs>0` |
+| 04 | 再来一次 `start` → **同一个 `attemptId=95`**、`seqNo=1`（9.3 的第一硬判据） |
+| 05 | 四道题逐个 `exam/question`（拿到的题型 `[1,1,2,5]`）：`index=1`、`score` 有值、七份响应字节零真值 |
+| 06 | `exam/draft` 存两题（qid 1 选择 + qid 5 简答）→ `answeredCount=2`、`progressPercent=50.0`、`savedAt` 是 epoch 毫秒 |
+| 07 | 第三次 `start` → `answeredCount=2` 且 `answeredMap` 的 key 正是 `['1','5']`（草稿真在库里）；`exam/question` 回显 `userAnswerJson`（自己的数据） |
+| 08 | `draft` 带卷面外题号 999999 → **40000** |
+| 09 | `draft` 带 `1e999` → **40000**；随后 `start` 仍 `answeredCount=2`（**两次被拒的草稿零写入**） |
+| 10 | `exam/submit` → `code=1`、`status=2`、四个计数 **`0+1+2+1=4`**、`score=0.00 / fullScore=30.00 / accuracy=0.00`（原始字节两位）、`questions` 长度 4、简答那题 **`isCorrect=null` 且 `needSelfJudge=true`** |
+| 11 | 连点第二次 `submit` → `code=1` 且 `data` 与 #10 **逐字节相同**（两份 1389 字符响应） |
+| 12 | `attempt/detail` → `data` 与 #10 **逐字节相同**（"刷新不丢解析"活体证据；同时它**确实带** `correctAnswerJson`，证明不是两个空响应在比相等） |
+| 13 | `attempt/page?paperId=8` → `total=1`、`pendingSelfJudgeCount=1`、`submitAt` 是 epoch 毫秒 |
+| 14 | 交卷后 `paper/detail` → `originalText` **1/3 节非 null**（样例卷只有听力节写了原文）——段 4 裁定二的活体闭环 |
+| 15 | `paper/page` → 该卡 `submitCount=1`、`progressPercent=50.0`（卡片没插一行就活了） |
+| 16 | `question/current?subjectId=1&mode=1` → `code=1`（`attempt_id` 加列不影响断点） |
+| 17 | `wrong/page?subjectId=1` → `code=1` |
+| 18 | 新草稿 `aid2=96 seqNo=2` → 改它自己的 `deadline_at` 到过去 120 秒 → `draft` **41001**、`question` 仍 `code=1`、`submit` → **`status=3` 且仍给成绩**（`0+0+4+0=4`，那次整场没答） |
+
+负例 14 条全部落位：`start` 缺 `paperId` → 40000；不存在的 paperId → 40400；禁用卷（P4 id=11）→ 40900；`question` 缺 `attemptId` → 40000；已提交行 `draft` → 41002；已提交行 `question` → 41002；草稿行 `attempt/detail` → 41002；**终态行 `attempt/detail` → `code=1`**（41002 只给草稿，实测确认）；`attempt/page` 缺 `paperId` → 40000；`attempt/page?paperId=999999` → 40400；过期草稿 `draft` → 41001；无 token 两条 → **HTTP 401**（网关）；直连 8102 无 `X-User-Name` → **40100**。
+
+`40300` 按裁定**不端到端触发**（库里只有 `user_id=10` 自己的 attempt，不许为造负例往验收库插别人的行），缺口写进 Task 5.11 第 11 条。
+
+**Step 3 字节扫描（`seg5/scan5.py`，清单与段 4 逐字相同、一个字没加）**
+
+```
+scanned=36 leaks=0
+exam-question OK   ×7（resp-05-index1..4 / 05b-options / 07b-echoes / 44-expired-still-reads）
+attempt-detail carries truth (reverse anchor): OK
+paper/detail after submit: originalText non-null sections=1/3 OK
+RESULT CLEAN
+```
+43 个响应文件里 7 个按 spec 5.4 豁免（登录、验证码、五份成绩单：`10-exam-submit`/`11-exam-submit-again`/`12-attempt-detail`/`35-attempt-detail-on-submitted`/`45-submit-after-expiry`），其余 36 个零命中。
+
+**Step 4 库里取证（`seg5/Seg5State.java`，只打 ASCII；前后快照在 `state-before.txt` / `state-after.txt`）**
+
+```
+qb_paper_rows=4          qb_paper_enabled=3         （样例卷 4 行一行没动）
+attempt_rows_all=2       attempt_rows_user10=2      attempt_draft_rows_user10=0
+95|1|2|0.00|0|1|2|1      96|2|3|0.00|0|0|4|1         （status/计数/用时/answered_json=NULL 全部对上）
+record_mode2_rows=2      record_mode2_without_attempt_id=0      record_mode2_pending=1
+attempt=95 rows=2 pending=1                          （连点两次 submit 后行数仍是 2 —— 幂等的库侧证据）
+wrong q=1 count=6 status=1                           （考试错答进了错题本，subject_id 来自 attempt 冗余列）
+attempt_dbit_residue_990005=0   record_dbit_residue_990005=0
+subject_stat diff (before vs after) = 空              ← spec 7.1 的活体证据
+```
+`qb_user_subject_stat` 五条明细在两份快照里**逐行逐值相同**（科目 1 三行 `3/2/1`、`1/0/1`、`13/8/5`，科目 2 两行 `2/2/0`、`3/2/1`），而这一轮端到端**只交卷没做练习**——所以"考试不动统计"这一条的正反两面都齐了（反面：段 3/段 4 的练习作答让它变过）。
+
+**给用户的清理 SQL（我未代执行）**：端到端在 `user_id=10` 名下留了两条 attempt 与两行记录，留着的原因是它们就是"这张卷子被考过"的真实状态，删掉会让下一段的起点假回到 0；要回到干净状态就执行：
+
+```sql
+DELETE FROM qb_user_answer_record WHERE answer_mode = 2 AND attempt_id IN (95, 96);
+DELETE FROM qb_exam_attempt WHERE user_id = 10 AND id IN (95, 96);
+-- 错题本那次考试错答（qid 1 的 wrong_count 由 5 变 6）：
+UPDATE qb_user_wrong SET wrong_count = wrong_count - 1 WHERE user_id = 10 AND question_id = 1;
+```
+（`qb_user_subject_stat` 不需要回滚——本次端到端一条都没碰它，上面 diff 为空就是证据。）
+
+**Step 5 文档回写**（全部写成带日期的"更正"，不覆盖历史）：spec §4.4 补"归档即判分 + 终态幂等重建"三点；§5.6 的 `ExamResultVO` 段后补 8 条按实现补正（`pendingSelfJudgeCount`/`accuracy` 口径/`needSelfJudge`/`exam/question` 的 `data` 全形态/整包覆盖与 `null`=清空/`attempt/page` 的减法与"不过下架闸门"/`exam/start` 与 `paper/detail` 共用骨架类型）；§6.4 补 4 条实测（判据只有一份 `ExamDeadline`、`draft` 只拒不归档、`question`/`attempt/detail` 不受过期影响、过期那条链路的实测码值）；§11 新增两行接缝（考试简答本期无自评入口、考试行会成为练习侧最近一次作答且 `pendingRecordId=null`）；§9.3 勾掉 5 条并按实测更正原表述（"新增 `question_count` 行"→"新增**已答题数**行"、"`submitCount` 变 2"→"变 1，第二次提交是幂等重放"、"交卷后 `attempt/detail` 里非 null"→**这句本身写错了**，`attempt/detail` 不含 `originalText`，实测由 `paper/detail` 交卷后覆盖）、新增一条"阶段二 6 接口经网关"；roadmap §3 加第 **21/22/23** 条（四计数之和 = `question_count` 是成绩单唯一自洽判据、"未答不落行"是 `json NOT NULL` 逼出来的、`BaseMapper` 的 `insert`/`updateById` 双重载）+ §1 段 5 行改为已完成 + §4 运行环境表 8102 换新实例；段 4 计划的接缝表把 6 行标成"已接住"并写上实测数字。
+
+**Step 6 记忆同步**：`practice-exam-initiative.md`（段 5 完成、六条裁定、十个提交号、库里留下的痕迹与清理 SQL、两处缺口、三条新的执行期硬约束、以及"未提交成果别留在共享树里"这条流程教训）、`local-service-topology.md`（8102 新 PID 23372 与 before/after 快照打法）、`MEMORY.md` 索引行（段 1–5 全完、17 接口可用）。
+
+**对计划的偏差**：
+
+1. **正向矩阵 18 条而不是 17 条**：计划表里 #18（过期后 `submit` 仍给成绩、状态 3）写在正文最后一段而不是表里，我把它编成第 18 条 CHECK。另外补了四条计划表没有的活体断言：`09b`（两次被拒的草稿之后 `answeredCount` 仍是 2，把"40000 且零写入"从单测升级到网关）、`35`（**终态**行 `attempt/detail` 是 `code=1`，防止 `41002` 判反）、`38`（终态行 `exam/question` → 41002）、`41`（`attempt/page` 的草稿行 `score`/`pendingSelfJudgeCount` 都是 `null`，减法不给 0）。
+2. **`#13` 的 `submitCount`/`total` 预期按计划原文是 1，实测也是 1**——但同一张卷子在 #39 之后会有第二条 attempt，所以 `total=1` 的断言**必须**在创建草稿之前跑（脚本按此顺序写死了）。这条顺序依赖值得记：端到端矩阵不是可重排的清单，`attempt/page` 与 `paper/page` 的期望值都被"前面交了几次卷"改变。
+3. **`#05` 拿题型的方式是用 `exam/question` 逐题读四道**（计划没写怎么拿 `type`）。这是唯一不查库就能拿到题型的办法，副产品是七份 `exam/question` 响应都进了字节扫描——比只扫一份的覆盖强。选项键从 `question.options` 最后一项取（`key=D`），因为判分前有选项合法性校验，随手写 `"A"` 之外还可能撞到"这道题没有 A 键"。
+4. **过期那条负例的 `deadline_at` 改动走的是仓库外 JDBC 探针（`Seg5Expire`），不是接口**，并且 `WHERE id=? AND user_id=10` 双条件限定——只可能改到端到端账号自己的行。旧值打印在案（`OLD_DEADLINE_MS=1792898961000`），改完没还原，因为那次 submit 把行推成了终态 3，`deadline_at` 对终态行不再有语义。**收尾复核 `attempt_draft_rows_user10=0`：库里没留过期草稿**（计划明确要求这点）。
+5. **`Seg5State` 加了一段错题本明细**（`wrong q=1 count=6 status=1`），计划的取证清单里只有行计数。加的理由是"考试错题进错题本"这句话要看 `wrong_count` 的走向而不是只看行数（行数前后都是 2，因为 qid 1 那行本来就在）。**这条不是证明**：`wrong_count` 的 +1 没有独立的前值快照可 diff，只能与"本次唯一错答就是 qid 1"互证；真正的联动证明在 `ExamSubmitTest`（`verify(wrongMapper, times(2)).masterIfUnmastered`）与 `AnswerFlowDbIT`（真库错题流转）。这条局限写在这里，不冒充端到端证据。
+6. **脚本自身的 bug 让两条负例假红过一次**：`save()` 返回的是 `(解析后的 dict, 原文)`，而我把 `st, text = save(...)` 当成了 `(HTTP 状态, 原文)`，于是 `st == 401` 永远不成立。修法是把无 token 两条抽成 `auth_cases()` 直接用 `raw()` 取状态码，并用 `EZ_ONLY=auth` 单独重跑（不重跑整条矩阵，否则会多造一条 attempt、把 #13/#15 的期望值改掉）。**教训**：端到端脚本里"取状态"和"取 body"必须是两个不同的返回值，混用会产出稳定假红且看起来像被测代码坏了。
+
 
 ### 伪阳性（缺这段就等于没做）
 

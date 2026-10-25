@@ -236,6 +236,12 @@ ALTER TABLE `qb_user_answer_record`
    start(仅有终态)      → 新建 seq_no+1
 ```
 
+> **段 5 更正（2026-10-25，状态机已实现并端到端取证）**：
+>
+> 1. **归档即判分**——`2 已提交` 与 `3 超时自动提交` 是**同一个出口**（裁定三，实现是 `ExamFinalizer.finalizeAttempt`）：两条边都跑完整判分、都展开 `qb_user_answer_record`、都联动错题本、都写 `score/correct_count/wrong_count/unanswered_count` 快照并把 `answered_json` 置 `NULL`。差别只有 `status` 的值与 `submit_at` 的语义。所以"3"的两条来源（超时提交、开考时放弃旧草稿）**都有分数快照**，不存在"归档 = 丢成绩"。
+> 2. 图上的 `draft` 自环**只在未过期时成立**：过期后 `draft` 报 `41001` 且**不归档**（见 6.4 的段 5 更正），归档发生在下一次 `start` 或 `submit`。
+> 3. 终态是幂等的：对 `status IN (2,3)` 的行再调 `submit` 不再走闸门，而是**从已落库的答题行重建同一份成绩单**（零写入）。活体证据：连点两次提交后 `qb_user_answer_record WHERE attempt_id=95` 仍是 2 行、两次响应 `data` 逐字相同。
+
 ---
 
 ## 五、接口契约
@@ -328,6 +334,17 @@ ALTER TABLE `qb_user_answer_record`
 
 `ExamResultVO` = `{attemptId,seqNo,status,score,fullScore,correctCount,wrongCount,unansweredCount,accuracy,durationUsedMs,sections:[{name,scoreGot,fullScore,correctCount}],questions:[{index,questionId,type,userAnswerJson,correctAnswerJson,isCorrect,scoreGot,fullScore,analysis}]}`。交卷后一次给全，正好喂"答案解析"页；`attempt/detail` 复用同一结构，所以刷新页面不丢解析。
 
+> **段 5 更正（2026-10-25，六个 exam 接口已实施并端到端取证，本表与本结构按实现补正）**：
+>
+> 1. **`ExamResultVO` 有两个原表没列的字段**：`pendingSelfJudgeCount` 与 `paperId`/`title`（成绩单要能独立显示"这是哪张卷子"）。其中 **`pendingSelfJudgeCount` 是成绩单唯一的自洽判据**——`correctCount + wrongCount + unansweredCount + pendingSelfJudgeCount == question_count`，缺这一位就永远少 1（考试简答落 `is_correct=-1` 不判分，裁定一）。实测活体：4 题的卷子答 2 题（1 选择答错 + 1 简答）→ `0+1+2+1=4`。
+> 2. **`accuracy = correctCount / (correctCount + wrongCount)`**，2 位小数 HALF_UP（裁定六）：**未答与待自评都不进分母**，分母为 0 时给 `0.00` 而不是 `null` 也不是"除以题量"。原表只写了字段名没写口径。
+> 3. `sections[]` 另给 `pendingCount` 与 `unansweredCount`（节级也要能显示"这一节还有两题没做"），三级分（题/节/卷）都由 `ExamGrading` 一次算完。
+> 4. `questions[].isCorrect` 在待自评那题是 **`null`**（不是 `false`），且 `needSelfJudge=true`；原表没有 `needSelfJudge` 这一位，前端靠它决定"这题显示'待自评'而不是'答错'"。
+> 5. `exam/question` 的 `data` 完整形态是 `{attemptId,questionId,index,score,question,userAnswerJson}`：`question` 是脱敏后的 `QuestionVO`（真值三样一律缺席），`index`/`score` 来自 `structure_json` 而不是 `qb_question`，`userAnswerJson` 是**用户自己已存的草稿**（回显自己的数据不算泄漏，5.4 的清单不约束它）。
+> 6. `exam/draft` 的 `answers` 是**整包覆盖**：这次没带的题号等于删掉。`answers` 允许 `null`，语义是"清空草稿"（落库 `{}`）。key 是题号的十进制字符串、value 是**整份单值 JSON 的文本**（裁定五），非数字/≤0/重复题号/卷面外题号/value 不是 MySQL 收得下的单值 JSON（尾随内容、`1e999`、空串）一律 `40000` 且**零写入**。
+> 7. `attempt/page` 的行是 `{attemptId,seqNo,status,score,submitAt,durationUsedMs,correctCount,wrongCount,unansweredCount,pendingSelfJudgeCount}`——**`pendingSelfJudgeCount` 不是库里的列**（`qb_exam_attempt` 只有 17 列，段 4 实测），由 `question_count - correct - wrong - unanswered` 减出；草稿行的三个快照都是 `NULL`，此时这一位也给 `NULL` 而不是 `0`（草稿没成绩，给 0 等于谎报）。`attempt/page` **不过上下架/归属闸门**：`paper == null` 才 `40400`，下架卷与别人转让过的卷的历史成绩照看。
+> 8. `exam/start` 的 `data` 另给 `paperId,title,totalScore,seqNo,questionCount,answeredCount,progressPercent`，且 `structure` 与 `paper/detail` **共用同一个 VO 类型**（`PaperDetailVO.PartVO`），两份骨架迟早会漂。
+
 **`originalText` 只在交卷后可见**：`paper/detail` 与 `exam/*` 在 `attempt.status=1` 时 `originalText` 恒为 `null`，`audioUrl` 正常返回。截图的"显示原文"按钮在考试中点开就该是空的——听力原文即答案。
 
 **交卷事务**（`ExamService.submit`，单库本地 `@Transactional`）：
@@ -409,6 +426,13 @@ paper/page → paper/detail → exam/start（拿 attemptId + deadlineAt）
 
 `start`、`draft`、`submit` 三个入口共用一次检查：`now > deadline_at + graceSeconds` 时，`draft` 拒绝（`41001`），`submit` 照常判分但 `status=3`，`start` 把旧草稿归档为 `3` 再新建。所以草稿态不会烂在库里，也不需要 `@Scheduled`。
 
+> **段 5 更正（2026-10-25，实测行为）**：
+>
+> 1. 判据只有一份实现：`ExamDeadline.expired(deadlineAt, now, graceSeconds)` = `now > deadline_at + grace*1000`，`deadline_at` 为 `NULL` 视为**未过期**（这种行只能来自手改库，不能因为读不出时间就判用户超时）。宽限期来自 `practice.exam.grace-seconds`（默认 60，实测生效值就是 60）。
+> 2. `draft` 在过期时**只拒绝、不归档**——归档发生在下一次 `start` 或 `submit`。这不是省事：把"用户看一眼屏幕发现超时"变成"已经被判了分"是两种产品事实，写权限的闸门不能顺手产生判分副作用。
+> 3. `exam/question` **不受过期影响**（读路径无副作用，用户到点仍要能翻题目看自己已存的草稿）；`attempt/detail` 只拒绝草稿态（`41002`），过期但仍是草稿的行同样报 `41002`，不因为它"看起来该归档了"就给成绩单。
+> 4. 端到端实测（2026-10-25，把 `user_id=10` 自己那条 attempt 的 `deadline_at` 改到过去 120 秒）：`draft` → `41001`；`question` → `code=1`；`submit` → `code=1`、`status=3`、`score` 照常给、四个计数之和仍等于 `question_count`（那次是 `0+0+4+0=4`，因为整场一道没答）。跑完库里不留 `status=1` 的过期行。
+
 ---
 
 ## 七、口径决定（三条，均已与用户确认）
@@ -466,12 +490,13 @@ practice:
 - [x] 阶段一 9 个接口经网关返回 `code=1`，且答题态响应不含任何答案字段（**2026-10-24 段 3 完成**：`subject/list`+`answer/submit`+`self-judge`+`question/page`+`question/current`+`wrong/page`+`wrong/master`+`favorite/page`+`favorite/toggle` 全部经 8100 实跑 `code=1`；42 个响应字节扫描零命中，仅判分响应按 5.4 允许带真值。负例矩阵同时落位：缺参/越界 → `40000`，科目或题不存在 → `40400`，无 token → 网关 HTTP 401，绕网关直连 → `40100`）
 - [x] 同一题答错两次，`wrong_count=2`；答对后 `status=2`；再答错回 `1`（**段 2 已证**：`AnswerFlowDbIT` 真库 + 网关实跑；段 3 补上读侧半边：错题本 `status=1/2` 分页与 `wrong/master` 连点两次都回 `true`）
 - [x] 收藏 toggle 三次 → `favorited` 序列 `true,false,true`，表里最多 1 行（**2026-10-24 段 3 完成**：网关实跑四次得 `[true,false,true,false]`，`qb_user_favorite` 里 `user_id=10` 始终 0 或 1 行；`uk_user_question` + `ON DUPLICATE KEY UPDATE id=id` 保证并发双击不出双行）
-- [ ] 刷新页面重新 `exam/start` 同一试卷 → 返回**同一个** `attemptId`，草稿答案还在
-- [ ] 交卷后 `qb_user_answer_record` 新增 `question_count` 行、`answered_json` 为 NULL、`submitCount` 变 2
-- [ ] 连点两次提交 → 成绩与行数不变
-- [ ] 考试中 `paper/detail` 的 `originalText` 为 null，交卷后 `attempt/detail` 里非 null（**前半边的段 4 部分已证，2026-10-25**：网关实跑 `paper/detail?paperId=8` 三个 section 的 `originalText` 全 `null` 而 `audioUrl` 有值；真库真服务的三态（无 attempt / 草稿 / 已交卷）由 `PaperSqlDbIT.originalTextGateOnRealData` 钉住——**草稿态仍 null、交卷态非 null**。后半边（`attempt/detail` 里非 null）要段 5 的考试接口）
-- [ ] `deadline_at` 过期后 `draft` 报 `41001`
-- [ ] 样例试卷 1 套的页面数据能铺满截图两个页面的每个字段（**卡片半边已完成，2026-10-25**：截图①的每个字段都从网关活体拿到了——`badges=["2020年","第一套","7月","65分钟"]`、`questionCount=4`、`totalScore=30.00`（原始字节形态，`decimal(6,2)` 出网保留两位）、`subjectName=语文`、`submitCount=0`、`progressPercent=0.0`、`latestAttemptId=null`；截图②的卷面骨架三层也已铺满（2 部分 / 3 节 / 4 题、`index` 1..4、听力节 `audioUrl` 有值）。**但"铺满截图每个字段"这条整体不成立**：样例卷实际是 4 套、题量 4/2/3/1（不是真题的 65 题），截图右侧那张 65 格答题卡网格**无法用现有真数据复现**；另一半（考试中作答、交卷成绩单、解析页）要段 5）
+- [x] 阶段二 6 个 exam 接口经网关返回 `code=1`，且答题态响应不含任何答案字段（**2026-10-25 段 5 完成**：`exam/start`+`exam/question`+`exam/draft`+`exam/submit`+`exam/attempt/page`+`exam/attempt/detail` 全部经 8100 实跑；43 个响应文件字节扫描 `scanned=36 leaks=0`（7 个成绩单/登录/验证码按 5.4 豁免），三条专属断言分别证 `exam/question` 七份响应零真值且带 `userAnswerJson`+`score`、`attempt/detail` **确实带** `correctAnswerJson`（反向锚点）、交卷后 `paper/detail` 的 `originalText` 至少一节非 null。负例矩阵 14 条落位：缺参 → `40000`、卷不存在 → `40400`、下架卷开考 → `40900`、终态行取题/存草稿 → `41002`、草稿看成绩单 → `41002`、过期存草稿 → `41001`、无 token → 网关 HTTP 401、绕网关直连 → `40100`。**唯一没被端到端触发的是 `40300` 越权**：库里只有 `user_id=10` 自己的 attempt，而规则禁止为了造负例往验收库里插别人的行——它由 `ExamSubmitTest`/`ExamServiceTest` 的 40300 用例 + `finalizeIfDraft` 带 `user_id` 的真库反证（回 0 行）覆盖）
+- [x] 刷新页面重新 `exam/start` 同一试卷 → 返回**同一个** `attemptId`，草稿答案还在（**2026-10-25 段 5 完成**：网关实跑 `POST exam/start{paperId:8}` 两次都回 `attemptId=95`、`seqNo=1`；存草稿两题后第三次 `start` 回 `answeredCount=2` 且 `answeredMap` 的 key 正是那两题。另证：`deadlineAt - serverNow == 65*60000` 精确成立，`structure` 是 2 部分 / 3 节 / 4 题）
+- [x] 交卷后 `qb_user_answer_record` 新增 `question_count` 行、`answered_json` 为 NULL、`submitCount` 变 2（**2026-10-25 段 5 完成，按实测更正这句本身**：新增的行数 = **已答题数**而不是 `question_count`——样例卷 P1 是 4 题、只答了 2 题，库里就是 2 行（`attempt_id=95`），未答的 2 题**不落行**（`user_answer_json` 是 `json NOT NULL`，事实 1）；`answered_json` 实测为 `NULL`；`submitCount` 实测**变 1 而不是 2**，因为"连点两次提交"是同一次 attempt 的幂等重放，不产生第二条终态 attempt。要 `submitCount=2` 得开考两次（第二次是 `seq_no=2`）——本段的实测里第二条 attempt 是被超时归档的，所以 `submitCount` 到 2 时 `attempt/page` 的 `total=2`）
+- [x] 连点两次提交 → 成绩与行数不变（**2026-10-25 段 5 完成**：两次 `POST exam/submit` 的 `data` **逐字节相同**（同一份 1389 字符响应），`qb_user_answer_record WHERE attempt_id=95` 前后都是 2 行；闸门是条件更新 `WHERE id AND user_id AND status=1`，第二次回 0 行 → 零 `insert`、零错题本写入，成绩单改从库里已落的行重建。单测层同名断言在 `ExamSubmitTest.secondSubmitWritesNothing`）
+- [ ] 考试中 `paper/detail` 的 `originalText` 为 null，交卷后 `attempt/detail` 里非 null（**前半边的段 4 部分已证，2026-10-25**：网关实跑 `paper/detail?paperId=8` 三个 section 的 `originalText` 全 `null` 而 `audioUrl` 有值；真库真服务的三态（无 attempt / 草稿 / 已交卷）由 `PaperSqlDbIT.originalTextGateOnRealData` 钉住——**草稿态仍 null、交卷态非 null**。**后半边按实现更正**：`attempt/detail` 的响应体里**根本没有 `originalText` 字段**——它是成绩单（`ExamResultVO`），只有 `sections[]`/`questions[]` 两级，不含 section 的听力原文。所以"交卷后原文可见"这件事实测由 **`paper/detail` 在交卷之后**覆盖：2026-10-25 网关实跑，交卷前三个 section 全 `null`，交卷后 `1/3` 节非 null（样例卷只有听力节写了原文）。这条验收项的原表述是错的，勾不掉，改成上面这句）
+- [x] `deadline_at` 过期后 `draft` 报 `41001`（**2026-10-25 段 5 完成**：把 `user_id=10` 自己那条 attempt 的 `deadline_at` 改成过去 120 秒（> grace 60）→ `draft` 回 `41001` 且**没归档**（`status` 仍是 1）、`question` 仍 `code=1`（读无副作用）、`submit` 回 `code=1` 且 `status=3`、`score` 照常给、四个计数之和仍 = 4。跑完库里不留过期草稿）
+- [ ] 样例试卷 1 套的页面数据能铺满截图两个页面的每个字段（**卡片半边已完成，2026-10-25**：截图①的每个字段都从网关活体拿到了——`badges=["2020年","第一套","7月","65分钟"]`、`questionCount=4`、`totalScore=30.00`（原始字节形态，`decimal(6,2)` 出网保留两位）、`subjectName=语文`、`submitCount=0`、`progressPercent=0.0`、`latestAttemptId=null`；截图②的卷面骨架三层也已铺满（2 部分 / 3 节 / 4 题、`index` 1..4、听力节 `audioUrl` 有值）。**但"铺满截图每个字段"这条整体不成立**：样例卷实际是 4 套、题量 4/2/3/1（不是真题的 65 题），截图右侧那张 65 格答题卡网格**无法用现有真数据复现**；另一半（考试中作答、交卷成绩单、解析页）要段 5）（**2026-10-25 段 5 补齐，且"不成立"这句被实测再次确认**：考试中那一面——`exam/question` 给了题号 `index`、卷面 `score`、脱敏题干与四个选项、自己的草稿回显；交卷成绩单那一面——`ExamResultVO` 的 13 个题级字段全部有值（含 `correctAnswerJson`/`analysis`/`scoreGot`/`fullScore`），节级 `sections[]` 2 节、卷级 `score/fullScore/accuracy` 都是两位小数原始字节形态。**仍然铺不满的是那张 65 格网格**：样例卷每卷最多 4 题，这是数据问题不是接口问题；截图里"用时"这类逐题计时字段在考试路径是均摊值（`durationMs=291` 是整场用时/已答题数，不是真的 per-question 计时））
 
 ---
 
@@ -496,6 +521,8 @@ practice:
 | 卡片进度条语义未定 | 截图里 `已提交次数 1次` 旁边的条，既可能是"已用次数/可用次数"也可能是"已答题/总题数"。`PaperCardVO` 同时给 `submitCount` 与 `progressPercent`，前端二选一，后端不猜。若将来要"次数上限"，那是 VIP 配额子系统（《EZ刷题设计文档.md:11》），需新表（**段 4 裁定三已把后端这半边定死，2026-10-25**：`submitCount` 只数终态 attempt（`status IN (2,3)`，草稿不算），`answeredCount` 草稿取 `answered_json` 的 key 数、终态取展开出的答题行数，`progressPercent` 是后两者的比——"已用次数/可用次数"这一支后端不给，因为可用次数属 VIP 配额。前端二选一仍然成立） |
 | 单实例假设 | 本期无内存态注册表，交卷与草稿都是无状态请求，多实例天然安全。若将来加超时广播，参照 AI 对话"单实例边界只记录不实现"的处理 |
 | 断点靠 `MAX(sort_order)` | 题量上万时需给 `qb_user_answer_record` 加覆盖索引或改存进度列，届时是独立决策 |
+| **考试简答题本期没有自评入口**（段 5 裁定一，2026-10-25） | 考试展开出的行是 `answer_mode=2`、`is_correct=-1`，而段 2 的 `self-judge` 只接受 `answer_mode IN (1,3)` 的行，所以成绩单上这类题显示"待自评"而点不动。接缝有两处：① 给 `self-judge` 放开 `mode=2`（要同时决定"改判之后 `attempt.score` 与 `correct_count` 快照要不要重算"——那是新一次聚合，不是改一行）；② 接 AI 判分，替换 `self-judge` 落库前那一步。**本期只把状态摆出来，不开闸门**：`ExamResultVO.pendingSelfJudgeCount` 与 `is_correct=-1` 的行都是给将来的入口留的位置 |
+| **考试作答会成为该题练习侧的"最近一次作答"**（段 5 事实 13，2026-10-25） | `selectLatestByQuestions` 不带 `answer_mode` 过滤（段 3 裁定二：语义是"我对这道题最近的一次作答"），所以交完卷回练习页，那道题的答题卡会显示考试里的作答、`answerStatus=3`（待自评），而 `pendingRecordId` 是 `null`——因为 `selfJudgeable` 要 `mode IN (1,3)`。这是**已取证的副作用不是缺陷**：`ExamFlowDbIT.examRecordIsTheLatestAnswerForPracticeSide` 钉住了这对矛盾形状。谁要给它加 `mode` 过滤，先读裁定一 |
 
 > **段 4 补一条"已知未校验项"（2026-10-25，做组卷接口时必须补成第五条校验）**：4.3 的四条校验只约束 **题目分值之和** 与 `total_score` 相等（规则 3），**`Σ parts[].score` 与 `total_score` 的关系 spec 没列、实现也没查**。样例卷是手工对齐的（P1 的 `14.00 + 16.00 = 30.00`），那**不是校验出来的**——`PaperStructureValidator` 里查 `part.score` 只用到"非负"，`db-it` 的 `everySeededPaperPassesValidation` 也过不了一个"部分分之和 ≠ 总分"的卷，因为它根本不查。段 5 的组卷/管理端写 `qb_paper` 之前，这条要么补成校验、要么在 `structure_json` 契约里明写"部分分只用于渲染、不参与任何求和"，否则成绩单的三级分（题/节/卷）会对不上总分。
 

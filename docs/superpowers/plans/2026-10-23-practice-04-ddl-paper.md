@@ -3330,12 +3330,12 @@ def save(name, status, payload):
 
 | 接缝 | 归谁 | 具体待办 |
 |---|---|---|
-| `qb_exam_attempt` 本段零写入 | 段 5 | 卡片的 `submitCount/answeredCount/latestAttemptId` 端到端全是 0/null，这是**设计而不是缺陷**。段 5 的 `exam/start` 是第一个写入者，届时卡片自动活。**不要为了"让卡片有进度"手工插行**——那会让段 5 的状态机测不到真实起点。 |
-| 考试简答题的待自评 | 段 5（**必须裁定**） | P1 里刻意放了 `qid 5`（type=5）。现口径下考试展开的 `is_correct=-1` 行会被 `self-judge` 拒绝（段 2 实测 `40000`），所以段 5 三选一：不计分 / 成绩单加"待自评"位 / 放开闸门并重新定统计口径。 |
-| `paper/detail` 不含 `type` | 前端 / 段 5 | 网格只有 `index/questionId/score`。要按题型画图标就调 `exam/question`，或在 `QuestionRefVO` 追加 `type`——那是契约追加，要另写测试与守卫用例。 |
-| `Σ parts[].score` 与 `total_score` 未校验 | 段 5 / 将来管理端 | spec 四条规则没这条，样例数据手工对齐但不是校验出来的。做组卷接口时应补成第五条校验，否则 part 级分数显示会与卷面总分对不上。 |
-| `40300` 只有单测 | 用户裁定 | 端到端覆盖它需要往 `qb_paper` 插一条 `owner_id != 1` 的卷（= 往验收数据加行）。产品真做"个人题库"时这条路径自然出现。 |
-| `answered_json` 草稿分支 | 段 5 | 本段用 db-it 的合成 attempt 行覆盖了 `answeredJsonKeyCount` 的两条真库路径；端到端等 `exam/draft`。 |
+| `qb_exam_attempt` 本段零写入 | 段 5 | **已接住（2026-10-25，段 5 Task 5.6/5.9）**：第一个写入者是 `exam/start`，端到端实测卡片从 `submitCount=0/progressPercent=0.0/latestAttemptId=null` 变成 `submitCount=1/progressPercent=50.0/latestAttemptId=95`——一行手工数据都没插，全是接口写出来的。段 5 全链路后 `qb_exam_attempt` 有 2 行（`id=95 status=2`、`id=96 status=3`），样例卷 4 行仍然一行没动（`Seg5State: qb_paper_rows=4 / qb_paper_enabled=3`） |
+| 考试简答题的待自评 | 段 5（**必须裁定**） | **已裁定并落地（裁定一，2026-10-25）**：三选一里选了**"不计分 + 成绩单加待自评位"两条一起**，而**不放开自评闸门**。考试展开的简答行落 `is_correct=-1`、`answer_mode=2`，`self-judge` 照旧拒绝（段 2 的 `40000` 语义没变）；`ExamResultVO` 新增 `pendingSelfJudgeCount` 与题级 `needSelfJudge`，实测 `correct+wrong+unanswered+pending = 0+1+2+1 = 4 = question_count`。副作用两处已写进 spec §11：练习侧 `answerStatus=3` 而 `pendingRecordId=null`（`ExamFlowDbIT.examRecordIsTheLatestAnswerForPracticeSide` 取证）；自评入口本期不开，接缝留给"放开 mode=2 + 决定要不要重算快照"或"接 AI 判分" |
+| `paper/detail` 不含 `type` | 前端 / 段 5 | **段 5 已给（2026-10-25）**：`exam/question` 的 `question.type` 与题型名 `typeName` 都出网，契约没追加字段、`QuestionRefVO` 仍只有 `index/questionId/score`——题型走单题接口，骨架不背额外查询 |
+| `Σ parts[].score` 与 `total_score` 未校验 | 段 5 / 将来管理端 | 仍未补（段 5 没有组卷接口，`qb_paper` 依旧只能靠 SQL 写）。**段 5 的实际暴露面**：成绩单的三级分只由**题级 `score`** 累加（`ExamGrading`），`part.score`/`section` 的显示分不参与求和，所以"部分分之和 ≠ 总分"只会让卡片与骨架显示不一致，不会让总分算错——这句写进 spec §11 的那条补注，组卷接口仍需在写入时补第五条校验 |
+| `40300` 只有单测 | 用户裁定 | 端到端覆盖它需要往 `qb_paper` 插一条 `owner_id != 1` 的卷（= 往验收数据加行）。产品真做"个人题库"时这条路径自然出现。**段 5 补了第二层证据（2026-10-25）**：`ExamServiceTest.otherUsersAttemptIsForbidden`/`draftErrorCodes`/`attemptDetailErrorCodes` 与 `ExamSubmitTest.submitErrorCodes` 在 service 层钉住 40300，`ExamFlowDbIT.finalizeIfDraftIsTheIdempotencyGate` 在真库上钉住"`finalizeIfDraft` 的 `WHERE` 带错 `user_id` 时回 **0 行**"——越权写路径在库侧也是关着的，只有 HTTP 那一层没实测 |
+| `answered_json` 草稿分支 | 段 5 | **已接住（2026-10-25，Task 5.1/5.8）**：`ExamAnswers` 是唯一编解码出口（`{"<questionId>": <整份单值 JSON>}`，裁定五），`exam/draft` 整包覆盖 + 交卷置 `NULL` 都在端到端实测过（`answeredCount=2` → 交卷后 `answered_json IS NULL = 1`）。`answeredJsonKeyCount` 那条 SQL 也仍在用（终态取展开行数、草稿取 key 数） |
 | 四个 db-it 各自重复 `open()/purge()` | 用户裁定 | "抽 `PracticeDbTestSupport`"从段 2 挂到现在，已是**第四次**重复。阻力仍是那一个：MySQL 口令从哪来（现在写死 `root`/空串在测试代码里，属本机 dev 默认）。段 5 之前值得裁一次。 |
 | `log-impl: StdOutImpl` | 用户裁定 | 段 4 的 `structure_json` 全文（含听力原文与卷面结构）会打进 8102 的 stdout。要不要关由用户定，本段不碰 `application.yaml`。 |
 
