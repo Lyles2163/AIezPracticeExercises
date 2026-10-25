@@ -647,7 +647,7 @@ git push origin dev
   - `interface ChatTurn`（UI 形状的一条消息，字段见实现）
   - `useChat()` 返回 `{ catalog, catalogError, conversations, nextCursor, activeId, messages, sending, errorText, currentModelSupportsThinking, loadCatalog, loadConversations, moreConversations, openConversation, startConversation, send, stop, regenerate, retry }`
 
-- [ ] **Step 1: 写实现**
+- [x] **Step 1: 写实现**
 
 三条设计要点必须留在代码注释里，因为它们是**上一期踩过/证伪过的**：两段式停止、`clientMsgId` 复用、
 `reasoning` 不落库导致的"刷新后思考线消失"。
@@ -967,13 +967,13 @@ function isAbort(err: unknown): boolean {
 }
 ```
 
-- [ ] **Step 2: 类型检查**
+- [x] **Step 2: 类型检查**
 
 Run: `npm run type-check`
 Expected: 通过。`toTurn` 的入参类型直接取自 `ChatMessage`（F2）—— 若这里报结构不兼容，
 **改 `toTurn` 的参数类型为 `ChatMessage`**（F2 已导出），不要在模板侧放宽。
 
-- [ ] **Step 3: 自查三条不变式（读代码逐条回答，写进报告）**
+- [x] **Step 3: 自查三条不变式（读代码逐条回答，写进报告）**
 
 1. `stop()` 里**没有** `await stopMessage(...)` —— 有就违反两段式。
 2. `retry()` 复用 `lastPayload`（含原 `clientMsgId`），`regenerate()` **换新** `clientMsgId` 且 `regenerate:true`。
@@ -991,6 +991,45 @@ git push origin dev
 
 **检查点**：`npm run type-check` 绿。本任务无 Node 用例（`useChat` import 了 F2→`request.ts`→`import.meta.env`，
 Vue 响应式 + Vite 专用变量在 Node 里跑不通）。它的正确性靠 Step 3 的逐条自查 + F6 浏览器验收，报告里如实写。
+
+**F3 执行记录（含 4 条与计划的偏差）**
+
+计划给的代码不能照抄，逐条取证后改掉：
+
+1. **`done.finishReason` 的取值集合写错了。** 实测后端只会发 `AiMessage.STOP_*` 六个串
+   （`done`/`stopped`/`length`/`upstream`/`client_disconnect`/`timeout`，见 `ChatStreamService:288,303` 与
+   `mapFinishReason:343`、`truncate` 的三个调用点）。计划里映射的 `'truncated'` 是 **status 不是 reason**，
+   而真正会出现的 `timeout`/`client_disconnect` 反而没列 —— 照抄会把这两种截断渲染成「正常完成」。
+   实现改成 `TRUNCATED_REASONS = new Set(['stopped','length','timeout','client_disconnect'])` + `upstream → failed`。
+2. **`regenerate()` 漏撤旧答案。** `MessageQueryService:30,38` 明确把 `superseded` 过滤掉（"不进对话流"），
+   所以刷新后旧答案会消失；计划的状态机只在流里加新气泡，于是刷新前屏幕上会留一条刷新后就没了的气泡。
+   实现里 `regenerate()` 先 `findLastAssistant()` 再 splice。
+3. **`retry()` 会推出重复的问题行。** retry 复用 `lastPayload` → 同一个 `clientMsgId` → 同一对 key，
+   照抄 `run()` 就是每次重试多一条用户消息（前端重复，后端因幂等键不重复，两边不一致）。
+   实现改成：问题行按 key 去重、同 key 的答位先撤掉再建。
+4. **只有浏览器会暴露的响应式坑**：`messages.value.push(turn)` 之后 `turn` 还是**原始对象**，
+   Vue 只在读取时包装代理；直接改原始对象不会触发重渲染 —— 现象是"数据在涨、界面不动"。
+   实现改成 push 后 `turn = messages.value[messages.value.length - 1]` 取回代理再交给 handlers。
+   顺带把 `handlersFor(target)` 改成闭包持有那份代理快照，切换会话时迟到帧不会污染新会话。
+
+其他：`UsagePayload`/`MetaPayload`/`ErrorPayload` 从 `../api/sse` 引（F2 没有转借这三个类型，计划写的是从 `../api/chat`）；
+`ChatTurn` 的 `status/stopReason/usage` 从可选改成必填（历史行与流式行共用一个类型，模板里就不必到处 `!`）；
+`toTurn` 的参数直接用 F2 的 `ChatMessage`（Step 2 预告的那一步，实现即如此）。
+
+**Step 3 三条不变式（逐条 grep 复核，不是读一遍感觉对）**：
+1. `grep -n stopMessage` → 只有 import 与 `191: if (id != null) void stopMessage(id).catch(() => undefined)`，
+   `stop()` 里没有 `await`。
+2. `grep -n "newClientMsgId\|lastPayload"` → 新键只出现在 `send()`(152) 与 `regenerate()`(169)；
+   `retry()` 是 `177: await run(lastPayload)`，不产新键。
+3. `grep -n steps` → 写入点只有 `270: target.steps.push(step)`（在 `handlersFor` 内），
+   其余 209/229/354 都是初始化为 `[]`，其中 354 是 `toTurn`（历史行恒空）。
+
+**type-check 覆盖性**：往文件尾追加 `const MUTCHECK2: number = "a"` 后
+`vue-tsc --build` 报 `src/composables/useChat.ts(372,7): error TS2322`，撤掉后复跑无输出；
+`grep -c MUTCHECK2` = 0。
+
+**提交状态**：commit `e11012a`（1 file, 370 insertions，`git show --stat` 复验只含自己的文件）。
+**推送两次失败**：`Failed to connect to github.com port 443` —— 网络问题，不是 git 冲突；提交在本地，待网络恢复补推。
 
 ---
 
