@@ -467,7 +467,7 @@ git push origin dev
   - `streamChat(payload, handlers: ChatStreamHandlers & { onReject?(msg: string): void }, token: string | null, signal?: AbortSignal): Promise<void>`
   - `newClientMsgId(): string`
 
-- [ ] **Step 1: 写实现**
+- [x] **Step 1: 写实现**
 
 类型形状逐条对齐后端 record（`ModelVo`/`ConversationVo`/`MessageVo`/`MessagePageVo`/`ModelCatalogVo`/`StreamRequest`），
 **字段名与可空性都不许凭感觉写**：`MessageVo.usage` 是 `ChatUsageVo{promptTokens,completionTokens}`（没有 reasoningTokens，
@@ -599,13 +599,16 @@ export async function streamChat(
 }
 ```
 
-- [ ] **Step 2: 类型检查**
+- [x] **Step 2: 类型检查**
 
 Run: `npm run type-check`
 Expected: 通过。这一步同时验证 `sse.ts` 的类型被正确复用 —— `readEventStream(res, …)` 里 `Response` 要能赋给
 `ResponseLike`；若报结构化不兼容，**改 `ResponseLike` 的声明去贴合 `Response`**，不要靠 `as never` 糊过去。
+Actual: 一次通过，`Response` 天然满足 `ResponseLike`（`headers.get`/`body`/`json`/`text` 四个成员都可赋），无需改声明。
+**并验证了「type-check 真的覆盖到这个新文件」**：往 `chat.ts` 追加 `const MUTCHECK: number = "a"` 后
+`vue-tsc --build` 报 `src/api/chat.ts(131,7): error TS2322`，撤掉后复跑无输出 —— 否则「绿灯」可能只是根本没检查。
 
-- [ ] **Step 3: 提交并推送**
+- [x] **Step 3: 提交并推送**
 
 ```bash
 git add src/api/chat.ts
@@ -614,9 +617,22 @@ git show --stat --oneline HEAD
 git push origin dev
 ```
 
+提交 `247098d`（1 file changed, 129 insertions），推送 `20550e6..247098d dev -> dev`。
+`git show --stat` 复验只含 `src/api/chat.ts`；别人暂存的 `ShinyText.vue` 仍在索引里（`git status` 显示 `AM`）、`Home.vue` 仍是 ` M`。
+
 **检查点**：`npm run type-check` 绿。本任务**没有 Node 用例**：`chat.ts` import 了 `request.ts`，
 后者读 `import.meta.env.VITE_API_BASE`，在 Node 里拿不到 Vite 注入 → 硬凑测试要改共享传输层（Global Constraint 5 禁止）。
 它的正确性由 F1 的解析用例 + type-check + F6 浏览器验收共同负责，报告里要这么如实写。
+
+**F2 执行记录**
+- 字段名先取证后落笔：逐个 `cat` 过 `chat/web/dto/` 的 8 个 record，与计划一致（`items` 而非 `messages`、
+  `ChatUsageVo` 无 `reasoningTokens`、`ConversationPageVo{items,nextCursor}`）。
+- 顺带确认了 query 参数名：`list` 是 `cursor`+`limit`(默认 20)、`messages` 是 `beforeId`+`limit`(默认 30)。
+  本层不暴露 `limit`（默认值就是我们要的），加了也是无人传参的分支。
+- `StreamRequest.regenerate` 是原始 `boolean`，序列化后恒有值；TS 侧仍写成可选（不传时后端按 false），
+  这是前端调用方便、不是对契约的放宽。
+- 偏差：无功能级偏差；只补了一条 Step 2 的「type-check 覆盖性」取证。
+- 本任务由主会话实现并自审，**未做独立复核轮**。
 
 ---
 
