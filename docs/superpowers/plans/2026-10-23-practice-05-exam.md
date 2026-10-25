@@ -70,7 +70,11 @@ JAR="/c/Users/Administrator/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mys
 11. **`PracticeErrorCode` 已有 `EXAM_EXPIRED(41001)` 与 `EXAM_SUBMITTED(41002)`**（段 1 建的），`PracticeException(PracticeErrorCode, msg)` 是构造形态（不是 spec §5.7 里写的 `(msg, code)`——按代码为准）。
 12. **`PracticeProperties` 当前只有 `identity.cacheTtlSeconds`**（`config/PracticeProperties.java`），`application.yaml:43-45` 只有 `practice.identity.*`。`practice.exam.grace-seconds` **本段要加**。
 13. **`AnswerStatus.selfJudgeable(row)` 要求 `answer_mode IN (1,3)`**（`AnswerStatus.java:38-45`），`selectLatestByQuestions` **不带 mode 过滤**（`QbUserAnswerRecordMapper.java:26-38` 的注释是刻意的）。所以考试展开出的记录行会**成为该题"最近一次作答"显示进练习侧**，`is_correct=-1` 的行在练习侧显示"待自评"但 `pendingRecordId=null`（点不了自评）——这是既有口径的必然推论，见裁定一。
-14. **绿灯基线**：全量单测 **218**、四个 db-it **26**（`PaperSqlDbIT` 10 条）。本段所有"新增几条"的预估都从这两个数起。
+14. **绿灯基线**：段 5 开工时全量单测 **218**、四个 db-it **26**（`PaperSqlDbIT` 10 条）。本段所有"新增几条"的预估都从这两个数起。
+15. **执行中实测补的两条事实**（Task 5.5/5.6 各撞一次，都改了计划）：
+    - **`subTitle` 是 `PaperStructureParser` 的 `requireText` 字段**，`null` 或空串一律 40000。所以任何手写的卷面 JSON（测试夹具、端到端 payload）都必须给非空 `subTitle`——段 4 的 `direction`/`audioUrl`/`originalText` 可以为 null，`subTitle` 不行。
+    - **MyBatis-Plus 的 `BaseMapper.insert` 有两个重载**（`insert(T)` 与 `insert(Collection<T>)`），所以 Mockito 的 `verify(mapper).insert(any())` **编译不通过**（"对 insert 的引用不明确"）。本段一律写 `insert(any(QbExamAttempt.class))` / `insert(any(QbUserAnswerRecord.class))`。
+16. **本段执行到 Task 5.6 时的实测数**：单测 **252**（218 → +6 ExamAnswers → +4 ExamDeadline → +5 ExamGrading → +3 ExamResults → +3 ExamBriefs → +11 ExamService → +2 控制器）、db-it **30**（26 + 1 批量选项键 + 3 ExamFlowDbIT）。
 
 ## 六条裁定（写代码前先定，代码注释里要能引用到）
 
@@ -2005,7 +2009,7 @@ public class ExamFinalizer {
   - `ExamStartVO {attemptId, seqNo, serverNow, deadlineAt, remainingMs, durationMinutes, paperId, title, questionCount, answeredCount, progressPercent, totalScore, structure, answeredMap}`
   - `POST /practice/exam/start`（body `{paperId, forceNew?}`）
 
-- [ ] **Step 1：写失败测试（service 层，mock mapper）**
+- [x] **Step 1：写失败测试（service 层，mock mapper）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -2233,7 +2237,7 @@ class ExamServiceTest {
 2. `ExamServiceImpl` 的构造器是 **6 参**：`(paperMapper, attemptMapper, recordMapper, briefs, finalizer, props)`。`questionMapper`/`optionMapper`/`wrongMapper` 只用来组装真实的 `ExamBriefs` 与 `ExamFinalizer`，不是 service 的依赖。
 3. `start` 会走 `PaperStructureValidator.validate(...)`，而校验需要判分原料（规则 2/4 要题目的 type 与答案），所以 `reusesActiveDraft` **不能**断言 `verifyNoInteractions(optionMapper)`——它对 qid 1/6 一定发一条批量查询。这条用例的反证只留"零 insert、零 finalizeIfDraft"。
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamServiceTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -2241,7 +2245,7 @@ class ExamServiceTest {
 
 期望编译失败：`找不到符号 ExamService` / `ExamServiceImpl` / `ExamStartVO`。
 
-- [ ] **Step 3：写请求体与响应体**
+- [x] **Step 3：写请求体与响应体**
 
 ```java
 package org.leon.practicemodule.pojo;
@@ -2299,7 +2303,7 @@ public class ExamStartVO {
 }
 ```
 
-- [ ] **Step 4：写 `ExamService` 接口与 `ExamServiceImpl` 的 `start`**
+- [x] **Step 4：写 `ExamService` 接口与 `ExamServiceImpl` 的 `start`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -2490,11 +2494,11 @@ public class ExamServiceImpl implements ExamService {
 
 **`start` 的 SQL 条数与错误码分界（这段的判据，别在实现时改掉）**：一次 `start` 只有 `selectDraftByUserAndPaper`（+ 新建时 `selectMaxSeqNo` 与 `insert`）和 `loadQuestions` 那**一条** `selectBatchIds`；`toStartVO` 走 `PaperSkeleton.toPartVOs(structure, false)`，不需要判分原料，所以**不发选项键那条 SQL**（那条只在 `ExamFinalizer`/`submit` 的 `briefs.load` 里发）。错误码同理分界：**卷面里的题不存在或已下架，在 `start` 是 `40000`**（`PaperStructureValidator` 规则 2 就是 `BAD_REQUEST`，它先跑），**在 `submit`/归档才是 `40400`/`40900`**（`briefs.load(structure, true)` 抛）。两条路径给不同码不是不一致，而是"开考时卷面被人改坏 = 请求不合法"与"交卷时题没了 = 状态冲突"的语义差别；Task 5.6 的 `corruptStructureRejectsBeforeInsert` 与 Task 5.9 的 `submitErrorCodes` 各自钉住一边。
 
-- [ ] **Step 5：跑 service 测试确认绿**
+- [x] **Step 5：跑 service 测试确认绿**
 
 期望 `Tests run: 7, Failures: 0`（`reusesActiveDraft` 与 `duplicateKeyReturnsTheOtherRequestDraft` 是本任务的牙，它们红就是分支写错了）。
 
-- [ ] **Step 6：写控制器与它的失败测试**
+- [x] **Step 6：写控制器与它的失败测试**
 
 ```java
 package org.leon.practicemodule.controller;
@@ -2569,7 +2573,7 @@ public class PracticeExamController {
     }
 ```
 
-- [ ] **Step 7：跑控制器测试 + 全量**
+- [x] **Step 7：跑控制器测试 + 全量**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=PracticeExamControllerTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -3665,17 +3669,28 @@ Tests run: 10, Failures: 0 -- QuestionReadSqlDbIT（9 + 本任务新增的批量
 4. `ExamFixtures` 实测需要 **`public`**（`AnswerStateResponseGuardTest`/`PracticeExamControllerTest` 在 `controller` 包），计划初稿写成包私有；同时补了 `question(long,int,String)`／`disabled(long,int)`／`paperP1()`／`draftAttempt(...)` 四个工厂，`PAPER_ID`/`ATTEMPT_ID` 两个常量，都是 Task 5.5~5.9 的用例要先用它的形状。
 5. `attempt()` 夹具改为**基于 `ExamFixtures.draftAttempt` 再改状态**，而不是另写一份 `QbExamAttempt` 装配——两份"草稿长什么样"迟早会漂。
 
-### Task 5.5（完成，2026-10-25）
+### Task 5.5（完成，2026-10-25；执行记录在 Task 5.6 时被更正一次，见下）
 
-**绿灯与真库取证**：
+**真库取证（这一条是本任务的核心，确实跑了）**：
 
 ```
-Tests run: 239, Failures: 0 -- 全量单测（236 + ExamBriefsTest 3）
 Tests run: 3,  Failures: 0 -- ExamFlowDbIT（真库，1.45s）
 qb_paper=4 attempt_990005=0 record_990005=0 attempt_ALL=0 question=7   （Seg5Residue 探针）
 ```
 
 样例卷 4 行未动、合成用户零残留、`qb_exam_attempt` 全表仍是 0 行（此刻还没有业务写入者）、`qb_question` 仍 7 行。
+
+**更正（2026-10-25，Task 5.6 的收尾暴露出来的）**：本任务收尾时我**只跑了 `ExamFlowDbIT`，没有重跑全量单测**，就把记录里的 `Tests run: 239 -- 全量单测`当成了实测值写进去。那 239 是从 236+3 算出来的，不是跑出来的。Task 5.6 跑全量时 `ExamBriefsTest.loadsInTwoQueries` 当场红：
+
+```
+<error message="parts[0].sections[0] 缺 subTitle（必须是非空字符串）">
+  at PaperStructureParser.parseSections(PaperStructureParser.java:71)
+  at ExamFixtures.oneQuestionStructure(ExamFixtures.java:116)
+  at ExamBriefsTest.loadsInTwoQueries(ExamBriefsTest.java:59)
+```
+
+根因是夹具写错了（**`subTitle` 是 `requireText` 字段，段 4 的解析器要求非空**，我在 Task 5.4 造最小卷面时给了 `null`），不是被测行为错。改法：`oneQuestionStructure()` 的 `"subTitle":null` → `"subTitle":"s"`，改完 `Tests run: 252, Failures: 0`（= 239 + Task 5.6 的 13）全绿。
+**这条错误的性质比它本身重要**：它证明"绿灯数字必须是跑出来的、不能是加出来的"，也证明段 4 立的那条契约（subTitle 非空）会在下一个段的夹具上反咬一口——已进本段事实清单，Task 5.10 的端到端 payload 同样必须给非空 `subTitle`。
 
 **没做到的一件事（明写，不掩盖）**：本任务**没有单独跑一次"先红"**。数据层五条查询与它们的测试是一遍写完的，第一次 `mvn -Dtest=ExamFlowDbIT` 确实是红的，但红的原因是**我的 import 缺了 `org.apache.ibatis.annotations.Update`**（`找不到符号 Update`，`QbExamAttemptMapper.java:67`），不是"被测行为还不存在"那种红。补上 import 后一次绿。Task 5.1/5.2/5.3/5.4 都留了真实的红灯输出，这四条是纪律做到位；5.5 这一条没做到，代价是"finalizeIfDraft 的 0/1 语义"少了一次独立反证——它现在由 db-it 的三条断言（回 1、再回 0、越权回 0）在真库上钉住，仍然可复核。
 
@@ -3686,7 +3701,31 @@ qb_paper=4 attempt_990005=0 record_990005=0 attempt_ALL=0 question=7   （Seg5Re
 3. 三条 db-it 用例在计划的三条之上多钉了四件事：`finalizeIfDraft` 带 `user_id` 时越权回 0 行、`countForPaper` 把草稿也算进 total、`selectAttemptPage` 的 `ORDER BY id DESC` 用 `seq_no` 序列 `[3,2,1]` 钉住、草稿行的 `score` 必须是 null（这条是 `AttemptPageRow` 全用包装类型的理由）。原计划的三条用例只覆盖了闸门、唯一键与草稿查询。
 4. db-it 样板（open/purge/flushCache/insertAttempt）这里是**第五次重复**。段 3/段 4/段 5 的接缝表都记着这件事，阻力是"MySQL 口令从哪来"与用户"秘密只进 gitignored 本地文件"的规则相冲（`db-it` 里 root 空口令已经是明文，抽取会把它复制第六遍）。本段仍不动，段 5 结束后这条仍然挂在接缝表上。
 
-### Task 5.6（待执行）
+### Task 5.6（完成，2026-10-25）
+
+先红（把 `ExamServiceImpl` 与 `PracticeExamController` 临时移出编译路径逼出来的真实报错，之后原样移回）：
+
+```
+[ERROR] /F:/.../PracticeExamControllerTest.java:[26,13] 找不到符号
+[ERROR] /F:/.../ExamServiceTest.java:[19,44] 找不到符号      （import ...service.impl.ExamServiceImpl）
+[ERROR] /F:/.../ExamServiceTest.java:[51,13] 找不到符号      （字段 ExamServiceImpl service）
+```
+
+绿灯：
+
+```
+Tests run: 13, Failures: 0 -- ExamServiceTest 11 + PracticeExamControllerTest 2
+Tests run: 252, Failures: 0 -- 全量单测
+```
+
+第一次全量是**红的**，红的不是本任务的代码而是 Task 5.5 的 `ExamBriefsTest`（夹具 `subTitle:null` 被段 4 的解析器拒了）——详见 Task 5.5 记录里那段更正。修夹具后 252 全绿。
+
+**对计划的偏差**：
+
+1. **`ExamServiceTest` 从计划的 7 条加到 11 条**。多出来的四条都是"另一条路径没被走到"的反证，而计划里没有：`disabledQuestionBlocksStart`（卷面含下架题 → 开考是校验规则的 **40000**，不是判分路径的 40900；这条把 Task 5.6 与 5.9 的错误码分界钉住）、`duplicateKeyWithRolledBackRivalConflicts`（撞键但对方回滚 → 40900 且**只 insert 一次**，实现里那条"别再退回去新建"的注释第一次有了测试）、`withinGraceReusesDraft`（只过期 30 秒 < grace 60 → 照原样复用，`never()).finalizeIfDraft`）——这条是 `ExamDeadline` 与服务层**接线**的证据，Task 5.2 只测了那个纯函数本身、`expiredDraftIsArchivedThenNewOneCreated` 测的是过期侧，中间那段没连起来过、`startDoesNotLoadOptionKeys`（`start` 发 1 条 `selectBatchIds`、**零条**选项键查询，这是"开考不判分"的成本承诺）。
+2. **两条归档用例必须自己补 `when(attemptMapper.finalizeIfDraft(any())).thenReturn(1)`**（计划的清单里没有）。缺它 Mockito 回默认 0，`finalizeAttempt` 就走"闸门已关上"的重建分支，于是 `verify(recordMapper, times(1)).insert(...)` 红——而且红得像是"归档不判分"这个业务缺陷，实际是桩没给。这条属于"mock 默认值会把分支走向改掉"的经典坑，Task 5.9 的 `ExamSubmitTest` 同样踩不到第二次，因为那条计划清单里已经写了。
+3. **`insert` 的 matcher 一律带类字面量**（`insert(any(QbExamAttempt.class))`）——`BaseMapper` 现在有两个 `insert` 重载，`any()` 让测试类编译不过（"对 insert 的引用不明确"）。已进本段事实清单第 15 条。
+4. `validationBriefs` 按计划最终版走 `briefs.loadQuestions(structure)`（一次批量），service 层没有第二条 `selectBatchIds`，也没有 `Clock`、没有 `reuse` 死参数、没有全限定名。`STATUS_SUBMITTED` 常量本任务未使用（Task 5.9 才用），留着是因为它和 `STATUS_ARCHIVED` 是一对，只留一个会更怪。
 
 ### Task 5.7（待执行）
 

@@ -115,7 +115,7 @@ public final class ExamFixtures {
     public static PaperStructure oneQuestionStructure() {
         return PaperStructureParser.parse("""
                 {"parts":[{"roman":"I","name":"n","cardLabel":"c","score":1.00,"minutes":1,
-                 "sections":[{"label":"A","subTitle":null,"direction":null,"audioUrl":null,
+                 "sections":[{"label":"A","subTitle":"s","direction":null,"audioUrl":null,
                    "originalText":null,"questions":[{"index":1,"questionId":1,"score":1.00}]}]}]}
                 """);
     }
