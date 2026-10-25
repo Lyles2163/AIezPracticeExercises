@@ -1927,3 +1927,54 @@ git push origin dev
 `{ async: false }` 保证走 string 分支。
 
 **F4 Step 4 的围栏推导要求不变**：先跑一遍看 `FENCE` 实际匹配到几个，按结果写期望值并解释，不许为了好看改断言。
+
+---
+
+## 追加 G 段：思考行逐行输出 + 当前行闪烁（2026-10-25，F6 之后）
+
+用户在浏览器里看到思考线跑起来之后提了一条：**"我希望这个思考的内容也是一行一行的输出出来，
+每输出一行就有和思考线同样的文字闪烁"**。走 brainstorming 的 bounded 路径，三个决定都是他选的：
+
+| 问题 | 他选的 |
+|---|---|
+| 出现节奏 | 排队逐行放，**但会追平**（积压越多放得越快） |
+| 闪烁对象 | **只闪当前行，标题不闪** |
+| 收口时机 | **等队列放完再收**（不是 thought_end 一到就收，也不是丢掉没放的） |
+
+**为什么队列在 `useChat` 不在组件**：第三条决定要改的是 `thinkingOpen`/`elapsed` 的**时机**，那是 turn 状态；
+组件只负责画。`ThoughtLine` 因此只多一个 `stepShimmer?: boolean`（默认 false；grep 过，它只有 `MessageItem` 一个消费者，
+回归面就一处）。
+
+**实现落点**
+- 新建 `src/composables/thinkingPace.ts`：`nextPumpDelay(pending, base=220, min=40)`，
+  `pending<=1 → base`，否则 `max(round(base/(pending-1)), min)`。单独成文件只为让这条规则能在 Node 里钉住
+  （`useChat` 本体要 Vue + `import.meta.env`，Node 跑不了）。
+- `useChat`：`onThoughtStep` 进 `thinking.pending` 而不是直接进 `steps`；`pumpThinking()` 用单个 `setTimeout`
+  一行一行搬；`onThoughtEnd` 只记 `seconds` 并置 `endSeen`，**由 `closeThinking` 在队列排空后才收线**；
+  `stop`/`onError`/`onReject`/`abortLocal`/新一轮 `run` 走 `flushThinking()`（一次倒完就收，不等动画）；
+  `onScopeDispose` 清 timer。帧回调里加了 `thinking.target === target` 判定 —— 上一轮的迟到帧不能进这一轮的队列。
+- `MessageItem`：`:step-shimmer="true"` + `:shimmer="false"` + `:breath-depth="0"`。
+  后两条是"标题不闪"的完整做法：`shimmer=false` 只关掉渐变，`breathDepth` 还在做透明度呼吸，
+  所以要把深度也归零，标题才真的定住。
+
+**取证**
+- Node：`thinkingPace.test.ts` 4 条（基准/收缩/下限/边界与非正数）→ `4 pass 0 fail`；
+  全量 19 条（F1 10 + F4 5 + G 4）绿；`vue-tsc --build` 无输出；`vite build` `✓ built in 1.47s`。
+- 变异：M1 删 `pending<=1` 守卫 → 杀（`fail=1`，第 5/7 行）；M2 删下限 clamp → 杀（`fail=2`）；
+  **M3 删上限 clamp → 存活**，4 条全绿。结论不是"补用例"，是**这条 clamp 取不到**：
+  `pending>=2` 时 `base/(pending-1)` 必然 `<= base`。已删掉死代码（`6d27133`），删后用例仍 4/4。
+  M4（NaN 退回基准）SKIP —— 文件里从来没有这条守卫，`base=NaN` 就照实返回 NaN，用例也是这么断言的。
+- 浏览器实测（8105 已于 09:27:39 重启成 E 段代码，pid 24548；页面里选 `deepseek-reasoner` 发真实问题）：
+  用页面侧 `setInterval` 采样 96 个点（自己写 while+await 循环会被 15s 工具超时掐掉），结果
+  `行数 11 → 12 → … → 21` 每次只 +1、相邻两次约 1s，`shimmer` 计数在这些采样里恒为 1
+  （**同一时刻只有一行在闪**）；收口后 `.tl-step-shimmer` 归 0、`[data-shimmer]` 归 0（标题确实不闪）、
+  思考线定稿文案是 `已思考 2.5 秒`。
+
+**已知代价（当时就跟他讲清并被他接受的）**
+1. 思考线比正文晚收，最多 `pending × 220ms`（追平逻辑下通常远小于）。
+2. `已思考 N 秒` 显示的是后端测的"首个推理块 → 首个正文块"，**不是**前端动画时长 ——
+   实测那次后端报 2.5s，而屏幕上逐行放完用了约 11s，两个数不是一回事，别看成了 bug。
+3. 本次模型用英文推理，`ReasoningSentenceSplitter` 走的是拉丁边界分支（`Need solve.` / `Pool capacity?` 这种短句），
+   与中文句号分支不同，属预期。
+
+**提交**：`3dbf571`（5 files, +179/-10）与 `6d27133`（删死 clamp）。
