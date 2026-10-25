@@ -53,4 +53,19 @@ public interface QbUserAnswerRecordMapper extends BaseMapper<QbUserAnswerRecord>
             + " GROUP BY r.attempt_id</script>")
     List<AttemptRecordCountRow> countByAttempts(@Param("userId") Long userId,
                                                 @Param("attemptIds") Collection<Long> attemptIds);
+
+    /**
+     * 一次 attempt 展开出的全部答题行（终态重建成绩单的唯一真相源，{@code answered_json} 此时已是 NULL）。
+     *
+     * <p>按 {@code r.id} 排序：一次交卷一题只落一行（{@code ExamFinalizer.expandRecords} 逐题 insert），
+     * 所以插入顺序就是卷面顺序，不需要再 join 卷面结构去排序。
+     * <p>没有 {@code <script>}：这条没有动态片段，包一层只会让下一个人以为里面有。
+     */
+    @Select("SELECT r.question_id AS questionId, r.user_answer_json AS userAnswerJson,"
+            + " r.is_correct AS isCorrect, r.duration_ms AS durationMs"
+            + " FROM qb_user_answer_record r"
+            + " WHERE r.user_id = #{userId} AND r.attempt_id = #{attemptId}"
+            + " ORDER BY r.id")
+    List<AttemptRecordRow> selectByAttempt(@Param("userId") Long userId,
+                                           @Param("attemptId") Long attemptId);
 }

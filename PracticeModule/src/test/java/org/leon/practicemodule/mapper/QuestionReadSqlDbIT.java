@@ -321,4 +321,21 @@ class QuestionReadSqlDbIT {
         }
         assertEquals("A", options.get(0).getOptionKey(), "选项必须按 sort_order,id 有序");
     }
+
+    /**
+     * 段 5 交卷时批量取选项键的那条 {@code <foreach> IN}。真库跑的理由与段 3 一样：
+     * 单测里的 mock 永远不检查 SQL 形态，而空 IN、漏括号、别名错位这类问题只在真库炸。
+     */
+    @Test
+    @DisplayName("批量选项键：一次 IN 取齐、按题分组、只回 option_key")
+    void optionKeysComeBackInOneBatch() {
+        Map<Long, List<String>> byQuestion = new TreeMap<>();
+        for (QuestionOptionKeyRow row : optionMapper.selectOptionKeysByQuestions(List.of(1L, 6L))) {
+            byQuestion.computeIfAbsent(row.questionId(), k -> new ArrayList<>()).add(row.optionKey());
+        }
+        assertEquals(List.of("A", "B", "C", "D"), byQuestion.get(1L),
+                "qid 1 的选项集实测 A,B,C,D（与上面那条同源的第二个证据）");
+        assertEquals(2, byQuestion.size(), "只该有请求的那两道题，IN 没漏进别卷的题");
+        assertFalse(byQuestion.get(1L).contains(null), "option_key 出现 null，说明投影列写错了");
+    }
 }

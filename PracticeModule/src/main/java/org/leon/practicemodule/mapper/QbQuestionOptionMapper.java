@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.leon.practicemodule.pojo.QbQuestionOption;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -23,4 +24,17 @@ public interface QbQuestionOptionMapper extends BaseMapper<QbQuestionOption> {
     @Select("SELECT id, question_id, option_key, content, sort_order FROM qb_question_option "
             + "WHERE question_id = #{questionId} ORDER BY sort_order, id")
     List<QbQuestionOption> selectDisplayOptions(@Param("questionId") Long questionId);
+
+    /**
+     * 一批题的选项键，交卷时一次取齐（零 N+1）。判分要它只为"单选题的答案字母在集合内吗"，
+     * 仍不选 {@code is_correct}（spec 5.5）。
+     *
+     * <p>IN 的判空在<b>调用方</b>：本模块的纪律是"空集合先发 SQL = MySQL 语法错
+     * = 兜底 handler 谎报服务器繁忙"，{@code ExamBriefs.load} 就是那道闸。
+     */
+    @Select("<script>SELECT question_id AS questionId, option_key AS optionKey"
+            + " FROM qb_question_option WHERE question_id IN"
+            + " <foreach collection='ids' item='i' open='(' separator=',' close=')'>#{i}</foreach>"
+            + " ORDER BY question_id, sort_order, id</script>")
+    List<QuestionOptionKeyRow> selectOptionKeysByQuestions(@Param("ids") Collection<Long> ids);
 }

@@ -670,7 +670,7 @@ public final class PaperLoad {
   - `QuestionOptionKeyRow(long questionId, String optionKey)`；`QbQuestionOptionMapper.selectOptionKeysByQuestions(Collection<Long> ids) : List<QuestionOptionKeyRow>`
   - `AttemptRecordRow(Long questionId, String userAnswerJson, Integer isCorrect, Integer durationMs)`
 
-- [ ] **Step 1：写失败测试**
+- [x] **Step 1：写失败测试**
 
 这份测试用**样例卷 P1 的真实结构**（两个 part、三个 section、四道题 1/6/2/5，`qid 5` 是 `type=5` 简答），所以裁定一/六的口径在真数据形状上被测：
 
@@ -834,7 +834,7 @@ class ExamGradingTest {
 }
 ```
 
-- [ ] **Step 2：跑一次确认红**
+- [x] **Step 2：跑一次确认红**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test -Dtest=ExamGradingTest -Dsurefire.failIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false
@@ -842,7 +842,7 @@ class ExamGradingTest {
 
 期望编译失败：`找不到符号 ExamGrading` / `找不到符号 AttemptRecordRow`。
 
-- [ ] **Step 3：写两个投影记录与批量选项键查询**
+- [x] **Step 3：写两个投影记录与批量选项键查询**
 
 `mapper/QuestionOptionKeyRow.java`：
 
@@ -898,7 +898,7 @@ public record AttemptRecordRow(Long questionId, String userAnswerJson,
                                            @Param("attemptId") Long attemptId);
 ```
 
-- [ ] **Step 4：写 `ExamGrading`**
+- [x] **Step 4：写 `ExamGrading`**
 
 ```java
 package org.leon.practicemodule.service;
@@ -1084,11 +1084,11 @@ public final class ExamGrading {
 }
 ```
 
-- [ ] **Step 5：跑测试确认绿**
+- [x] **Step 5：跑测试确认绿**
 
 期望 `Tests run: 5, Failures: 0`。`allAnswered` 的 `score=30.00` 与 `sectionRollup` 的 `score=10.00` 这两条断言是**卷级求和唯一的守门人**——上面那行 `score = score.add(item.scoreGot())` 一旦漏掉，红的是它们而不是编译错误，这正是把它们写进测试的理由。
 
-- [ ] **Step 6：全量绿 + 报告改动**
+- [x] **Step 6：全量绿 + 报告改动**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test
@@ -3623,7 +3623,28 @@ Tests run: 13, Failures: 0 -- PaperSqlDbIT 10 + AnswerFlowDbIT 3（真库跑过�
 
 `PaperServiceImpl` 因此少了 2 个 import（异常类）、多了 2 个（`PaperLoad`/`PaperSkeleton`），类内 `PUBLIC_OWNER` 常量与私有 `toPartVOs` 删除。
 
-### Task 5.3（待执行）
+### Task 5.3（完成，2026-10-25）
+
+先红：`ExamGradingTest.java:[7,38] 找不到符号`（`AttemptRecordRow`）与 `[41,41] ExamGrading`，两类都是"类不存在"。
+
+绿灯（一次就过，含两条真库用例）：
+
+```
+Tests run: 233, Failures: 0 -- 全量单测（228 + ExamGradingTest 5）
+Tests run: 10, Failures: 0 -- QuestionReadSqlDbIT（9 + 本任务新增的批量选项键那条）
+```
+
+`allAnswered` / `sectionRollup` / `nothingAnswered` / `rebuildMatchesGrade` / `missingBriefIsNotFound` 五条一次全绿，`assemble` 里那行 `score = score.add(item.scoreGot())` 的守门断言成立。
+
+**对计划的五处偏差**：
+
+1. **`allAnswered` 的期望 `score` 从 30.00 改成 24.00**（与 Task 5.9 那条 23.00→17.00 同一类错，也是我算错）。裁定一说明简答题 `scoreGot=0`，所以"全对"的卷子拿不到那道简答的 6.00：`7.00+7.00+10.00=24.00`，而 `fullScore` 仍是 30.00——两者之差恰好就是待自评那题的分值，断言里把这个关系写进注释了。**这是本段第 2 处"计划里的算术与裁定不一致"，Task 5.4~5.9 写测试前先把分值表算一遍。**
+2. **计划 Files 块漏了 `QbUserAnswerRecordMapper.java`**（Step 3/4 明明往它上面加 `selectByAttempt`）。实际改了。
+3. **新增一条真库用例** `optionKeysComeBackInOneBatch`（计划没给这条 `<foreach> IN` 查询任何真库覆盖）。理由是段 3 立过的纪律：动态 SQL 的形态问题（空 IN、别名、漏括号）mock 结构上看不见，只有真库抓得到。钉三件事：qid 1 回 `A,B,C,D`、只回请求的那两道题、投影列不为 null。
+4. **`ORDER BY question_id, sort_order, id`**（计划少 `, id`）。`selectDisplayOptions` 就是 `sort_order, id`——段 3 实测过同科目内 `sort_order` 会重复，选项表同理不能只按 `sort_order` 排，否则字母顺序不确定，判分虽然不受影响（用集合判断）但 `optionKeys` 的测试断言会不稳定。
+5. **`selectByAttempt` 不套 `<script>`**（计划的清单里套了）。这条没有动态片段，包一层只会让下一个人以为里面有。另外测试里的 `org.leon.practicemodule.exception.PracticeErrorCode` 全限定名改成了 import。
+
+**基线更新**：单测 **233**，db-it **27**（`QuestionReadSqlDbIT` 10、`PaperSqlDbIT` 10、`QbQuestionMapperDbIT` 4、`AnswerFlowDbIT` 3）。
 
 ### Task 5.4（待执行）
 
