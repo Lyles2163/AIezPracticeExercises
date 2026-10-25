@@ -24,7 +24,8 @@ class ChatStreamRegistryTest {
             }
         }, new ObjectMapper());
         return new ActiveStream(id, 7L, "alice", channel, new AtomicReference<>(), new StringBuilder("部分内容"),
-                new AtomicReference<>("done"), new AtomicReference<>(new int[]{1, 2}));
+                new AtomicReference<>("done"), new AtomicReference<>(new int[]{1, 2, 3}),
+                new ThinkingTracker(false, 120, 12));
     }
 
     @Test

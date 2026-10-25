@@ -1230,7 +1230,7 @@ Expected: 13/13 绿（本类 5 条 + Task 16 的 8 条）。
   - `ThinkingTracker(boolean enabled, int maxStepChars, int maxSteps)`；`List<String> onReasoning(String)`；`boolean open()`；`List<String> closeAndDrain()`；`double elapsedSeconds()`
   - `ActiveStream` 多一个 record 分量 `ThinkingTracker thinking`
 
-- [ ] **Step 0: 先补测试夹具（否则思考相的用例全是假绿）**
+- [x] **Step 0: 先补测试夹具（否则思考相的用例全是假绿）**
 
 `ChatStreamServiceTest.setUp()` 现在只注册了 `deepseek-chat` 一个模型，而 `prepareNormal()` 走的也是它 —— `ModelParams.supportsThinking` 因此恒为 false，**任何喂 reasoning 的用例都会因为 tracker 关着而"正确地什么都不发"，看着绿其实什么都没测**。所以先加：
 
@@ -1257,7 +1257,7 @@ Expected: 13/13 绿（本类 5 条 + Task 16 的 8 条）。
 
 需要 `import static org.junit.jupiter.api.Assertions.assertFalse;`（该类目前只 import 了 `assertEquals`/`assertThrows`/`assertTrue`）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `ChatStreamServiceTest.java` 追加，全部用 `prepareThinking()`（沿用该类已有的 `recorderChannel()` / `events` 设施）：
 
@@ -1272,7 +1272,9 @@ Expected: 13/13 绿（本类 5 条 + Task 16 的 8 条）。
         List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
         assertEquals(List.of("Meta", "ThoughtStep", "ThoughtStep", "ThoughtEnd",
                 "Delta", "TokenUsage", "Done"), kinds);
-        assertEquals("先算乘法", ((ChatEvent.ThoughtStep) events.get(1)).text());
+        // 边界标点留在句内是 Task 14 的既定规则（见 ReasoningSentenceSplitterTest
+        // .cjkBoundaryIsSelfTerminating 的 "先算乘法。"），计划这条期望原先写漏了句号。
+        assertEquals("先算乘法。", ((ChatEvent.ThoughtStep) events.get(1)).text());
         assertEquals("再核对", ((ChatEvent.ThoughtStep) events.get(2)).text());
         assertTrue(((ChatEvent.ThoughtEnd) events.get(3)).seconds() >= 0.0);
     }
@@ -1361,14 +1363,16 @@ Expected: 13/13 绿（本类 5 条 + Task 16 的 8 条）。
         frames.add(new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null));
 ```
 
-`finalizeAssistant(42L, "字".repeat(chunks), ...)` 那条断言**不用改** —— 它现在同时证明"reasoning 没有漏进正文"。注意 `interactions()` 里 `prepare(...)` 用的还是 `deepseek-chat`（tracker 关着），所以要另加一条走 reasoner 的：把 `interactions(int)` 拆成 `interactions(int chunks, String modelKey)`，`writeCountDoesNotDependOnTokenCount` 里比对 `interactions(3, "deepseek-reasoner")` 与 `interactions(3000, "deepseek-reasoner")`，并保留原有那条 `deepseek-chat` 的比对。**否则哨兵测的是关着的状态。**
+~~`finalizeAssistant(42L, "字".repeat(chunks), ...)` 那条断言**不用改**~~ —— **执行期证伪**：
+按上面的写法一半帧变成了 reasoning，正文只剩 `chunks/2` 个"字"，这条断言必然红。
+实际改法是构造帧流时同步累加一个 `expectedContent`，用它去断言， 它现在同时证明"reasoning 没有漏进正文"。注意 `interactions()` 里 `prepare(...)` 用的还是 `deepseek-chat`（tracker 关着），所以要另加一条走 reasoner 的：把 `interactions(int)` 拆成 `interactions(int chunks, String modelKey)`，`writeCountDoesNotDependOnTokenCount` 里比对 `interactions(3, "deepseek-reasoner")` 与 `interactions(3000, "deepseek-reasoner")`，并保留原有那条 `deepseek-chat` 的比对。**否则哨兵测的是关着的状态。**
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest='ChatStreamServiceTest,ChatStreamWriteCountTest' -Dsurefire.excludedGroups=`
 Expected: 编译失败 —— `ThinkingTracker` 不存在 / `ActiveStream` 构造参数不匹配。
 
-- [ ] **Step 3: 写 `ThinkingTracker`**
+- [x] **Step 3: 写 `ThinkingTracker`**
 
 ```java
 package org.leon.aimodule.chat.stream;
@@ -1381,14 +1385,14 @@ import java.util.List;
  * 计时是编排语义，只有编排层知道"进入正文相"这个时刻。
  * 只被 onNext 串行路径访问，不加锁。
  */
-final class ThinkingTracker {
+public final class ThinkingTracker {
 
     private final ReasoningSentenceSplitter splitter;
     private final boolean enabled;
     private long startedAtNanos = -1L;
     private boolean open;
 
-    ThinkingTracker(boolean enabled, int maxStepChars, int maxSteps) {
+    public ThinkingTracker(boolean enabled, int maxStepChars, int maxSteps) {
         this.enabled = enabled;
         this.splitter = new ReasoningSentenceSplitter(maxStepChars, maxSteps);
     }
@@ -1426,7 +1430,7 @@ final class ThinkingTracker {
 }
 ```
 
-- [ ] **Step 4: `ActiveStream` 挂上它**
+- [x] **Step 4: `ActiveStream` 挂上它**
 
 ```java
 public record ActiveStream(Long messageId, Long conversationId, String userName, SseChannel channel,
@@ -1451,7 +1455,7 @@ public record ActiveStream(Long messageId, Long conversationId, String userName,
 
 （以文件里实际的构造语句为准，实参个数与顺序按上面的形状补 `thinking` 与三槽 `usage`。）
 
-- [ ] **Step 5: `onChunk` 三路**
+- [x] **Step 5: `onChunk` 三路**
 
 ```java
     private void onChunk(ActiveStream stream, ChatModelGateway.ChatChunk chunk) {
@@ -1512,7 +1516,7 @@ public record ActiveStream(Long messageId, Long conversationId, String userName,
 
 `emitQuietly(..., new ChatEvent.TokenUsage(promptTokens, completionTokens, reasoningTokens))`。
 
-- [ ] **Step 6: `retryable` 按状态判定**
+- [x] **Step 6: `retryable` 按状态判定**
 
 `onError` 里替换硬编码 `true`：
 
@@ -1534,19 +1538,19 @@ public record ActiveStream(Long messageId, Long conversationId, String userName,
 
 `stop`/`clientGone`/`timeout` 路径**不调** `closeThinking` —— 流已断，补发只会多一次无意义往返（spec §4.6 的第四行）。
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: `"$MVN" -pl AIModule clean test -Dtest='ChatStreamServiceTest,ChatStreamWriteCountTest,SseChannelTest' -Dsurefire.excludedGroups=`
 Expected: 全绿（`ChatStreamServiceTest` 从 22 涨到 28）。
 
-- [ ] **Step 8: 变异取证**
+- [x] **Step 8: 变异取证**
 
 1. 把 `closeThinking` 的 `if (!open) return;` 去掉 → `noThoughtWhenModelCannotThink` 与 `stopDuringThinking` 至少一条红（不该出现 `thought_end` 的地方出现了）。
 2. 把 `retryable(...)` 改回 `true` → `retryableFollowsStatus` 红。
 3. 把 `ThinkingTracker.onReasoning` 里 `if (!enabled) return List.of();` 去掉 → 需要临时把测试的 tracker 建成 `enabled=false` 才红；**如实记录**：这条守护在 `ChatStreamServiceTest` 里默认构造是 `true`，所以真正的守门人是 Task 13 的 `thinkingSupported` 单一口径，不是 tracker 内部。别为了让变异红而伪造断言。
 恢复，`grep -rn MUTATION AIModule/src/` 为 0。
 
-- [ ] **检查点**：全模块 `clean test` 绿。
+- [x] **检查点**：全模块 `clean test` 绿。
 
 ---
 
@@ -1737,3 +1741,37 @@ JDBC 探针删除本轮取证行（`user_name` 限定），`ai_conversation`/`ai
      省掉 `@SuppressWarnings("unchecked")`；system 仍排在 messages 第一位，与上一期 `ChatClient.system()` 的线上形状一致。
   3. 计划 Step 5 的 `.codec(c -> c.defaultCodecs()...)` 在 spring-webflux 6.1.5 上不存在该方法，
      实际用 `ExchangeStrategies.builder().codecs(cfg -> cfg.defaultCodecs().maxInMemorySize(256*1024)).build()`。
+
+### Task 18 编排层接线 — 完成
+- Step 0 的夹具是**本任务能否测到东西的前提**：`setUp()` 只注册 `deepseek-chat` 时 `supportsThinking` 恒 false，
+  喂 reasoning 的用例会"正确地什么都不发"而假绿。加了 `deepseek-reasoner` + `prepareThinking()` + `reasoning()` 三个夹具。
+- RED 是**断言级**而不是计划预测的"编译失败"：新用例只碰公开 API，不引用 `ThinkingTracker`，
+  所以先编译通过、跑出 5 条红（6 条新用例里 `noThoughtWhenModelCannotThink` 是负向断言，天然先绿）。
+- GREEN：`ChatStreamServiceTest` 28/28（22→28）、`ChatStreamWriteCountTest` 1/1、`SseChannelTest` 8/8、
+  `ChatStreamRegistryTest` 4/4；全模块 `clean test` **180/180**，`ChatMapperDbIT` **8/8**。
+- 计划缺陷与修正（共 5 条，全部有取证）：
+  1. Step 1 的 `assertEquals("先算乘法", ...)` 与 Task 14 自己钉死的规则冲突：CJK 边界标点**留在句内**
+     （`ReasoningSentenceSplitterTest.cjkBoundaryIsSelfTerminating` 断言的就是 `先算乘法。`，
+     且该规则过了三条变异）。所以改的是这条期望（带注释指明依据），不是实现。
+     这不是"改期望凑绿"：依据是另一条已独立取证过的用例，而不是"我想让它绿"。
+  2. Step 3 写 `final class ThinkingTracker`（package-private）与 Step 4 要求
+     `TestTurns.activeStream()` 构造它自相矛盾 —— `TestTurns` 在 `chat.web` 包，看不见 package-private 类型。
+     改为 `public final class`（同包的 `ActiveStream`/`SseChannel` 都是 public，不是对外 API 的扩张）。
+  3. Step 1 说 `finalizeAssistant(42L, "字".repeat(chunks), ...)` "不用改"是错的：按计划自己的写法
+     把一半帧换成 reasoning 后，正文只剩 `chunks/2` 个"字"，那条断言必然红。
+     改成构造帧流时同步累加 `expectedContent`，**顺带让它成为"reasoning 没漏进正文"的断言**。
+  4. Step 8 第 3 条变异预测"需要临时把 tracker 建成 enabled=false 才红"——不必：`prepareNormal()`
+     的 `deepseek-chat` 本身就是 `supportsThinking=false`，摘掉 `!enabled` 判定后恰好
+     `noThoughtWhenModelCannotThink` 1 条红。这条守护是直接可证的，不需要伪造断言。
+  5. Step 8 第 1 条变异预测"至少一条红"，实测 **4 条红**，其中 `emitsHappyPath` 与
+     `upstreamFailureKeepsPartialContent` 是上一期 Task 10 的用例：
+     "不该出现 thought 的流一帧都不能出现"早就被老序列断言守着，这是本轮最好的免费覆盖。
+- 自补变异 4：把 `closeThinking` 塞进 `truncate(...)`（违反 spec §4.6 第四行"stop/断连什么都不发"）
+  → 恰好 `stopDuringThinking` 1 条红。恢复后该行由注释写明，四行时机全部有用例对应。
+- 计划文件清单漏列、但必须一起改的两处：
+  `ChatStreamServiceTest` 的 `recorderChannel()` 假 sink 原本 `default -> {}` 会吞掉 `thought_step`/`thought_end`
+  （Task 15 已把它记为遗留），不补这两个 case 的话所有思考相用例都看不到帧；
+  `ChatStreamRegistryTest` 直接 new `ActiveStream`，参数从 8 个变 9 个（`usage` 同时从 2 槽变 3 槽）。
+- 三路 `onChunk` 的落点：`reasoning` 只喂 tracker 与发帧，**不进 `stream.append`**（不落库由此保证）；
+  正文相由 `closeThinking` 收口（发残留短句 + `thought_end`）；error 相走 `drainThinking`（发短句、不发 `thought_end`）。
+- 恢复后 `grep -rn MUTATION AIModule/src/` = 0。

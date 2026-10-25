@@ -129,7 +129,11 @@ public class ChatStreamService {
     public ActiveStream subscribeAsync(PreparedTurn prepared, SseChannel channel) {
         ActiveStream stream = new ActiveStream(prepared.assistantMessageId(), prepared.conversationId(),
                 prepared.userName(), channel, new AtomicReference<>(), new StringBuilder(),
-                new AtomicReference<>(AiMessage.STOP_DONE), new AtomicReference<>(new int[]{-1, -1}));
+                new AtomicReference<>(AiMessage.STOP_DONE), new AtomicReference<>(new int[]{-1, -1, -1}),
+                // 开关只问 Task 13 收敛出来的 params.supportsThinking()（= 全局开关 ∧ 模型能力），
+                // 这里不许再判第二次，否则"报 true 却发不出内容"的空头旗子会重演。
+                new ThinkingTracker(prepared.params().supportsThinking(),
+                        props.getThinkingMaxStepChars(), props.getThinkingMaxSteps()));
         // 必须先登记再提交任务：秒回的流会在任务跑完时自己摘掉自己，
         // 登记若放在订阅之后，那条已完成的流会被重新塞回注册表成为停不下来的僵尸。
         registry.register(stream.messageId(), stream);
@@ -206,28 +210,60 @@ public class ChatStreamService {
         stream.upstream().set(disposable);
     }
 
-    /** 流式期间这里一次 DB 都不碰：只 append 内存 buffer。 */
+    /** 流式期间这里一次 DB 都不碰：只 append 内存 buffer，reasoning 连 buffer 都不进。 */
     private void onChunk(ActiveStream stream, ChatModelGateway.ChatChunk chunk) {
         if (stream.channel().isClosed()) {
             return;
         }
-        if (chunk.text() != null) {
-            stream.append(chunk.text());
-            try {
-                stream.channel().emit(new ChatEvent.Delta(chunk.text()));
-            } catch (SseChannel.ClientGoneException gone) {
-                stream.disposeUpstream();
-                truncate(stream, AiMessage.STOP_CLIENT_DISCONNECT);
+        if (chunk.reasoning() != null) {
+            for (String step : stream.thinking().onReasoning(chunk.reasoning())) {
+                emitOrDisconnect(stream, new ChatEvent.ThoughtStep(step));
             }
+            return;
+        }
+        if (chunk.text() != null) {
+            closeThinking(stream);
+            stream.append(chunk.text());
+            emitOrDisconnect(stream, new ChatEvent.Delta(chunk.text()));
             return;
         }
         if (chunk.finishReason() != null) {
             stream.finishReason().set(chunk.finishReason());
         }
-        if (chunk.promptTokens() != null || chunk.completionTokens() != null) {
+        if (chunk.promptTokens() != null || chunk.completionTokens() != null
+                || chunk.reasoningTokens() != null) {
             stream.usage().set(new int[]{
                     chunk.promptTokens() == null ? -1 : chunk.promptTokens(),
-                    chunk.completionTokens() == null ? -1 : chunk.completionTokens()});
+                    chunk.completionTokens() == null ? -1 : chunk.completionTokens(),
+                    chunk.reasoningTokens() == null ? -1 : chunk.reasoningTokens()});
+        }
+    }
+
+    /** 进入正文相：把残留短句发完，再发 thought_end。没开过思考相就什么都不发。 */
+    private void closeThinking(ActiveStream stream) {
+        if (!stream.thinking().open()) {
+            return;
+        }
+        double seconds = stream.thinking().elapsedSeconds();
+        for (String step : stream.thinking().closeAndDrain()) {
+            emitOrDisconnect(stream, new ChatEvent.ThoughtStep(step));
+        }
+        emitQuietly(stream.channel(), new ChatEvent.ThoughtEnd(seconds));
+    }
+
+    /** 上游 error 相：短句要发完，但 thought_end 不发（前端据此把思考线标"思考中断"）。 */
+    private void drainThinking(ActiveStream stream) {
+        for (String step : stream.thinking().closeAndDrain()) {
+            emitQuietly(stream.channel(), new ChatEvent.ThoughtStep(step));
+        }
+    }
+
+    private void emitOrDisconnect(ActiveStream stream, ChatEvent event) {
+        try {
+            stream.channel().emit(event);
+        } catch (SseChannel.ClientGoneException gone) {
+            stream.disposeUpstream();
+            truncate(stream, AiMessage.STOP_CLIENT_DISCONNECT);
         }
     }
 
@@ -236,11 +272,15 @@ public class ChatStreamService {
             stream.channel().close();
             return;
         }
+        // 覆盖"全程只有推理、一帧正文都没有"的流
+        closeThinking(stream);
         int[] usage = stream.usage().get();
         Integer promptTokens = usage[0] < 0 ? null : usage[0];
         Integer completionTokens = usage[1] < 0 ? null : usage[1];
+        Integer reasoningTokens = usage[2] < 0 ? null : usage[2];
         if (promptTokens != null || completionTokens != null) {
-            emitQuietly(stream.channel(), new ChatEvent.TokenUsage(promptTokens, completionTokens, null));
+            emitQuietly(stream.channel(),
+                    new ChatEvent.TokenUsage(promptTokens, completionTokens, reasoningTokens));
         }
         String reason = mapFinishReason(stream.finishReason().get());
         repo.finalizeAssistant(stream.messageId(), stream.accumulated(), AiMessage.ST_DONE, reason,
@@ -256,8 +296,10 @@ public class ChatStreamService {
             stream.channel().close();
             return;
         }
+        drainThinking(stream);
         repo.finalizeFailed(stream.messageId(), stream.accumulated(), msg);
-        emitQuietly(stream.channel(), new ChatEvent.ErrorEvt("UPSTREAM_MODEL_ERROR", "模型服务暂时不可用", true));
+        emitQuietly(stream.channel(), new ChatEvent.ErrorEvt("UPSTREAM_MODEL_ERROR",
+                "模型服务暂时不可用", retryable(error)));
         emitQuietly(stream.channel(), new ChatEvent.Done(AiMessage.STOP_UPSTREAM));
         stream.channel().close();
     }
@@ -266,6 +308,7 @@ public class ChatStreamService {
         if (!claim(stream)) {
             return;
         }
+        // stop / 断连 / 超时都不补发 thought_end：流已断，补发只是多一次无意义往返（spec §4.6 第四行）。
         repo.finalizeAssistant(stream.messageId(), stream.accumulated(), AiMessage.ST_TRUNCATED,
                 stopReason, null, null);
         stream.channel().close();
@@ -278,6 +321,15 @@ public class ChatStreamService {
      */
     private boolean claim(ActiveStream stream) {
         return registry.remove(stream.messageId());
+    }
+
+    /** 401/403 是"重试也没用"，其余（408/429/5xx/IO/超时/解析失败）才值得重试。 */
+    private static boolean retryable(Throwable error) {
+        if (error instanceof UpstreamStatusException status) {
+            int code = status.status();
+            return code != 401 && code != 403 && (code == 408 || code == 429 || code >= 500);
+        }
+        return true;
     }
 
     private void emitQuietly(SseChannel channel, ChatEvent event) {

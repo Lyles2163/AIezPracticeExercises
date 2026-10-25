@@ -53,7 +53,11 @@ class ChatStreamServiceTest {
         ChatProperties.Model m = new ChatProperties.Model();
         m.setKey("deepseek-chat");
         m.setName("deepseek-chat");
-        props.setModels(new ArrayList<>(List.of(m)));
+        ChatProperties.Model reasoner = new ChatProperties.Model();
+        reasoner.setKey("deepseek-reasoner");
+        reasoner.setName("deepseek-reasoner");
+        reasoner.setSupportsThinking(true);
+        props.setModels(new ArrayList<>(List.of(m, reasoner)));
         props.setEfforts(efforts(1.0));
 
         repo = mock(ChatTurnRepository.class);
@@ -101,9 +105,19 @@ class ChatStreamServiceTest {
         return new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null);
     }
 
+    private static ChatModelGateway.ChatChunk reasoning(String t) {
+        return new ChatModelGateway.ChatChunk(null, t, null, null, null, null);
+    }
+
     private PreparedTurn prepareNormal() {
         return service.prepare(new StreamCommand(7L, "把这段改成 STAR", "deepseek-chat", "High", "cnd1", false),
                 "alice");
+    }
+
+    /** 走 reasoner 的一轮：ModelParams.supportsThinking 为 true，tracker 才真的开。 */
+    private PreparedTurn prepareThinking() {
+        return service.prepare(new StreamCommand(7L, "17 乘 23", "deepseek-reasoner",
+                "Medium", "cm-think", false), "alice");
     }
 
     @Test
@@ -446,6 +460,87 @@ class ChatStreamServiceTest {
         assertEquals(0, registry.size());
     }
 
+    @Test
+    @DisplayName("思考相帧序：meta → thought_step* → thought_end → delta* → usage → done")
+    void thinkingPhaseOrder() {
+        when(gateway.stream(any(), any())).thenReturn(Flux.just(
+                reasoning("先算乘法。"), reasoning("再核对"),
+                text("391"), finish()));
+        service.subscribeAsync(prepareThinking(), recorderChannel());
+        List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
+        assertEquals(List.of("Meta", "ThoughtStep", "ThoughtStep", "ThoughtEnd",
+                "Delta", "TokenUsage", "Done"), kinds);
+        // 边界标点留在句内是 Task 14 的既定规则（见 ReasoningSentenceSplitterTest
+        // .cjkBoundaryIsSelfTerminating 的 "先算乘法。"），计划这条期望写漏了句号。
+        assertEquals("先算乘法。", ((ChatEvent.ThoughtStep) events.get(1)).text());
+        assertEquals("再核对", ((ChatEvent.ThoughtStep) events.get(2)).text());
+        assertTrue(((ChatEvent.ThoughtEnd) events.get(3)).seconds() >= 0.0);
+    }
+
+    @Test
+    @DisplayName("纯推理无正文就结束，也要收到 thought_end")
+    void reasoningOnlyStillCloses() {
+        when(gateway.stream(any(), any())).thenReturn(Flux.just(reasoning("只想不答。"), finish()));
+        service.subscribeAsync(prepareThinking(), recorderChannel());
+        List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
+        assertEquals(List.of("Meta", "ThoughtStep", "ThoughtEnd", "TokenUsage", "Done"), kinds);
+    }
+
+    @Test
+    @DisplayName("上游 error：flush 已攒步骤，但不发 thought_end")
+    void errorFlushesStepsButNoThoughtEnd() {
+        when(gateway.stream(any(), any())).thenReturn(Flux.concat(
+                Flux.just(reasoning("想到一半")), Flux.error(new IllegalStateException("reset"))));
+        service.subscribeAsync(prepareThinking(), recorderChannel());
+        List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
+        assertEquals(List.of("Meta", "ThoughtStep", "ErrorEvt", "Done"), kinds);
+    }
+
+    @Test
+    @DisplayName("不支持思考的模型一帧 thought 都不发（宁缺毋滥）")
+    void noThoughtWhenModelCannotThink() {
+        when(gateway.stream(any(), any())).thenReturn(Flux.just(
+                reasoning("不该出现的推理"), text("答"), finish()));
+        service.subscribeAsync(prepareNormal(), recorderChannel());   // deepseek-chat
+        assertTrue(events.stream().noneMatch(e -> e instanceof ChatEvent.ThoughtStep), events.toString());
+        assertTrue(events.stream().noneMatch(e -> e instanceof ChatEvent.ThoughtEnd), events.toString());
+    }
+
+    @Test
+    @DisplayName("上游 401 → error{retryable:false}；503 → retryable:true")
+    void retryableFollowsStatus() {
+        when(gateway.stream(any(), any())).thenReturn(
+                Flux.error(new UpstreamStatusException(401, "401 Unauthorized")));
+        service.subscribeAsync(prepareNormal(), recorderChannel());
+        ChatEvent.ErrorEvt e = (ChatEvent.ErrorEvt) events.stream()
+                .filter(x -> x instanceof ChatEvent.ErrorEvt).findFirst().orElseThrow();
+        assertFalse(e.retryable());
+
+        events.clear();
+        when(gateway.stream(any(), any())).thenReturn(
+                Flux.error(new UpstreamStatusException(503, "503 Service Unavailable")));
+        service.subscribeAsync(prepareNormal(), recorderChannel());
+        ChatEvent.ErrorEvt e2 = (ChatEvent.ErrorEvt) events.stream()
+                .filter(x -> x instanceof ChatEvent.ErrorEvt).findFirst().orElseThrow();
+        assertTrue(e2.retryable());
+    }
+
+    @Test
+    @DisplayName("思考相被 stop：不补发 thought_end，落 truncated/stopped 且正文为空")
+    void stopDuringThinking() {
+        when(gateway.stream(any(), any())).thenReturn(
+                Flux.concat(Flux.just(reasoning("想到一半。")), Flux.never()));
+        service.subscribeAsync(prepareThinking(), recorderChannel());
+        service.stop(42L, "alice");
+        List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
+        assertTrue(kinds.contains("ThoughtStep"), "stop 前已经发出去的步骤不能撤回");
+        assertTrue(kinds.stream().noneMatch("ThoughtEnd"::equals), kinds.toString());
+        ArgumentCaptor<String> content = ArgumentCaptor.forClass(String.class);
+        verify(repo).finalizeAssistant(eq(42L), content.capture(), eq(AiMessage.ST_TRUNCATED),
+                eq(AiMessage.STOP_STOPPED), any(), any());
+        assertEquals("", content.getValue(), "推理不落库，所以这一条正文是空的");
+    }
+
     private List<String> kinds() {
         return events.stream().map(e -> switch (e) {
             case ChatEvent.Meta ignored -> "meta";
@@ -500,6 +595,10 @@ class ChatStreamServiceTest {
                                 mapper.readTree(json).get("errorCode").asText(),
                                 mapper.readTree(json).get("msg").asText(),
                                 mapper.readTree(json).get("retryable").asBoolean()));
+                        case "thought_step" -> events.add(new ChatEvent.ThoughtStep(
+                                mapper.readTree(json).get("text").asText()));
+                        case "thought_end" -> events.add(new ChatEvent.ThoughtEnd(
+                                mapper.readTree(json).get("seconds").asDouble()));
                         default -> {
                         }
                     }

@@ -9,10 +9,14 @@ import java.util.concurrent.atomic.AtomicReference;
  * upstream 用 AtomicReference 而不是直接持有 Disposable：注册表必须在订阅上游
  * 之前就登记（否则秒回的流会在登记前就已完成，留下一条永远停不下来的僵尸条目），
  * 而 Disposable 只有 subscribe() 返回后才拿得到。
+ *
+ * usage 是三槽 {-1,-1,-1} = "这帧没带 usage"，依次是 promptTokens、completionTokens、
+ * reasoningTokens；第三槽是 completionTokens 的**拆分**，不是加数，落库与计费都不许把它相加。
  */
 public record ActiveStream(Long messageId, Long conversationId, String userName, SseChannel channel,
                            AtomicReference<reactor.core.Disposable> upstream, StringBuilder buffer,
-                           AtomicReference<String> finishReason, AtomicReference<int[]> usage) {
+                           AtomicReference<String> finishReason, AtomicReference<int[]> usage,
+                           ThinkingTracker thinking) {
 
     public String accumulated() {
         synchronized (buffer) {

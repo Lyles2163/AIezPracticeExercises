@@ -16,7 +16,6 @@ import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,10 +36,15 @@ class ChatStreamWriteCountTest {
     @Test
     @DisplayName("3 帧与 3000 帧的写库交互序列逐条相同")
     void writeCountDoesNotDependOnTokenCount() {
-        assertEquals(interactions(3), interactions(3000), "写库次数随 token 数变化了");
+        // reasoner 那一轮一半的帧是 reasoning：它就是"推理不落库"的哨兵 ——
+        // 谁在思考阶段顺手加一句 touch，这里立刻红。
+        assertEquals(interactions(3, "deepseek-reasoner"), interactions(3000, "deepseek-reasoner"),
+                "带 reasoning 的写库次数随 token 数变化了");
+        assertEquals(interactions(3, "deepseek-chat"), interactions(3000, "deepseek-chat"),
+                "写库次数随 token 数变化了");
     }
 
-    private List<String> interactions(int chunks) {
+    private List<String> interactions(int chunks, String modelKey) {
         ChatTurnRepository repo = mock(ChatTurnRepository.class);
         ChatModelGateway gateway = mock(ChatModelGateway.class);
         ConversationService conversations = mock(ConversationService.class);
@@ -49,7 +53,11 @@ class ChatStreamWriteCountTest {
         ChatProperties.Model m = new ChatProperties.Model();
         m.setKey("deepseek-chat");
         m.setName("deepseek-chat");
-        props.setModels(new ArrayList<>(List.of(m)));
+        ChatProperties.Model reasoner = new ChatProperties.Model();
+        reasoner.setKey("deepseek-reasoner");
+        reasoner.setName("deepseek-reasoner");
+        reasoner.setSupportsThinking(true);
+        props.setModels(new ArrayList<>(List.of(m, reasoner)));
         List<ChatProperties.Effort> efforts = new ArrayList<>();
         for (String k : List.of("Low", "Medium", "High", "Extra", "Max")) {
             ChatProperties.Effort e = new ChatProperties.Effort();
@@ -71,8 +79,16 @@ class ChatStreamWriteCountTest {
         when(repo.insertAssistant(anyLong(), anyLong(), anyString(), anyString(), any())).thenReturn(42L);
         when(repo.activeHistory(anyLong(), anyLong())).thenReturn(List.of());
 
-        List<ChatModelGateway.ChatChunk> frames = new ArrayList<>(
-                IntStream.rangeClosed(1, chunks).mapToObj(i -> chunk("字")).toList());
+        List<ChatModelGateway.ChatChunk> frames = new ArrayList<>();
+        StringBuilder expectedContent = new StringBuilder();
+        for (int i = 1; i <= chunks; i++) {
+            if (i % 2 == 0) {
+                frames.add(chunk("字"));
+                expectedContent.append("字");
+            } else {
+                frames.add(reasoning("思考片段" + i + "。"));
+            }
+        }
         frames.add(new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null));
         when(gateway.stream(any(), any())).thenReturn(Flux.fromIterable(frames));
 
@@ -82,7 +98,7 @@ class ChatStreamWriteCountTest {
                 gateway, registry, props, Runnable::run);
 
         PreparedTurn prepared = service.prepare(
-                new StreamCommand(7L, "问题", "deepseek-chat", "High", "cm", false), "alice");
+                new StreamCommand(7L, "问题", modelKey, "High", "cm", false), "alice");
         service.subscribeAsync(prepared, silentChannel());
 
         InOrder order = inOrder(repo);
@@ -91,11 +107,12 @@ class ChatStreamWriteCountTest {
         order.verify(repo).findByClientMsgId(7L, "cm");
         order.verify(repo).insertUser(7L, "问题", "cm");
         order.verify(repo).touch(7L, 41L, "问题", 1);
-        order.verify(repo).insertAssistant(7L, 41L, "deepseek-chat", "High", "cm:a");
+        order.verify(repo).insertAssistant(7L, 41L, modelKey, "High", "cm:a");
         order.verify(repo).touch(7L, 42L, "问题", 1);
         order.verify(repo).renameIfDefault(7L, "问题");
         order.verify(repo).activeHistory(7L, 41L);
-        order.verify(repo).finalizeAssistant(42L, "字".repeat(chunks), AiMessage.ST_DONE,
+        // 期望正文只由 content 帧组成：reasoning 若漏进正文，这条断言就会红
+        order.verify(repo).finalizeAssistant(42L, expectedContent.toString(), AiMessage.ST_DONE,
                 AiMessage.STOP_DONE, 812, 1640);
         // 上面列出的就是全部：3000 帧与 3 帧都只到这里为止，一次都不许多
         verifyNoMoreInteractions(repo);
@@ -112,6 +129,10 @@ class ChatStreamWriteCountTest {
 
     private static ChatModelGateway.ChatChunk chunk(String text) {
         return new ChatModelGateway.ChatChunk(text, null, null, null, null, null);
+    }
+
+    private static ChatModelGateway.ChatChunk reasoning(String text) {
+        return new ChatModelGateway.ChatChunk(null, text, null, null, null, null);
     }
 
     private static SseChannel silentChannel() {
