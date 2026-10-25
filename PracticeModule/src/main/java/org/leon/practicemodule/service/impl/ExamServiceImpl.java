@@ -3,6 +3,8 @@ package org.leon.practicemodule.service.impl;
 import org.leon.practicemodule.config.PracticeProperties;
 import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
+import org.leon.practicemodule.mapper.AttemptPageRow;
+import org.leon.practicemodule.mapper.AttemptRecordRow;
 import org.leon.practicemodule.mapper.QbExamAttemptMapper;
 import org.leon.practicemodule.mapper.QbPaperMapper;
 import org.leon.practicemodule.mapper.QbQuestionMapper;
@@ -12,14 +14,18 @@ import org.leon.practicemodule.pojo.QbExamAttempt;
 import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestion;
 import org.leon.practicemodule.pojo.QbQuestionOption;
+import org.leon.practicemodule.pojo.vo.ExamAttemptItemVO;
 import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
+import org.leon.practicemodule.pojo.vo.ExamResultVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
+import org.leon.practicemodule.pojo.vo.PageVO;
 import org.leon.practicemodule.pojo.vo.QuestionVO;
 import org.leon.practicemodule.service.ExamAnswers;
 import org.leon.practicemodule.service.ExamBriefs;
 import org.leon.practicemodule.service.ExamDeadline;
 import org.leon.practicemodule.service.ExamFinalizer;
+import org.leon.practicemodule.service.ExamGrading;
 import org.leon.practicemodule.service.ExamResults;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.PaperLoad;
@@ -28,10 +34,12 @@ import org.leon.practicemodule.service.PaperSkeleton;
 import org.leon.practicemodule.service.PaperStructure;
 import org.leon.practicemodule.service.PaperStructureParser;
 import org.leon.practicemodule.service.PaperStructureValidator;
+import org.leon.practicemodule.service.PracticePages;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -239,6 +247,111 @@ public class ExamServiceImpl implements ExamService {
                 throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "该题不在这张卷子里：" + key);
             }
         }
+    }
+
+    /**
+     * 交卷。终态判定只有两种：<b>没过期 → 2，过期 → 3</b>，两者都照常判分（§6.4 的"超时提交仍给成绩"）。
+     *
+     * <p>已经是终态的 attempt 走 {@link #rebuildResult} 而不是闸门：双击的第二次几乎零成本，
+     * 而且<b>不可能重复展开行</b>——重复展开会让错题本 {@code wrong_count} 与成绩单行数一起失真。
+     */
+    @Override
+    @Transactional
+    public ExamResultVO submit(Long userId, Long attemptId) {
+        if (attemptId == null) {
+            throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法");
+        }
+        QbExamAttempt attempt = loadOwnAttempt(userId, attemptId);
+        QbPaper paper = PaperLoad.loadVisible(paperMapper, userId, attempt.getPaperId());
+        PaperStructure structure = PaperStructureParser.parse(paper.getStructureJson());
+
+        if (attempt.getStatus() == null || attempt.getStatus() != 1) {
+            return rebuildResult(attempt, paper, structure);
+        }
+        if (attempt.getStartedAt() == null) {
+            // 算不出用时，也定不出"这条草稿是哪一次开考"。这种行只能来自手改库。
+            throw new PracticeException(PracticeErrorCode.CONFLICT, "作答数据异常，请重新进入考试");
+        }
+        long now = System.currentTimeMillis();
+        int terminal = ExamDeadline.expired(attempt.getDeadlineAt(), now, graceSeconds())
+                ? STATUS_ARCHIVED : STATUS_SUBMITTED;
+        ExamFinalizer.Outcome outcome = finalizer.finalizeAttempt(attempt, structure, paper, terminal, now);
+        return ExamResults.toVO(outcome.attempt(), paper, outcome.grade());
+    }
+
+    /**
+     * 成绩单的<b>重建</b>路径：{@code attempt/detail} 与"闸门已关上/本来就终态"的 {@code submit} 共用（裁定四）。
+     *
+     * <p>{@code briefs.load(structure, false)} 里那个 {@code false} 是本方法的要点：
+     * 已交卷的成绩单不能因为运营下架一道题就看不见。判分路径传的是 {@code true}（在
+     * {@link ExamFinalizer#finalizeAttempt} 里），两条时机共用同一个取数函数、只差一次 status 判断。
+     */
+    private ExamResultVO rebuildResult(QbExamAttempt attempt, QbPaper paper, PaperStructure structure) {
+        Map<Long, ExamGrading.Brief> brief = briefs.load(structure, false);
+        List<AttemptRecordRow> rows = recordMapper.selectByAttempt(attempt.getUserId(), attempt.getId());
+        return ExamResults.toVO(attempt, paper, ExamGrading.fromStored(structure, rows, brief));
+    }
+
+    /** 历次作答：两条 SQL（count + 页），行内字段全来自投影行，零 N+1 */
+    @Override
+    public PageVO<ExamAttemptItemVO> attemptPage(Long userId, Long paperId,
+                                                 Long pageNum, Long pageSize) {
+        if (paperId == null) {
+            throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法");
+        }
+        PracticePages.PageParam page = PracticePages.of(pageNum, pageSize);
+        QbPaper paper = paperMapper.selectById(paperId);
+        if (paper == null) {
+            throw new PracticeException(PracticeErrorCode.NOT_FOUND, "试卷不存在");
+        }
+        long total = attemptMapper.countForPaper(userId, paperId);
+        if (total == 0L) {
+            return PageVO.of(List.of(), 0L, page.pageNum(), page.pageSize());
+        }
+        List<AttemptPageRow> rows = attemptMapper.selectAttemptPage(userId, paperId,
+                page.offset(), page.pageSize());
+        int questionCount = paper.getQuestionCount() == null ? 0 : paper.getQuestionCount();
+        List<ExamAttemptItemVO> list = new ArrayList<>(rows.size());
+        for (AttemptPageRow row : rows) {
+            ExamAttemptItemVO vo = new ExamAttemptItemVO();
+            vo.setAttemptId(row.attemptId());
+            vo.setSeqNo(row.seqNo());
+            vo.setStatus(row.status());
+            vo.setScore(row.score());
+            vo.setSubmitAt(row.submitAt() == null ? null : row.submitAt().getTime());
+            vo.setDurationUsedMs(row.durationUsedMs());
+            vo.setCorrectCount(row.correctCount());
+            vo.setWrongCount(row.wrongCount());
+            vo.setUnansweredCount(row.unansweredCount());
+            // 待自评数不存列（qb_exam_attempt 只有 17 列，段 4 实测），用减法：
+            // 三个快照计数都是可空的，草稿态全 NULL，所以先判空再减，不给 0 假装"没有待自评"。
+            if (row.correctCount() != null || row.wrongCount() != null || row.unansweredCount() != null) {
+                vo.setPendingSelfJudgeCount(questionCount - nz(row.correctCount())
+                        - nz(row.wrongCount()) - nz(row.unansweredCount()));
+            }
+            list.add(vo);
+        }
+        return PageVO.of(list, total, page.pageNum(), page.pageSize());
+    }
+
+    @Override
+    public ExamResultVO attemptDetail(Long userId, Long attemptId) {
+        if (attemptId == null) {
+            throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法");
+        }
+        QbExamAttempt attempt = loadOwnAttempt(userId, attemptId);
+        if (attempt.getStatus() == null || attempt.getStatus() == 1) {
+            throw new PracticeException(PracticeErrorCode.EXAM_SUBMITTED, "该次作答尚未提交");
+        }
+        QbPaper paper = paperMapper.selectById(attempt.getPaperId());
+        if (paper == null) {
+            throw new PracticeException(PracticeErrorCode.NOT_FOUND, "试卷不存在");
+        }
+        return rebuildResult(attempt, paper, PaperStructureParser.parse(paper.getStructureJson()));
+    }
+
+    private static int nz(Integer value) {
+        return value == null ? 0 : value;
     }
 
     /** attempt 归属判据：不存在 40400，不是本人 40300（spec 5.7 的两码必须在同一处分支上分开） */

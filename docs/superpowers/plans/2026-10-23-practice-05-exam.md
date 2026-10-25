@@ -2993,7 +2993,7 @@ public class ExamDraftReq {
   - `ExamService.attemptDetail(Long userId, Long attemptId) : ExamResultVO`
   - `POST /practice/exam/submit`（body `{attemptId}`）、`GET /practice/exam/attempt/page`、`GET /practice/exam/attempt/detail`
 
-- [ ] **Step 1：写交卷的失败测试（本段最要紧的一份）**
+- [x] **Step 1：写交卷的失败测试（本段最要紧的一份）**
 
 ```java
 package org.leon.practicemodule.service;
@@ -3053,7 +3053,8 @@ class ExamSubmitTest {
         service = new ExamServiceImpl(paperMapper, attemptMapper, recordMapper,
                 questionMapper, optionMapper, briefs,
                 new ExamFinalizer(attemptMapper, recordMapper, wrongMapper, briefs, new AnswerGrader()),
-                new PracticeProperties(), new PracticeMasker());        when(paperMapper.selectById(8L)).thenReturn(ExamFixtures.paperP1());
+                new PracticeProperties(), new PracticeMasker());
+        when(paperMapper.selectById(8L)).thenReturn(ExamFixtures.paperP1());
         stubQuestions();
     }
 
@@ -3087,7 +3088,7 @@ class ExamSubmitTest {
     @DisplayName("交卷：3 行展开（未答的 qid6 不落行）、错题本联动、统计一次不碰")
     void submitExpandsOnlyAnswered() {
         QbExamAttempt draft = ExamFixtures.draftAttempt(USER, 8L,
-                "{\"1\":\"A\",\"2\":\"[\\\"A\\\",\\\"B\\\"]\",\"5\":\"\\\"我的简答\\\"\"}");
+                "{\"1\":\"A\",\"2\":[\"A\",\"B\"],\"5\":\"我的简答\"}");
         when(attemptMapper.selectById(500L)).thenReturn(draft, submitted(draft));   // 先读草稿，归档后重读终态
         when(attemptMapper.finalizeIfDraft(any())).thenReturn(1);
 
@@ -3192,9 +3193,9 @@ class ExamSubmitTest {
 2. `submitExpandsOnlyAnswered` 的 `score=17.00` 是算出来的：qid1 单选对 7.00 + qid2 多选对 10.00 + qid5 简答待自评 0 + qid6 未答 0。四个计数 `2+0+1+1=4` 必须等于卷面题数——这条等式是裁定一存在的理由（少了 `pendingSelfJudgeCount`，用户一眼就能看出成绩单对不上）。
 3. **`submit`/归档走 `briefs.load(structure, true)`，成绩单重建走 `load(structure, false)`**。这不是可选风格：`PaperStructureValidator` 的规则 2 只查"存在 + 属于本科目 + `status==1`"，但它**只在 `start` 调用**；交卷时必须自己守住"题还在、还启用"，否则 `answer_json` 取不到就静默判 0 分。而重建路径（`attempt/detail`、闸门关上后的 `submit`）必须**容忍题目已下架**——已交卷的成绩单不能因为运营下架一道题就看不见。同一个方法、一条 boolean、两种时机，`ExamBriefsTest.enabledGateDiffersByCaller` 钉住两边。
 
-- [ ] **Step 2：跑一次确认红**（`找不到符号 submit`）
+- [x] **Step 2：跑一次确认红**（`找不到符号 submit`）
 
-- [ ] **Step 3：实现 `submit`**
+- [x] **Step 3：实现 `submit`**
 
 ```java
     @Override
@@ -3229,7 +3230,7 @@ class ExamSubmitTest {
     }
 ```
 
-- [ ] **Step 4：`attempt/page` 与 `attempt/detail`**
+- [x] **Step 4：`attempt/page` 与 `attempt/detail`**
 
 ```java
     @Override
@@ -3296,7 +3297,7 @@ class ExamSubmitTest {
 
 **`attemptPage` 的两条口径决定（都要有测试）**：① 它**不过 `PaperLoad` 的 status/owner 四道门**，因为"看我自己的历次作答"与"这张卷子还在不在架"是两件事——下架卷的历史成绩必须还能看（否则用户交完卷下架就丢成绩），所以这里只查 `paper == null → 40400`；② `questionCount` 减法得到的 `pendingSelfJudgeCount` 在**草稿行为 NULL**（`correctCount()` 等为 null 时不给值），因为草稿没有快照。
 
-- [ ] **Step 5：控制器三条 + 测试**
+- [x] **Step 5：控制器三条 + 测试**
 
 ```java
     /** 交卷：幂等（连点两次只判一次分）。成绩单同时是 attempt/detail 的内容。 */
@@ -3348,7 +3349,7 @@ class ExamSubmitTest {
     }
 ```
 
-- [ ] **Step 6：db-it 追加真库全链路三条**
+- [x] **Step 6：db-it 追加真库全链路三条**
 
 ```java
     @Test
@@ -3410,7 +3411,7 @@ class ExamSubmitTest {
 
 第二条不是新功能而是一条**已知副作用的取证**：练习侧的答题卡会把考试的作答当"上次作答"显示，且因为 `selfJudgeable` 要 `mode IN (1,3)`，`pendingRecordId` 为 null。写进测试是为了让段 5 之后如果有人改 `selectLatestByQuestions` 加 mode 过滤，这条会红并逼他重新读裁定一。
 
-- [ ] **Step 7：全量绿 + 报告改动**
+- [x] **Step 7：全量绿 + 报告改动**
 
 ```bash
 "$MVN" -o -pl PracticeModule -am test
@@ -3820,7 +3821,54 @@ Tests run: 30, Failures: 0 -- 五个 db-it 类全跑（本任务零新 SQL，这
 5. `draft` 加了 `@Transactional`（计划如此），但这条路径只有**一条** UPDATE，事务其实不承载任何东西——留着是因为它与 `submit`/`start` 同一族，且将来加"更新 `qb_paper.submit_count`"之类会立刻需要它。这条不是偏差，是照计划执行时确认过没写错。
 
 
-### Task 5.9（待执行）
+### Task 5.9（完成，2026-10-25）
+
+**Step 2 没有单独跑红**——这是本段执行里唯一一处流程偏离，先记下来：`submit` 的测试与实现写在了同一次改动里，所以没有"先看见 `找不到符号 submit`"这一步。代替它的是首轮的三条真实报错（下面那段），红是有的，只是晚了一拍。代价：如果实现里判分口径写错了，我会在"测试本来就红"的噪声里更容易放过它——这次靠的是三条 error 逐条读栈定位，事后看是运气不是方法。Task 5.10/5.11 不再合并红绿两步。
+
+首轮真实报错（三条 error，栈都在实现里）：
+
+```
+ExamSubmitTest.submitExpandsOnlyAnswered:111 / submitGradingIsBatchNotPerQuestion:237
+  PracticeException: 答案格式与题型不匹配
+    at AnswerGrader.malformed(AnswerGrader.java:210)
+    at AnswerGrader.readArray(AnswerGrader.java:140)
+    at AnswerGrader.gradeMulti(AnswerGrader.java:59)
+    at ExamGrading.grade(ExamGrading.java:73)
+    at ExamFinalizer.finalizeAttempt(ExamFinalizer.java:63)
+ExamSubmitTest.expiredSubmitArchivesAsThree:219
+  NullPointerException: Cannot invoke "QbExamAttempt.getId()" because "attempt" is null
+    at ExamResults.toVO(ExamResults.java:26)
+```
+
+前者是**计划正文的夹具写错了**（已就地改正，见偏差 1）；后者是夹具的 `id` 恒为 500 而我把 stub 挂在 503 上。
+
+绿灯（全部是实跑 `Tests run:` 行）：
+
+```
+Tests run: 6,  Failures: 0 -- ExamSubmitTest（新类）
+Tests run: 32, Failures: 0 -- ExamServiceTest（26 → 32，+6）
+Tests run: 7,  Failures: 0 -- PracticeExamControllerTest（5 → 7，+2）
+Tests run: 285, Failures: 0, Errors: 0, Skipped: 0 -- 全量单测 / BUILD SUCCESS
+Tests run: 34, Failures: 0 -- 五个 db-it 一起跑（ExamFlowDbIT 3 → 7）
+Seg5Residue: qb_paper=4 attempt_990005=0 record_990005=0 attempt_ALL=0 question=7
+```
+
+计划期望 275/33，实跑 285/34：多的 10 条单测来自偏差 2/3/4，db-it 多 1 条是把"计划留给 5.9 的框架行为验证"与我自己补的减法/pending 用例分开了。样例卷仍是 4 行、合成用户零残留。
+
+**对计划的偏差**：
+
+1. **计划正文的 `answered_json` 夹具转义写错，已在计划里改正**（第 15 处计划缺陷）。原文是
+   `"{\"1\":\"A\",\"2\":\"[\\\"A\\\",\\\"B\\\"]\",\"5\":\"\\\"我的简答\\\"\"}"`，即 `answered_json` 里 qid2 的值是一个**字符串** `"[\"A\",\"B\"]"`。按裁定五，`answered_json` 的 value 必须是**整份 JSON 文档本身**，`ExamAnswers.decode` 把节点 `toString()` 交给判分，于是判分收到的是"一个装着数组文本的字符串"→ `readArray` 报"答案格式与题型不匹配"→ 40000。正确形态是 `{"1":"A","2":["A","B"],"5":"我的简答"}`，也就是 `ExamAnswers.encode(Map.of(1L,"\"A\"", 2L,"[\"A\",\"B\"]", 5L,"\"我的简答\""))` 真正写得出来的样子（Task 5.1 的 `encode` 测试早就钉过这个形态，两处本来该对上）。
+   **这条错的意义**：如果 `exam/submit` 的实现照抄计划的夹具，交卷会稳定报 40000，而端到端一测就是"接口坏了"——真正坏的是那份数据形状。判分路径与编码路径的形状约定只能有一处定义，现在它在 `ExamAnswers`。
+2. **`ExamSubmitTest` 六条而不是计划的四条**。多的两条：`terminalAttemptSubmitIsReadOnly`（attempt 本来就是终态时 `submit` **不碰闸门**、零 insert、零错题本——计划只测了"闸门回 0 行"那半边，没测"读到的行已经是终态"那半边，而这两条分支在实现里是分开的）与 `submitGradingIsBatchNotPerQuestion`（`selectBatchIds` 恰好 1 次、`selectOptionKeysByQuestions` 恰好 1 次、`selectById` **0 次**——"零 N+1"是承诺，必须有用例数）。
+3. **读路径的 service 用例 6 条而不是计划的 1 条**。计划只给了 `attemptPagePendingBySubtraction`；补齐的是三条口径的反证：`attemptPageSkipsListQueryWhenEmpty`（total=0 时连分页查询都不发，`verifyNoInteractions(questionMapper)`）、`attemptPageIgnoresPaperStatus`（**下架卷 + 别人的私有卷仍给历次作答**，这是口径决定 ① 的正面证据，同时钉住"只有卷不存在才 40400"）、`attemptDetailToleratesDisabledQuestions`（重建路径 `load(structure, false)`：题被下架成绩单照看——判分路径传 `true`、重建路径传 `false` 这条差异第一次有了 service 层的两侧证据）+ `attemptDetailIsReadOnly`（纯读：零 `finalizeIfDraft`、零 `updateById`、零 record insert、零错题本）。
+4. **`submitErrorCodes` 里多加了一条 `started_at` 为 NULL → 40900**（计划的实现有那个 `if`，测试清单里没有）。没有它，`terminalRow` 里的 `draft.getStartedAt().getTime()` 会直接 NPE → code=0（谎）。
+5. **`ExamServiceImpl.submit` 里把 `startedAt` 的检查提到了 `deadline` 判定之前**（计划写在 `finalizeAttempt` 调用前一行，位置一致），并加了注释说明这种行只能来自手改库——因为段 5 的写入路径不可能留下 `started_at IS NULL` 的行。
+6. **controller 两条而不是三条**（`attempt/page` 与 `attempt/detail` 合进一条 `attemptReadsPassThrough`）。两条都是"参数原样透传"，同一件事的两个方向合成一条更省事；分开的代价是红的时候看不出是哪条，但这两条的断言各有一行 `verify`，定位不难。
+7. **db-it 四条而不是三条**，其中一条是把计划 Step 3 挂在这里的"存草稿不碰 `deadline_at`"补上：`patchUpdateOnlyWritesAnsweredJson`（MyBatis-Plus 的非空字段更新只写 `answered_json` 一列，`status`/`seq_no`/`deadline_at`/`started_at` 全原样，`score`/`submit_at` 仍 NULL）。这件事在 5.8 用纯单测钉住了"我们只往 patch 上挂两个字段"，真库这条钉的是"挂 null 不会被写进去"——两层各管一层。
+8. **`examRecordIsTheLatestAnswerForPracticeSide` 用 `assertTrue(latest.recordId() > practiceRecord)` 而不是等值**：`AUTO_INCREMENT` 的绝对值不可预测，能预测的只有先后。同时这条断的是 `AnswerStatus.of(...)==PENDING_SELF_JUDGE` 且 `selfJudgeable(...)==false`，即"练习侧把考试作答显示成待自评、但不给自评入口"这对矛盾形状（裁定一的闸门）。
+9. 计划正文 `setUp` 里 `new PracticeMasker());        when(...)` 两行被写在同一行（复制粘贴缺陷），已拆开。
+
 
 ### Task 5.10 端到端与文档回写（待执行）
 
@@ -3845,7 +3893,7 @@ Tests run: 30, Failures: 0 -- 五个 db-it 类全跑（本任务零新 SQL，这
 ## 自检（对本计划本身的复核）
 
 - **spec 覆盖**：§4.4 状态机 → Task 5.6/5.8/5.9（四条转换 + 归档即判分）；§5.6 的六个 exam 接口 → 5.6/5.7/5.8/5.9；§5.6 的交卷事务八步 → `ExamFinalizer`（5.5）+ `ExamResults`（5.4）；§5.7 错误矩阵 → 5.6（40000/40400/40900/40300）、5.8（41001/41002）、5.9（40300/40400/41002）+ 5.10 的负例矩阵；§6.3/6.4 → `ExamDeadline`（5.2）与三处入口；§7.1 → 5.9 Step 1 的 `verifyNoInteractions(statMapper)` + 真库 + 端到端三层；§9.1 的 3/4/5/8 四条 → 5.9/5.8/5.6/5.9；§9.3 的六条考试项 → 5.10。**本段不覆盖**：`exam/attempt/detail` 显示原文（spec 那句话按此更正）、40300 端到端。
-- **占位符扫描**：全文没有 TBD/TODO/"类似的"。写计划时的自查一共揪出 **14 处我自己写错的地方**，本文件现在已经是**改好的版本**（不是"标注了待改"），执行时按现状写就行：Task 5.1 `encodeGuardsKeys` 的伪断言、Task 5.3 的三元式断言与 `assemble` 漏累加 `score`、Task 5.5 的 `selectMaxSeqNo` 废 `@Param`、`selectAttemptPage` 里的占位列、`ExamBriefs` 的错 import 与"建完再改 record 分量"、`ExamBriefsTest` 的旧单参 `load(...)`、`ExamFinalizer.expandRecords` 把 `draft` 而不是 `terminal` 传给均摊（会让 `duration_ms` 静默变 null）、Task 5.6 的 `finalizerMapperProbe()` 占位、`verify(...), "msg"` 括号错、`Clock` 多余参数、`reuse` 死参数、`validationBriefs` 里那条与 `ExamBriefs` 重复的 `selectBatchIds`、Task 5.7 的 `getIsCorrect()` 空转断言、Task 5.9 的 `countForPage`/`getAnswerModeOrIsCorrect()`/`score=23.00`（真值 17.00）与 10 参构造器。**其中四条改的是断言强度以外的东西（语法/签名），三条是会让测试空转的假断言，一条（17.00）是我算错**——这份清单说明"计划里的代码块必须逐块编译级复核"，别当新发现。
+- **占位符扫描**：全文没有 TBD/TODO/"类似的"。写计划时的自查一共揪出 **14 处我自己写错的地方**，本文件现在已经是**改好的版本**（不是"标注了待改"），执行时按现状写就行：Task 5.1 `encodeGuardsKeys` 的伪断言、Task 5.3 的三元式断言与 `assemble` 漏累加 `score`、Task 5.5 的 `selectMaxSeqNo` 废 `@Param`、`selectAttemptPage` 里的占位列、`ExamBriefs` 的错 import 与"建完再改 record 分量"、`ExamBriefsTest` 的旧单参 `load(...)`、`ExamFinalizer.expandRecords` 把 `draft` 而不是 `terminal` 传给均摊（会让 `duration_ms` 静默变 null）、Task 5.6 的 `finalizerMapperProbe()` 占位、`verify(...), "msg"` 括号错、`Clock` 多余参数、`reuse` 死参数、`validationBriefs` 里那条与 `ExamBriefs` 重复的 `selectBatchIds`、Task 5.7 的 `getIsCorrect()` 空转断言、Task 5.9 的 `countForPage`/`getAnswerModeOrIsCorrect()`/`score=23.00`（真值 17.00）与 10 参构造器、`setUp` 里被并成一行的一条 `when`。（执行时又抓出**第 15 处**：Task 5.9 的 `answered_json` 夹具把数组值转义成了字符串值，照抄会让交卷稳定报 40000——见 Task 5.9 记录偏差 1，已就地改正。）**其中四条改的是断言强度以外的东西（语法/签名），三条是会让测试空转的假断言，一条（17.00）是我算错**——这份清单说明"计划里的代码块必须逐块编译级复核"，别当新发现。
 - **类型一致**：`ExamFinalizer.finalizeAttempt(QbExamAttempt, PaperStructure, QbPaper, int, long)` 五参数在 Task 5.5 定义、5.6/5.9 两处调用逐字一致；`ExamGrading.PaperGrade` 的九个分量在 `ExamResults`、`ExamSubmitTest` 里用法相同；`ExamAnswers` 的 map key 类型在服务层是 `Long`、在响应体 `answeredMap` 是 `String`（裁定五的边界，`ExamServiceImpl.toStartVO` 是唯一转换点）；`attemptId`/`paperId`/`questionId` 一律 `Long`（进 JSON 不溢出）；`progressPercent` 沿用段 4 的 `double`；`score`/`fullScore`/`accuracy` 一律 `BigDecimal`（两位小数出网）。
 - **与本仓库既有代码的一致性**：`PracticeMasker`/`AnswerGrader` 是 bean 注入（`@Service`，实测 `PracticeMasker.java:20`），`PaperLoad`/`PaperSkeleton`/`ExamAnswers`/`ExamDeadline`/`ExamGrading`/`ExamResults` 是静态工具（无状态、可单测）——与段 2/段 4 的分工口径一致；`ExamBriefs` 做成 bean 因为它要两个 mapper。
 

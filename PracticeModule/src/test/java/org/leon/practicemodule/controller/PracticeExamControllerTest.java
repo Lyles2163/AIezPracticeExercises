@@ -8,12 +8,16 @@ import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
 import org.leon.practicemodule.pojo.ExamDraftReq;
 import org.leon.practicemodule.pojo.ExamStartReq;
+import org.leon.practicemodule.pojo.ExamSubmitReq;
 import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
+import org.leon.practicemodule.pojo.vo.ExamResultVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
+import org.leon.practicemodule.pojo.vo.PageVO;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.UserIdentityService;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -110,5 +114,42 @@ class PracticeExamControllerTest {
 
         assertThrows(PracticeException.class, () -> controller.draft("alice", null));
         verify(examService).draft(10L, null, null);
+    }
+
+    @Test
+    @DisplayName("submit：只交 attemptId，成绩由服务层判；空 body 落到服务层的 40000")
+    void submitPassesThrough() {
+        when(identity.resolveUserId("alice")).thenReturn(10L);
+        ExamResultVO vo = new ExamResultVO();
+        vo.setAttemptId(500L);
+        when(examService.submit(10L, 500L)).thenReturn(vo);
+        ExamSubmitReq req = new ExamSubmitReq();
+        req.setAttemptId(500L);
+
+        Result<ExamResultVO> r = controller.submit("alice", req);
+
+        assertEquals(1, r.getCode());
+        assertEquals(500L, r.getData().getAttemptId());
+        verify(examService).submit(10L, 500L);
+
+        when(examService.submit(10L, null)).thenThrow(
+                new PracticeException(PracticeErrorCode.BAD_REQUEST, "请求参数不合法"));
+        assertThrows(PracticeException.class, () -> controller.submit("alice", null));
+        verify(examService).submit(10L, null);
+    }
+
+    @Test
+    @DisplayName("attempt/page 与 attempt/detail：query 参数原样透传，分页缺省交给 PracticePages")
+    void attemptReadsPassThrough() {
+        when(identity.resolveUserId("alice")).thenReturn(10L);
+        when(examService.attemptPage(10L, 8L, null, null)).thenReturn(PageVO.of(List.of(), 0L, 1L, 20L));
+        ExamResultVO detail = new ExamResultVO();
+        detail.setAttemptId(500L);
+        when(examService.attemptDetail(10L, 500L)).thenReturn(detail);
+
+        assertEquals(1, controller.attemptPage("alice", 8L, null, null).getCode());
+        assertEquals(500L, controller.attemptDetail("alice", 500L).getData().getAttemptId());
+        verify(examService).attemptPage(10L, 8L, null, null);
+        verify(examService).attemptDetail(10L, 500L);
     }
 }

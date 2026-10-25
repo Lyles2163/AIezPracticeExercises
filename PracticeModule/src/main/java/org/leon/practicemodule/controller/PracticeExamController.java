@@ -3,9 +3,13 @@ package org.leon.practicemodule.controller;
 import org.leon.commonjwt.pojo.Result;
 import org.leon.practicemodule.pojo.ExamDraftReq;
 import org.leon.practicemodule.pojo.ExamStartReq;
+import org.leon.practicemodule.pojo.ExamSubmitReq;
+import org.leon.practicemodule.pojo.vo.ExamAttemptItemVO;
 import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
+import org.leon.practicemodule.pojo.vo.ExamResultVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
+import org.leon.practicemodule.pojo.vo.PageVO;
 import org.leon.practicemodule.service.ExamService;
 import org.leon.practicemodule.service.UserIdentityService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,5 +61,32 @@ public class PracticeExamController {
         Long userId = userIdentityService.resolveUserId(userName);
         ExamDraftReq body = req == null ? new ExamDraftReq() : req;
         return Result.success(examService.draft(userId, body.getAttemptId(), body.getAnswers()));
+    }
+
+    /** 交卷：幂等（连点两次只判一次分）。成绩单同时就是 attempt/detail 的内容。 */
+    @PostMapping("/submit")
+    public Result<ExamResultVO> submit(@RequestHeader("X-User-Name") String userName,
+                                       @RequestBody(required = false) ExamSubmitReq req) {
+        Long userId = userIdentityService.resolveUserId(userName);
+        ExamSubmitReq body = req == null ? new ExamSubmitReq() : req;
+        return Result.success(examService.submit(userId, body.getAttemptId()));
+    }
+
+    /** 某张卷子的历次作答（卡片上"已提交次数"点进去的那页） */
+    @GetMapping("/attempt/page")
+    public Result<PageVO<ExamAttemptItemVO>> attemptPage(@RequestHeader("X-User-Name") String userName,
+                                                         @RequestParam Long paperId,
+                                                         @RequestParam(required = false) Long pageNum,
+                                                         @RequestParam(required = false) Long pageSize) {
+        Long userId = userIdentityService.resolveUserId(userName);
+        return Result.success(examService.attemptPage(userId, paperId, pageNum, pageSize));
+    }
+
+    /** 成绩单详情：刷新不丢解析（与 submit 同一个 ExamResultVO） */
+    @GetMapping("/attempt/detail")
+    public Result<ExamResultVO> attemptDetail(@RequestHeader("X-User-Name") String userName,
+                                              @RequestParam Long attemptId) {
+        Long userId = userIdentityService.resolveUserId(userName);
+        return Result.success(examService.attemptDetail(userId, attemptId));
     }
 }

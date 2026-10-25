@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.leon.practicemodule.config.PracticeProperties;
 import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
+import org.leon.practicemodule.mapper.AttemptPageRow;
+import org.leon.practicemodule.mapper.AttemptRecordRow;
 import org.leon.practicemodule.mapper.QbExamAttemptMapper;
 import org.leon.practicemodule.mapper.QbPaperMapper;
 import org.leon.practicemodule.mapper.QbQuestionMapper;
@@ -16,10 +18,13 @@ import org.leon.practicemodule.mapper.QuestionOptionKeyRow;
 import org.leon.practicemodule.pojo.QbExamAttempt;
 import org.leon.practicemodule.pojo.QbPaper;
 import org.leon.practicemodule.pojo.QbQuestionOption;
+import org.leon.practicemodule.pojo.QbUserAnswerRecord;
+import org.leon.practicemodule.pojo.vo.ExamAttemptItemVO;
 import org.leon.practicemodule.pojo.vo.ExamDraftVO;
 import org.leon.practicemodule.pojo.vo.ExamQuestionVO;
-import org.leon.practicemodule.pojo.QbUserAnswerRecord;
+import org.leon.practicemodule.pojo.vo.ExamResultVO;
 import org.leon.practicemodule.pojo.vo.ExamStartVO;
+import org.leon.practicemodule.pojo.vo.PageVO;
 import org.leon.practicemodule.service.impl.ExamServiceImpl;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
@@ -513,5 +518,124 @@ class ExamServiceTest {
         assertNull(patch.getStatus(), "patch 带上 status，MP 的非空字段更新就会把状态改掉");
         assertNull(patch.getDeadlineAt());
         assertNull(patch.getScore());
+    }
+
+    @Test
+    @DisplayName("attempt/page：pendingSelfJudgeCount 用减法；草稿行的三个快照为 NULL 就不给值")
+    void attemptPagePendingBySubtraction() {
+        when(attemptMapper.countForPaper(USER, 8L)).thenReturn(2L);
+        when(attemptMapper.selectAttemptPage(eq(USER), eq(8L), anyLong(), anyLong())).thenReturn(List.of(
+                new AttemptPageRow(500L, 2, 2, new BigDecimal("17.00"), new Date(), 60_000, 2, 0, 1),
+                new AttemptPageRow(499L, 1, 1, null, null, null, null, null, null)));
+
+        PageVO<ExamAttemptItemVO> vo = service.attemptPage(USER, 8L, 1L, 20L);
+
+        assertEquals(1, vo.getList().get(0).getPendingSelfJudgeCount(),
+                "卷面 4 题 = 2 对 + 0 错 + 1 未答 → 减法得 1 个待自评");
+        assertNull(vo.getList().get(1).getPendingSelfJudgeCount(), "草稿没有成绩快照，减法无意义");
+        assertNull(vo.getList().get(1).getScore(), "草稿行没有分数，不能填 0 假装判过");
+        assertEquals(2L, vo.getTotal());
+        verify(attemptMapper, times(1)).countForPaper(eq(USER), eq(8L));
+        verify(attemptMapper, times(1)).selectAttemptPage(eq(USER), eq(8L), anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("attempt/page 零 N+1：total=0 时连分页查询都不发，更不查题目")
+    void attemptPageSkipsListQueryWhenEmpty() {
+        when(attemptMapper.countForPaper(USER, 8L)).thenReturn(0L);
+        // setUp 里的 stubQuestions() 已经算一次调用，清点后才好断"恰好 0 次"
+        clearInvocations(questionMapper, optionMapper);
+
+        PageVO<ExamAttemptItemVO> vo = service.attemptPage(USER, 8L, 1L, 20L);
+
+        assertEquals(0L, vo.getTotal());
+        assertTrue(vo.getList().isEmpty());
+        verify(attemptMapper, never()).selectAttemptPage(any(), any(), anyLong(), anyLong());
+        verifyNoInteractions(questionMapper);
+        verifyNoInteractions(optionMapper);
+    }
+
+    @Test
+    @DisplayName("attempt/page 不过上下架闸门：卷下架了历史成绩仍要能看（口径决定 ①）")
+    void attemptPageIgnoresPaperStatus() {
+        QbPaper offline = ExamFixtures.paperP1();
+        offline.setStatus(0);
+        offline.setOwnerId(999L);                     // 而且是别人的私有卷
+        when(paperMapper.selectById(8L)).thenReturn(offline);
+        when(attemptMapper.countForPaper(USER, 8L)).thenReturn(1L);
+        when(attemptMapper.selectAttemptPage(eq(USER), eq(8L), anyLong(), anyLong())).thenReturn(List.of(
+                new AttemptPageRow(500L, 1, 2, new BigDecimal("30.00"), new Date(), 60_000, 4, 0, 0)));
+
+        PageVO<ExamAttemptItemVO> vo = service.attemptPage(USER, 8L, 1L, 20L);
+
+        assertEquals(1, vo.getList().size());
+        assertEquals(0, vo.getList().get(0).getPendingSelfJudgeCount());
+        // 卷面不存在才是 40400，这里只查存在性，不查 status/owner
+        when(paperMapper.selectById(77L)).thenReturn(null);
+        assertEquals(PracticeErrorCode.NOT_FOUND, assertThrows(PracticeException.class,
+                () -> service.attemptPage(USER, 77L, 1L, 20L)).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.attemptPage(USER, null, 1L, 20L)).errorCode());
+    }
+
+    @Test
+    @DisplayName("attempt/detail：草稿态 41002、越权 40300、不存在 40400、缺参 40000")
+    void attemptDetailErrorCodes() {
+        when(attemptMapper.selectById(500L)).thenReturn(draft(1, null));
+        assertEquals(PracticeErrorCode.EXAM_SUBMITTED, assertThrows(PracticeException.class,
+                () -> service.attemptDetail(USER, 500L)).errorCode(), "还没交卷没有成绩单");
+
+        QbExamAttempt foreign = ExamFixtures.draftAttempt(999L, PAPER, null);
+        foreign.setStatus(2);
+        when(attemptMapper.selectById(501L)).thenReturn(foreign);
+        assertEquals(PracticeErrorCode.FORBIDDEN, assertThrows(PracticeException.class,
+                () -> service.attemptDetail(USER, 501L)).errorCode());
+
+        when(attemptMapper.selectById(777L)).thenReturn(null);
+        assertEquals(PracticeErrorCode.NOT_FOUND, assertThrows(PracticeException.class,
+                () -> service.attemptDetail(USER, 777L)).errorCode());
+        assertEquals(PracticeErrorCode.BAD_REQUEST, assertThrows(PracticeException.class,
+                () -> service.attemptDetail(USER, null)).errorCode());
+    }
+
+    @Test
+    @DisplayName("attempt/detail 容忍卷面题目已下架：已交的成绩单不能因为运营下架就看不见")
+    void attemptDetailToleratesDisabledQuestions() {
+        QbExamAttempt done = draft(1, null);
+        done.setStatus(2);
+        when(attemptMapper.selectById(500L)).thenReturn(done);
+        when(recordMapper.selectByAttempt(USER, 500L)).thenReturn(List.of(
+                new AttemptRecordRow(1L, "\"A\"", 1, 15_000),
+                new AttemptRecordRow(6L, "\"B\"", 0, 15_000)));
+        when(questionMapper.selectBatchIds(any())).thenReturn(List.of(
+                ExamFixtures.question(1L, 1, "\"A\""), ExamFixtures.disabled(6L, 1),
+                ExamFixtures.question(2L, 2, "[\"A\",\"B\"]"), ExamFixtures.question(5L, 5, "\"x\"")));
+
+        ExamResultVO vo = service.attemptDetail(USER, 500L);
+
+        assertEquals(2, vo.getStatus());
+        assertEquals(1, vo.getCorrectCount());
+        assertEquals(1, vo.getWrongCount());
+        assertEquals(4, vo.getQuestions().size(), "没答的题也在成绩单上，铺满整卷");
+        assertEquals(0, new BigDecimal("7.00").compareTo(vo.getScore()));
+    }
+
+    @Test
+    @DisplayName("attempt/detail 不查错题本也不写库：它是纯读路径")
+    void attemptDetailIsReadOnly() {
+        QbExamAttempt done = draft(1, null);
+        done.setStatus(3);
+        when(attemptMapper.selectById(500L)).thenReturn(done);
+        when(recordMapper.selectByAttempt(USER, 500L)).thenReturn(List.of());
+
+        ExamResultVO vo = service.attemptDetail(USER, 500L);
+
+        assertEquals(3, vo.getStatus(), "归档态（3）同样给成绩单");
+        assertEquals(4, vo.getUnansweredCount(), "库里零行 → 整卷都算未答");
+        verify(attemptMapper, never()).finalizeIfDraft(any(QbExamAttempt.class));
+        verify(attemptMapper, never()).updateById(any(QbExamAttempt.class));
+        verify(recordMapper, never()).insert(any(QbUserAnswerRecord.class));
+        verifyNoInteractions(wrongMapper);
+        verify(optionMapper, times(1)).selectOptionKeysByQuestions(any());
     }
 }
