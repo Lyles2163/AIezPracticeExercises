@@ -80,6 +80,37 @@ class UpstreamChunkParseTest {
     }
 
     @Test
+    @DisplayName("choices 空数组但带真 usage 的收尾帧必须留住（旧 usageOnlyChunk）")
+    void usageOnlyWithEmptyChoicesSurvives() {
+        String wire = "{\"choices\":[],\"usage\":{\"prompt_tokens\":812,\"completion_tokens\":1640,"
+                + "\"completion_tokens_details\":{\"reasoning_tokens\":512}}}";
+        ChatModelGateway.ChatChunk c = OpenAiStreamChatModelGateway.toChunk(wire);
+        assertEquals(812, c.promptTokens());
+        assertEquals(1640, c.completionTokens());
+        assertEquals(512, c.reasoningTokens());
+        assertNull(c.finishReason(), "这帧没有 finish_reason，编排层不能把它当流结束");
+    }
+
+    @Test
+    @DisplayName("正文与 finish_reason 同帧到达时两者都要保留（旧 keepsFinishReason）")
+    void textAndFinishReasonInOneFrame() {
+        String wire = "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"尾部正文\"},"
+                + "\"finish_reason\":\"stop\"}]}";
+        ChatModelGateway.ChatChunk c = OpenAiStreamChatModelGateway.toChunk(wire);
+        assertEquals("尾部正文", c.text());
+        assertEquals("stop", c.finishReason());
+    }
+
+    @Test
+    @DisplayName("空白 finish_reason 归一为 null，不误报流结束（旧 blankFinishReasonBecomesNull）")
+    void blankFinishReasonBecomesNull() {
+        String wire = "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"},\"finish_reason\":\"  \"}]}";
+        ChatModelGateway.ChatChunk c = OpenAiStreamChatModelGateway.toChunk(wire);
+        assertEquals("x", c.text());
+        assertNull(c.finishReason());
+    }
+
+    @Test
     @DisplayName("usage 全 0 的兜底帧按\"这帧没有 usage\"处理（R11）")
     void zeroUsageDropped() {
         String wire = "{\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0}}";

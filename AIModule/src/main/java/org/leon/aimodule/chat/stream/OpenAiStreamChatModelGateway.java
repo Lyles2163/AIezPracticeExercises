@@ -10,6 +10,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
@@ -30,6 +31,7 @@ import java.util.Map;
  * 没有 reactor-netty 时 Spring 6.1 把连接器回落到 JDK HttpClient —— 这条回落由
  * OpenAiStreamChatModelGatewayTest 的真实 HTTP 请求验证过，不是推测。
  */
+@Component
 public class OpenAiStreamChatModelGateway implements ChatModelGateway {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
@@ -167,6 +169,8 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
         if (v == null) {
             return null;
         }
+        // 归一是 R17 的教训：上游/框架交付过 "LENGTH"，而编排层按小写常量比较，
+        // 不归一的话被 max_tokens 截断的回答会记成 done。
         String t = v.trim().toLowerCase(Locale.ROOT);
         return t.isEmpty() ? null : t;
     }
