@@ -29,7 +29,9 @@ Vite dev proxy `/gw → http://127.0.0.1:8100`。
 2. **每个任务收尾：提交 + 推送 `dev`**，用 pathspec 限定（见头部说明），提交后 `git show --stat` 复验只含自己的文件，
    并确认别人的暂存项仍在索引里。
 3. **不引入测试框架**（spec §5 的决定：为一个帧解析器装 vitest 不值一套新栈）。
-   纯函数用 `node --test <目录>`（Node 24 已实测支持 `.ts` 直接跑，零依赖）；
+   纯函数用 `node --test <显式文件路径>`（Node 24 已实测支持 `.ts` 直接跑，零依赖）。
+   **Windows 实测：目录形式 `node --test src/api/__tests__/` 会把整个目录当成 1 个用例并报 fail，
+   必须逐个文件传路径** —— 本计划后续所有 `node --test` 命令按此执行。
    **组件与 `useChat` 的正确性只有浏览器取证**，报告里必须如实这么写，不许暗示有自动化覆盖。
 4. **只加 `marked` 与 `dompurify` 两个依赖**，不加 axios、不加状态库、不加 UI 库。
 5. **不改 `src/api/request.ts`** —— 它是全站共享传输层（登录/生图都在用），且 `TIMEOUT_MS=15000` 对长流式不适用；
@@ -87,7 +89,7 @@ Vite dev proxy `/gw → http://127.0.0.1:8100`。
   - `readEventStream(res: ResponseLike, handlers: ChatStreamHandlers, onReject?: (msg: string) => void): Promise<void>`
   - `type ResponseLike = { headers: { get(k: string): string | null }; body: ReadableStream<Uint8Array> | null; json(): Promise<unknown>; text(): Promise<string> }`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `src/api/__tests__/sse.test.ts`。用例的期望值都按后端**实测**的线上形状手推：我们下游写 `data:{…}`（**无空格**），
 上游 DeepSeek 写 `data: {…}`（有空格），解析器必须两种都吃；`ping` 在正文滚动时也会插进来，所以只能忽略不能当结束。
@@ -208,12 +210,13 @@ test('readEventStream：error 帧不抛异常（HTTP 仍是 200），走 onError
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
-Run（在 `EZ_frontend` 根）：`node --test src/api/__tests__/`
+Run（在 `EZ_frontend` 根）：`node --test src/api/__tests__/sse.test.ts`
 Expected: 模块不存在 → `Cannot find module '.../sse.ts'`，exit code 1。
+Actual: RED 确认（`pass 0 / fail 1`）。目录形式在 Windows 下不可靠，见 Global Constraints #3 的偏差记录。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `src/api/sse.ts`：
 
@@ -402,12 +405,13 @@ export async function readEventStream(
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
-Run: `node --test src/api/__tests__/`
+Run: `node --test src/api/__tests__/sse.test.ts`（目录形式在 Windows 下会把整个目录当 1 个用例并报 fail，见 Global Constraints #3）
 Expected: `pass 9, fail 0`（9 条）。
+Actual: **`tests 10 / pass 10 / fail 0`** —— 比计划多 1 条，因为 Step 5 的变异 5 存活暴露了「收尾补空行」无人守护，补了第 10 条用例。
 
-- [ ] **Step 5: 变异取证**
+- [x] **Step 5: 变异取证**
 
 1. 把 `if (value.startsWith(' ')) value = value.slice(1)` 改成 `value = value.replace(/^ +/, '')`（吃掉全部空格）
    → 期望 `parseBlock：data: 后最多只去掉一个前导空格` 红。
@@ -419,7 +423,16 @@ Expected: `pass 9, fail 0`（9 条）。
    → 期望 JSON 拒绝那条红（`rejected` 为空）。
 恢复后 `grep -rn "MUTATION" src/` 必须为 0（PowerShell GBK 只影响控制台，不影响匹配）。
 
-- [ ] **Step 6: 提交并推送**
+**结果**（每条变异都单独打、单独恢复，恢复后复跑全绿；最终 `grep -rn "MUTATION" src/` = 0）：
+- 变异 1 → 只有 `parseBlock：data: 后最多只去掉一个前导空格` 红，失败信息就是「两个空格只吃掉一个」那条断言。
+- 变异 2 → 半帧那条 + 撕裂字节那条**一起红**（`pass 7 / fail 2`），与计划一致。
+- 变异 3 → 只有 ping 那条红。
+- 变异 4 → 只有 JSON 拒绝那条红。
+- **变异 5（计划外，我自己补的）先存活**：把收尾 `splitFrames(\`${buffer}\n\n\`)` 改成 `splitFrames(buffer)`，9 条全绿
+  ⇒ 「最后一帧不留空行也要发出来」这条规则当时没有守护。这是缺口不是噪声，处理方式是**补用例而不是删兜底**：
+  新增第 10 条 `readEventStream：流结束时最后一帧没补空行也要发出来`，回打变异 5 后它单独红（`pass 9 / fail 1`），恢复后 10/10 绿。
+
+- [x] **Step 6: 提交并推送**
 
 ```bash
 git add src/api/sse.ts src/api/__tests__/sse.test.ts
@@ -428,7 +441,14 @@ git show --stat --oneline HEAD
 git push origin dev
 ```
 
-**检查点**：`node --test src/api/__tests__/` 全绿；`npm run type-check` 不因新文件报错（`__tests__` 被 exclude，`sse.ts` 要过）。
+**检查点**：`node --test src/api/__tests__/sse.test.ts` 全绿；`npm run type-check` 不因新文件报错（`__tests__` 被 exclude，`sse.ts` 要过）。
+实测 `vue-tsc --build` 无输出（成功）。
+
+**F1 执行记录**
+- 实现与计划一致，唯一结构差异是 `ResponseLike` 只声明用到的成员（`headers.get` / `body` / `json` / `text`），
+  测试仍用 `res as never` 传入 —— 留给 F2 收敛成真实的 `Response` 兼容形态。
+- 与计划的偏差共 2 条，都已就地标明：① `node --test` 必须传显式文件路径；② 用例从 9 条增到 10 条（变异 5 存活所致）。
+- 本任务由主会话实现并自审，**未做独立复核轮**（用户要求不派子代理）。
 
 ---
 
