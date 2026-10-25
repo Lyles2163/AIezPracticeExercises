@@ -130,8 +130,8 @@ MVN="/c/Users/Administrator/.m2/wrapper/dists/apache-maven-3.9.16-bin/5grr65jo27
 | 7.1 统计只算 `answer_mode IN (1,3)` | 段 2（`AnswerService`）、段 5（交卷不累加），段 2 有锁定测试 |
 | 7.2 Redis 只做身份缓存 | 段 1 |
 | 7.3 已掌握错题可回退 | 段 2 |
-| 八 配置项（`PracticeProperties` 三项） | 段 1（identity ttl）、段 5（grace、page max） |
-| 九 测试与验收（8 条单元 + 端到端 + 9 条清单） | 9.1 单元 1/2/6/8 → 段 2；3/4/5 → 段 5；7 → 段 4。9.2 端到端与 9.3 清单逐段分摊，段 1 建立 token 获取流程 |
+| 八 配置项（`PracticeProperties` 三项） | 段 1（identity ttl）、段 5（`exam.grace-seconds: 60`）。**`page.default-size/max-size` 不是配置项**：它们是 `PracticePages` 的常量（20/100），段 3 已记这条偏差——理由是要注入 bean 才能让单测 `new` 服务反而更绕，且这两个值变更概率极低 |
+| 九 测试与验收（8 条单元 + 端到端 + 9 条清单） | 9.1 单元 1/2/6 → 段 2；7 → 段 4；**3/4/5 → 段 5**（交卷幂等三层、超时懒判、越权 40300——后者端到端不可触发，见段 5 自查第 11 条）；**8 统计口径 → 段 2 有锁定测试 + 段 5 三层锁死**（`verifyNoInteractions(statMapper)` / 真库快照 / 端到端 before-after diff）。9.2 端到端与 9.3 清单逐段分摊，段 1 建立 token 获取流程 |
 | 十 前置修复四项 | 段 1 全部四项（含第 4 项对 RAG roadmap 的更正） |
 | 十一 已知边界与接缝 | 各段计划末尾的"边界"小节，不写半成品代码 |
 | 十二 六项关卡 | 段 1（pom+`@ComponentScan`、重生成实体、删死文件、测试账号）、段 4（DDL、样例数据） |
