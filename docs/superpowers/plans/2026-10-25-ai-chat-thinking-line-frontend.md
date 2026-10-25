@@ -1978,3 +1978,38 @@ git push origin dev
    与中文句号分支不同，属预期。
 
 **提交**：`3dbf571`（5 files, +179/-10）与 `6d27133`（删死 clamp）。
+
+---
+
+## 追加 H 段：布局 —— 会话列表进侧边栏、消息列限宽居中（2026-10-25，用户看截图后提的）
+
+用户原话："**对话列表应该是在最左侧的侧边栏下面的，用户回复的信息和模型回复的信息可以居中些，没有这么突兀**"。
+两个决定都是他选的：列表**挂进左侧 sidebar 下方**（ChatGPT 那种，不是保留第二列），消息**限宽居中 + 左右分列**。
+
+**实现**
+- `useChat()` 改成**模块级单例**（`createChat()` + `let shared`）。这是这一步的前提：列表在 `Layout.vue`、
+  消息在 `Chat.vue`，各自 new 一份的话侧边栏点了会话消息区不会跟着换。
+  `onScopeDispose` 加了 `getCurrentScope()` 守卫 —— 单例由谁首次创建不再固定，没有活动 scope 时 Vue 会警告。
+- 新增 `newConversation()`：侧边栏「New chat」走它，**只清视图不发 POST**。
+  直接 `startConversation()` 会在列表里攒出 `messageCount=0` 的空会话；真到第一次发送时 `send()` 内部再建。
+  列表里原来的「＋ 新对话」按钮删掉 —— 两个新建入口是错内容。
+- `ConversationList` 改成流体（去掉 `width:232px` 与 `border-right`），显隐/宽度全归父级；
+  `loadConversations()` 由 Layout 的 `watch(showConversations, …, {immediate:true})` 触发，`Chat.vue` 只留 `loadCatalog()`。
+- `Chat.vue`：删掉 `ConversationList` 引用、`showList`、"对话列表"按钮；消息套一层
+  `.chat-inner { width: min(100%, 760px); margin-inline: auto }`，`PromptBar` 的 `:width` 从 680 提到 760，
+  两列边线才对得齐。`MessageItem` 的 `.turn-ai` 不再自己限 760。
+- **顺手修掉一个真 bug**：顶部 chip 写着 `deepseek-chat`、回答却是 reasoner 出的。
+  `currentModel` 取的是**会话绑定**的 `modelKey`，而输入框换模型只影响本轮请求、不回写会话 → 那个 chip 天生会说谎。
+  处理是删掉它（输入框已经显示真实选择），不是给它打补丁。
+
+**取证**
+- Node 19 条全绿（未新增：这轮没有可纯函数化的新规则）、`vue-tsc` 无输出、`vite build` 1.44s。
+- 浏览器（内置 Browser 面板）：`.convs` 确实在 `.sidebar` 内 ✓、列表拉到 2 条 ✓、"对话列表"按钮已消失 ✓、
+  模型 chip 节点数 0 ✓；**点侧边栏第一条会话，消息区立刻渲染出 4 条 turn** —— 这条是单例共享是否成立的关键证据。
+- CSSOM 里确认 `.chat-inner { width: min(100%, 760px); margin-inline: auto }` 与
+  `.prompt-wrap { max-width: 760px; margin: 0 auto }` 都真的下发了。
+- **没验到的**：宽屏下"居中"的实测留白 —— 内置浏览器视口只有 423px，命中的是 ≤767px 那条分支
+  （该分支按设计把 `.convs` 隐藏），所以 `margin-inline:auto` 算出来是 0px，区分不了 `auto` 和 0。
+  要看得在他自己的宽窗口里确认，我不能拿 423px 的测量冒充宽屏证据。
+
+**提交**：`2a18880`（5 files, +127/-106）。
