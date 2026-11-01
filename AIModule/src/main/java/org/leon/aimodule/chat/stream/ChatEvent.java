@@ -1,5 +1,9 @@
 package org.leon.aimodule.chat.stream;
 
+import org.leon.aimodule.rag.qa.RagContextService;
+
+import java.util.List;
+
 /**
  * 编排层唯一的输出语言。心跳 ping 不在这里：它由 SseChannel 的定时器直接发，
  * 不经编排层，否则每个业务事件都要被迫携带它。
@@ -31,5 +35,12 @@ public sealed interface ChatEvent {
     }
 
     record ErrorEvt(String errorCode, String msg, boolean retryable) implements ChatEvent {
+    }
+
+    /**
+     * RAG 检索到的引用资料，在正文开始前发出，便于前端在回答下方展示出处。
+     * 检索为空时不发此事件。
+     */
+    record Sources(List<RagContextService.RagCitation> citations) implements ChatEvent {
     }
 }

@@ -5,6 +5,7 @@ import org.leon.aimodule.chat.service.ModelParams;
 import org.leon.aimodule.chat.stream.ActiveStream;
 import org.leon.aimodule.chat.stream.PreparedTurn;
 import org.leon.aimodule.chat.stream.ThinkingTracker;
+import org.leon.aimodule.rag.qa.RagContextService;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -16,7 +17,8 @@ final class TestTurns {
 
     static PreparedTurn prepared() {
         return new PreparedTurn(7L, 41L, 42L, List.of(new CtxMessage("user", "hi")),
-                new ModelParams("deepseek-chat", 1.0, 4096, false), "alice", "High");
+                new ModelParams("deepseek-chat", 1.0, 4096, false), "alice", "High",
+                false, new RagContextService.RagOptions(null, null, 0));
     }
 
     static ActiveStream activeStream() {

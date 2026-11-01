@@ -57,7 +57,7 @@ spring:
 
 
 rag:
-  analyzer: ik                     # 安装 IK 失败时改 cjk
+  analyzer: ik                     # IK 中文分词（已验证正常）；IK 不可用时改 cjk
   admin-names: ${RAG_ADMIN_NAMES:}
   elasticsearch:
     uris: ${ES_URIS:https://127.0.0.1:9200}

@@ -11,6 +11,7 @@ import org.leon.aimodule.chat.service.ContextAssembler;
 import org.leon.aimodule.chat.service.ConversationService;
 import org.leon.aimodule.chat.service.EffortResolver;
 import org.leon.aimodule.rag.chunk.TokenCounter;
+import org.leon.aimodule.rag.qa.RagContextService;
 import org.mockito.InOrder;
 import reactor.core.publisher.Flux;
 
@@ -90,15 +91,16 @@ class ChatStreamWriteCountTest {
             }
         }
         frames.add(new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null));
-        when(gateway.stream(any(), any())).thenReturn(Flux.fromIterable(frames));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.fromIterable(frames));
 
         ChatStreamRegistry registry = new ChatStreamRegistry();
         ChatStreamService service = new ChatStreamService(repo, conversations,
                 new ContextAssembler(new TokenCounter(), props), new EffortResolver(props),
-                gateway, registry, props, Runnable::run);
+                gateway, registry, props, Runnable::run, mock(RagContextService.class));
 
         PreparedTurn prepared = service.prepare(
-                new StreamCommand(7L, "问题", modelKey, "High", "cm", false), "alice");
+                new StreamCommand(7L, "问题", modelKey, "High", "cm", false,
+                        false, null, null, 0), "alice");
         service.subscribeAsync(prepared, silentChannel());
 
         InOrder order = inOrder(repo);

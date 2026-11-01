@@ -11,6 +11,7 @@ import org.leon.aimodule.chat.service.ConversationService;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.EffortResolver;
 import org.leon.aimodule.chat.service.ModelParams;
+import org.leon.aimodule.rag.qa.RagContextService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,11 +46,13 @@ public class ChatStreamService {
     private final ChatStreamRegistry registry;
     private final ChatProperties props;
     private final Executor streamExecutor;
+    private final RagContextService ragContextService;
 
     public ChatStreamService(ChatTurnRepository repo, ConversationService conversations,
                              ContextAssembler assembler, EffortResolver resolver, ChatModelGateway gateway,
                              ChatStreamRegistry registry, ChatProperties props,
-                             @Qualifier("chatStreamExecutor") Executor streamExecutor) {
+                             @Qualifier("chatStreamExecutor") Executor streamExecutor,
+                             RagContextService ragContextService) {
         this.repo = repo;
         this.conversations = conversations;
         this.assembler = assembler;
@@ -58,6 +61,7 @@ public class ChatStreamService {
         this.registry = registry;
         this.props = props;
         this.streamExecutor = streamExecutor;
+        this.ragContextService = ragContextService;
     }
 
     /**
@@ -122,7 +126,8 @@ public class ChatStreamService {
             repo.renameIfDefault(cid, question);
         }
         List<CtxMessage> messages = assembler.assemble(repo.activeHistory(cid, userMessageId), question);
-        return new PreparedTurn(cid, userMessageId, assistantId, messages, params, userName, effortName);
+        return new PreparedTurn(cid, userMessageId, assistantId, messages, params, userName, effortName,
+                cmd.useRag(), cmd.toRagOptions());
     }
 
     /** 提交到流式线程池并返回登记好的流；channel 由 controller 创建。 */
@@ -203,11 +208,44 @@ public class ChatStreamService {
             truncate(stream, AiMessage.STOP_CLIENT_DISCONNECT);
             return;
         }
-        Disposable disposable = gateway.stream(prepared.messages(), params).subscribe(
+
+        // ===== RAG 检索 =====
+        String systemPromptOverride = null;
+        if (prepared.useRag()) {
+            try {
+                String question = prepared.messages().isEmpty() ? ""
+                        : prepared.messages().get(prepared.messages().size() - 1).content();
+                RagContextService.RagContext ctx = ragContextService.retrieve(
+                        question, prepared.userName(), prepared.ragOptions());
+                if (!ctx.empty()) {
+                    emitQuietly(stream.channel(), new ChatEvent.Sources(ctx.citations()));
+                    systemPromptOverride = buildRagSystemPrompt(props.getSystemPrompt(), ctx.context());
+                }
+            } catch (Exception e) {
+                // 检索失败不阻断对话：降级为普通对话，仅打日志。
+                log.warn("[chat] RAG 检索失败，降级为普通对话: {}", e.getMessage());
+            }
+        }
+
+        Disposable disposable = gateway.stream(prepared.messages(), params, systemPromptOverride).subscribe(
                 chunk -> onChunk(stream, chunk),
                 error -> onError(stream, error),
                 () -> onComplete(stream));
         stream.upstream().set(disposable);
+    }
+
+    /**
+     * 把 RAG 检索上下文拼到 system prompt 前面。
+     * 若配置里没有 system prompt，就只给 RAG 指令；若有，则在原有指令前追加资料块。
+     */
+    private String buildRagSystemPrompt(String baseSystemPrompt, String ragContext) {
+        String instruction = "你是一个答疑助手。请基于下面给出的参考资料回答用户问题，"
+                + "引用资料时在句末标注对应的 [n] 编号。如果参考资料无法回答问题，请直接说明，不要编造。\n\n"
+                + ragContext;
+        if (baseSystemPrompt == null || baseSystemPrompt.isBlank()) {
+            return instruction;
+        }
+        return instruction + "\n\n" + baseSystemPrompt;
     }
 
     /** 流式期间这里一次 DB 都不碰：只 append 内存 buffer，reasoning 连 buffer 都不进。 */

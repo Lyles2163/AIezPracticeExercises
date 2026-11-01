@@ -61,10 +61,11 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
     }
 
     @Override
-    public Flux<ChatModelGateway.ChatChunk> stream(List<CtxMessage> messages, ModelParams params) {
+    public Flux<ChatModelGateway.ChatChunk> stream(List<CtxMessage> messages, ModelParams params,
+                                                    String systemPromptOverride) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", params.modelKey());
-        body.put("messages", toWireMessages(messages));
+        body.put("messages", toWireMessages(messages, systemPromptOverride));
         body.put("stream", true);
         // 不发这一行就没有 usage 帧 —— 上一期是靠 spring.ai.openai...stream-usage 让库代发。
         body.put("stream_options", Map.of("include_usage", true));
@@ -99,10 +100,11 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
     }
 
     /** system 提示放第一位，与上一期 ChatClient.system() 的线上形状一致。 */
-    private List<Map<String, String>> toWireMessages(List<CtxMessage> messages) {
+    private List<Map<String, String>> toWireMessages(List<CtxMessage> messages, String systemPromptOverride) {
         List<Map<String, String>> out = new ArrayList<>();
-        if (!props.getSystemPrompt().isBlank()) {
-            out.add(Map.of("role", "system", "content", props.getSystemPrompt()));
+        String system = systemPromptOverride != null ? systemPromptOverride : props.getSystemPrompt();
+        if (system != null && !system.isBlank()) {
+            out.add(Map.of("role", "system", "content", system));
         }
         for (CtxMessage m : messages) {
             out.add(Map.of("role", m.role(), "content", m.content() == null ? "" : m.content()));

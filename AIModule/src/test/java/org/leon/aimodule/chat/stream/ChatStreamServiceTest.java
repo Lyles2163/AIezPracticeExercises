@@ -14,6 +14,7 @@ import org.leon.aimodule.chat.service.ConversationService;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.EffortResolver;
 import org.leon.aimodule.rag.chunk.TokenCounter;
+import org.leon.aimodule.rag.qa.RagContextService;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
 
@@ -94,7 +95,7 @@ class ChatStreamServiceTest {
     private ChatStreamService newService(java.util.concurrent.Executor executor) {
         return new ChatStreamService(repo, conversations,
                 new ContextAssembler(new TokenCounter(), props), new EffortResolver(props),
-                gateway, registry, props, executor);
+                gateway, registry, props, executor, mock(RagContextService.class));
     }
 
     private static ChatModelGateway.ChatChunk text(String t) {
@@ -110,14 +111,15 @@ class ChatStreamServiceTest {
     }
 
     private PreparedTurn prepareNormal() {
-        return service.prepare(new StreamCommand(7L, "把这段改成 STAR", "deepseek-chat", "High", "cnd1", false),
+        return service.prepare(new StreamCommand(7L, "把这段改成 STAR", "deepseek-chat", "High", "cnd1", false,
+                false, null, null, 0),
                 "alice");
     }
 
     /** 走 reasoner 的一轮：ModelParams.supportsThinking 为 true，tracker 才真的开。 */
     private PreparedTurn prepareThinking() {
         return service.prepare(new StreamCommand(7L, "17 乘 23", "deepseek-reasoner",
-                "Medium", "cm-think", false), "alice");
+                "Medium", "cm-think", false, false, null, null, 0), "alice");
     }
 
     @Test
@@ -149,7 +151,8 @@ class ChatStreamServiceTest {
         c.setEffort("Low");
         when(conversations.requireOwned("alice", 7L)).thenReturn(c);
 
-        PreparedTurn prepared = service.prepare(new StreamCommand(7L, "问题", null, null, null, false), "alice");
+        PreparedTurn prepared = service.prepare(new StreamCommand(7L, "问题", null, null, null, false,
+                false, null, null, 0), "alice");
         assertEquals("Low", prepared.effortName());
         assertEquals(0.3, prepared.params().temperature());
         verify(repo).insertAssistant(eq(7L), eq(41L), eq("deepseek-chat"), eq("Low"), any());
@@ -178,7 +181,8 @@ class ChatStreamServiceTest {
     void ownershipCheckedFirst() {
         doThrow(new ChatRejectException("会话不存在")).when(conversations).requireOwned("bob", 7L);
         assertThrows(ChatRejectException.class,
-                () -> service.prepare(new StreamCommand(7L, "hi", null, null, "x", false), "bob"));
+                () -> service.prepare(new StreamCommand(7L, "hi", null, null, "x", false,
+                        false, null, null, 0), "bob"));
         verify(repo, never()).insertUser(anyLong(), anyString(), any());
     }
 
@@ -186,7 +190,8 @@ class ChatStreamServiceTest {
     @DisplayName("空白 content 直接拒，不落库也不建流")
     void blankContentRejectedBeforeWrite() {
         ChatRejectException e = assertThrows(ChatRejectException.class,
-                () -> service.prepare(new StreamCommand(7L, "   ", null, null, "x1", false), "alice"));
+                () -> service.prepare(new StreamCommand(7L, "   ", null, null, "x1", false,
+                        false, null, null, 0), "alice"));
         assertEquals("content 不能为空", e.getMessage());
         verify(repo, never()).insertUser(anyLong(), anyString(), any());
     }
@@ -203,7 +208,8 @@ class ChatStreamServiceTest {
         when(repo.findByClientMsgId(7L, "cnd1")).thenReturn(existing);
 
         PreparedTurn prepared = service.prepare(
-                new StreamCommand(7L, "重复提交的旧文本", "deepseek-chat", "High", "cnd1", false), "alice");
+                new StreamCommand(7L, "重复提交的旧文本", "deepseek-chat", "High", "cnd1", false,
+                        false, null, null, 0), "alice");
 
         verify(repo, never()).insertUser(anyLong(), anyString(), any());
         assertEquals(41L, prepared.userMessageId());
@@ -225,7 +231,8 @@ class ChatStreamServiceTest {
         last.setStatus(AiMessage.ST_DONE);
         when(repo.activeHistory(7L, null)).thenReturn(List.of(last));
 
-        PreparedTurn prepared = service.prepare(new StreamCommand(7L, null, null, null, null, true), "alice");
+        PreparedTurn prepared = service.prepare(new StreamCommand(7L, null, null, null, null, true,
+                false, null, null, 0), "alice");
         assertEquals(41L, prepared.userMessageId());
         verify(repo).supersede(41L);
         verify(repo, never()).insertUser(anyLong(), anyString(), any());
@@ -236,7 +243,8 @@ class ChatStreamServiceTest {
     @DisplayName("regenerate 但会话里还没有用户消息：拒绝")
     void regenerateWithoutHistoryRejected() {
         ChatRejectException e = assertThrows(ChatRejectException.class,
-                () -> service.prepare(new StreamCommand(7L, null, null, null, null, true), "alice"));
+                () -> service.prepare(new StreamCommand(7L, null, null, null, null, true,
+                        false, null, null, 0), "alice"));
         assertEquals("没有可重新生成的问题", e.getMessage());
         verify(repo, never()).insertAssistant(anyLong(), anyLong(), anyString(), anyString(), any());
     }
@@ -244,7 +252,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("事件序列 meta → delta* → usage → done")
     void emitsHappyPath() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(text("## "), text("经验"), finish()));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(text("## "), text("经验"), finish()));
         PreparedTurn prepared = prepareNormal();
         service.subscribeAsync(prepared, recorderChannel());
         assertEquals(List.of("meta", "delta", "delta", "usage", "done"), kinds());
@@ -262,7 +270,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("上游报错：已产出内容与错误原因只写一次 UPDATE")
     void upstreamFailureKeepsPartialContent() {
-        when(gateway.stream(any(), any())).thenReturn(
+        when(gateway.stream(any(), any(), any())).thenReturn(
                 Flux.concat(Flux.just(text("前半"), text("后半")), Flux.error(new IllegalStateException("429"))));
         service.subscribeAsync(prepareNormal(), recorderChannel());
         assertEquals(List.of("Meta", "Delta", "Delta", "ErrorEvt", "Done"),
@@ -279,7 +287,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("finishReason=length 时状态仍是 done，收尾原因可区分")
     void lengthFinishReason() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(
                 text("正文"), new ChatModelGateway.ChatChunk(null, null, "length", 10, 20, null)));
         service.subscribeAsync(prepareNormal(), recorderChannel());
         verify(repo).finalizeAssistant(42L, "正文", AiMessage.ST_DONE, AiMessage.STOP_LENGTH, 10, 20);
@@ -289,7 +297,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("客户端断连：落 truncated 并从注册表摘除")
     void clientGoneTruncates() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(text("已产出")));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(text("已产出")));
         SseChannel broken = new SseChannel(new SseChannel.Sink() {
             @Override
             public void send(String event, String json) {
@@ -326,7 +334,7 @@ class ChatStreamServiceTest {
             public void complete() {
             }
         }, new ObjectMapper());
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(text("一"), text("二"), text("三"), finish()));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(text("一"), text("二"), text("三"), finish()));
         service.subscribeAsync(prepareNormal(), diesOnSecond);
 
         ArgumentCaptor<String> status = ArgumentCaptor.forClass(String.class);
@@ -348,7 +356,7 @@ class ChatStreamServiceTest {
     @DisplayName("stop：取消上游并把已累积内容落 truncated/stopped")
     void stopKeepsPartialContent() {
         // 永不结束的流：stop 是唯一能让它收尾的动作
-        when(gateway.stream(any(), any())).thenReturn(Flux.never());
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.never());
         PreparedTurn prepared = prepareNormal();
         ActiveStream stream = service.subscribeAsync(prepared, silentChannel());
         assertEquals(1, registry.size());
@@ -361,7 +369,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("stop 一个已经结束的回答：什么都不写")
     void stopAfterFinishIsNoop() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(text("全文"), finish()));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(text("全文"), finish()));
         PreparedTurn prepared = prepareNormal();
         ActiveStream stream = service.subscribeAsync(prepared, silentChannel());
         assertEquals(0, registry.size(), "同步流跑完就该摘除");
@@ -378,7 +386,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("stop 不属于自己的消息：拒绝")
     void stopChecksOwnership() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.never());
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.never());
         service.subscribeAsync(prepareNormal(), silentChannel());
         assertEquals(1, registry.size());
         ChatRejectException e = assertThrows(ChatRejectException.class, () -> service.stop(42L, "bob"));
@@ -424,7 +432,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("正常收尾后 emitter 回调不得把 done 改成 truncated")
     void callbacksAfterDoneAreNoop() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(text("正文"), finish()));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(text("正文"), finish()));
         service.subscribeAsync(prepareNormal(), silentChannel());
         service.clientGone(42L);
         service.timeout(42L);
@@ -437,7 +445,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("超时收尾用独立 stop_reason，与客户端断连可区分")
     void timeoutWritesTimeoutReason() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.never());
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.never());
         ActiveStream stream = service.subscribeAsync(prepareNormal(), silentChannel());
         service.timeout(stream.messageId());
         verify(repo).finalizeAssistant(eq(42L), anyString(), eq(AiMessage.ST_TRUNCATED),
@@ -463,7 +471,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("思考相帧序：meta → thought_step* → thought_end → delta* → usage → done")
     void thinkingPhaseOrder() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(
                 reasoning("先算乘法。"), reasoning("再核对"),
                 text("391"), finish()));
         service.subscribeAsync(prepareThinking(), recorderChannel());
@@ -480,7 +488,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("纯推理无正文就结束，也要收到 thought_end")
     void reasoningOnlyStillCloses() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(reasoning("只想不答。"), finish()));
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(reasoning("只想不答。"), finish()));
         service.subscribeAsync(prepareThinking(), recorderChannel());
         List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
         assertEquals(List.of("Meta", "ThoughtStep", "ThoughtEnd", "TokenUsage", "Done"), kinds);
@@ -489,7 +497,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("上游 error：flush 已攒步骤，但不发 thought_end")
     void errorFlushesStepsButNoThoughtEnd() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.concat(
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.concat(
                 Flux.just(reasoning("想到一半")), Flux.error(new IllegalStateException("reset"))));
         service.subscribeAsync(prepareThinking(), recorderChannel());
         List<String> kinds = events.stream().map(e -> e.getClass().getSimpleName()).toList();
@@ -499,7 +507,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("不支持思考的模型一帧 thought 都不发（宁缺毋滥）")
     void noThoughtWhenModelCannotThink() {
-        when(gateway.stream(any(), any())).thenReturn(Flux.just(
+        when(gateway.stream(any(), any(), any())).thenReturn(Flux.just(
                 reasoning("不该出现的推理"), text("答"), finish()));
         service.subscribeAsync(prepareNormal(), recorderChannel());   // deepseek-chat
         assertTrue(events.stream().noneMatch(e -> e instanceof ChatEvent.ThoughtStep), events.toString());
@@ -509,7 +517,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("上游 401 → error{retryable:false}；503 → retryable:true")
     void retryableFollowsStatus() {
-        when(gateway.stream(any(), any())).thenReturn(
+        when(gateway.stream(any(), any(), any())).thenReturn(
                 Flux.error(new UpstreamStatusException(401, "401 Unauthorized")));
         service.subscribeAsync(prepareNormal(), recorderChannel());
         ChatEvent.ErrorEvt e = (ChatEvent.ErrorEvt) events.stream()
@@ -517,7 +525,7 @@ class ChatStreamServiceTest {
         assertFalse(e.retryable());
 
         events.clear();
-        when(gateway.stream(any(), any())).thenReturn(
+        when(gateway.stream(any(), any(), any())).thenReturn(
                 Flux.error(new UpstreamStatusException(503, "503 Service Unavailable")));
         service.subscribeAsync(prepareNormal(), recorderChannel());
         ChatEvent.ErrorEvt e2 = (ChatEvent.ErrorEvt) events.stream()
@@ -528,7 +536,7 @@ class ChatStreamServiceTest {
     @Test
     @DisplayName("思考相被 stop：不补发 thought_end，落 truncated/stopped 且正文为空")
     void stopDuringThinking() {
-        when(gateway.stream(any(), any())).thenReturn(
+        when(gateway.stream(any(), any(), any())).thenReturn(
                 Flux.concat(Flux.just(reasoning("想到一半。")), Flux.never()));
         service.subscribeAsync(prepareThinking(), recorderChannel());
         service.stop(42L, "alice");
@@ -550,6 +558,7 @@ class ChatStreamServiceTest {
             case ChatEvent.TokenUsage ignored -> "usage";
             case ChatEvent.Done ignored -> "done";
             case ChatEvent.ErrorEvt ignored -> "error";
+            case ChatEvent.Sources ignored -> "sources";
         }).toList();
     }
 

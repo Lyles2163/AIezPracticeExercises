@@ -8,7 +8,14 @@ import java.util.List;
 
 public interface ChatModelGateway {
 
-    Flux<ChatChunk> stream(List<CtxMessage> messages, ModelParams params);
+    /**
+     * @param systemPromptOverride 非空时覆盖配置里的 system prompt，用于注入 RAG 检索上下文
+     */
+    Flux<ChatChunk> stream(List<CtxMessage> messages, ModelParams params, String systemPromptOverride);
+
+    default Flux<ChatChunk> stream(List<CtxMessage> messages, ModelParams params) {
+        return stream(messages, params, null);
+    }
 
     /** 上游一帧的归一化视图，六个字段都可能为 null。 */
     record ChatChunk(String text, String reasoning, String finishReason,

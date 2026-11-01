@@ -40,6 +40,7 @@ public class SseChannel {
             case ChatEvent.TokenUsage e -> send("usage", e);
             case ChatEvent.Done e -> send("done", e);
             case ChatEvent.ErrorEvt e -> send("error", e);
+            case ChatEvent.Sources e -> send("sources", e);
         }
     }
 

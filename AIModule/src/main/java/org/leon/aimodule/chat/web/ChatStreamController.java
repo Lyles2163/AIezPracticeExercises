@@ -58,8 +58,11 @@ public class ChatStreamController {
         if (!req.regenerate() && (req.content() == null || req.content().isBlank())) {
             throw new ChatRejectException("content 不能为空");
         }
+        boolean useRag = req.useRag() == null || req.useRag();
+        int ragTopK = req.ragTopK() == null ? 0 : Math.min(Math.max(req.ragTopK(), 1), 20);
         PreparedTurn prepared = service.prepare(new StreamCommand(req.conversationId(), req.content(),
-                req.modelKey(), req.effort(), req.clientMsgId(), req.regenerate()), userName);
+                req.modelKey(), req.effort(), req.clientMsgId(), req.regenerate(),
+                useRag, req.ragScope(), req.ragSubjectId(), ragTopK), userName);
 
         // 代理侧不聚合响应体；Nginx 还需 proxy_buffering off。
         response.setHeader("Cache-Control", "no-cache, no-transform");
