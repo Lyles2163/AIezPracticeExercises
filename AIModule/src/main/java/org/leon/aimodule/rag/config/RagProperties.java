@@ -22,6 +22,7 @@ public class RagProperties {
     private Index index = new Index();
     private Embedding embedding = new Embedding();
     private Search search = new Search();
+    private Ingest ingest = new Ingest();
 
     /** poll | mq；阶段 4a 只实现 poll */
     private String async = "poll";
@@ -59,5 +60,23 @@ public class RagProperties {
         private int knnK = 20;
         private int numCandidates = 100;
         private float knnSimilarity = 0.55f;
+    }
+
+    /**
+     * 文档入库（上传 → 切片 → MySQL → embedding → ES）相关配置。
+     * 上传是同步接口，这里的上限就是"一次请求最多干多少活"的闸门。
+     */
+    @Data
+    public static class Ingest {
+        /** 单文件字节上限；超过直接拒，不等到解析阶段才失败 */
+        private long maxFileBytes = 20L * 1024 * 1024;
+        /** 单文档切片数上限；正常教材远达不到，防的是"一行一个字的畸形文件"炸出上万条 */
+        private int maxChunksPerDoc = 2000;
+        /** 一次 bulk 写 MySQL 的切片条数 */
+        private int mysqlBatchSize = 200;
+        /** 原文件落盘目录；留空则只存元数据不存原件（重建索引时靠 rag_chunk.content 重放） */
+        private String storageDir = "";
+        /** 允许的扩展名，小写；不在名单内直接拒，避免把可执行文件当文档收进来 */
+        private List<String> allowedExtensions = new ArrayList<>(List.of("txt", "md", "markdown", "text"));
     }
 }

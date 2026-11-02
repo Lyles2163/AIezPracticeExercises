@@ -1,5 +1,6 @@
 package org.leon.aimodule.controller;
 
+import org.leon.aimodule.demo.OrderTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -9,12 +10,25 @@ import org.springframework.web.bind.annotation.RestController;
 public class AiChatController {
 
     private final ChatClient chatClient;
+    // ChatController.java 新增
+    private final OrderTools orderTools;
 
-    // Spring AI 自动配置注入 ChatClient.Builder
-    public AiChatController(ChatClient.Builder chatClientBuilder) {
-        this.chatClient = chatClientBuilder.build();
+    public AiChatController(ChatClient.Builder builder, OrderTools orderTools) {
+        this.orderTools = orderTools;
+        this.chatClient = builder
+                .defaultTools(orderTools)  // 👈 注册工具
+                .build();
     }
 
+
+
+    @GetMapping("/agent")
+    public String agent(@RequestParam String message) {
+        return chatClient.prompt()
+                .user(message)
+                .call()
+                .content();
+    }
 
     /**
      * 简单对话接口

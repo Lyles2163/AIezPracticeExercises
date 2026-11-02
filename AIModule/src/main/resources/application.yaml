@@ -27,6 +27,9 @@ spring:
         api-key: ${DASHSCOPE_API_KEY:}
         base-url: https://dashscope.aliyuncs.com/compatible-mode
         options:
+          # 必须是 OpenAI 兼容模式支持的模型：qwen3-vl-embedding 是多模态模型，
+          # 走兼容端点会 404 model_not_supported（2026-11-01 实测踩过）。
+          # dimensions=1024 与 ES 索引 mapping 的 dims 必须一致，改这里等于重建索引。
           model: text-embedding-v3
           dimensions: 1024
   cloud:
@@ -54,6 +57,13 @@ spring:
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
     username: root
     password:
+  servlet:
+    multipart:
+      # 知识库文档上传上限。Spring Boot 默认单文件仅 1MB，不改的话正常教材在进
+      # Controller 之前就被 MaxUploadSizeExceededException 拒掉。
+      # 这两个值必须 >= rag.ingest.max-file-bytes，否则业务层的校验永远轮不到执行。
+      max-file-size: 20MB
+      max-request-size: 25MB
 
 
 rag:
@@ -62,7 +72,7 @@ rag:
   elasticsearch:
     uris: ${ES_URIS:https://127.0.0.1:9200}
     username: ${ES_USERNAME:elastic}
-    password: ${ELASTIC_PASSWORD:}
+    password: ${ELASTIC_PASSWORD:EZ_elastic_2026}
     ca-cert-path: ${ES_CA_CERT:F:/ES/elasticsearch-9.5.4/config/certs/http_ca.crt}
   index:
     auto-create: true
@@ -82,6 +92,14 @@ rag:
     knn-k: 20
     num-candidates: 100
     knn-similarity: 0.55
+  ingest:
+    # 必须 <= spring.servlet.multipart.max-file-size，否则 multipart 会先拒，
+    # 这里的业务校验永远轮不到执行，用户看到的是框架错误而不是中文提示。
+    max-file-bytes: 20971520       # 20MB
+    max-chunks-per-doc: 2000
+    mysql-batch-size: 200
+    storage-dir:                   # 留空=只存元数据不存原件，重建索引靠 rag_chunk.content 重放
+    allowed-extensions: txt,md,markdown,text
   async: poll
   dev-seed:
     enabled: false
