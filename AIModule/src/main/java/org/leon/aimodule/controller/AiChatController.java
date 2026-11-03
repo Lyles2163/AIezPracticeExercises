@@ -31,8 +31,14 @@ public class AiChatController {
     }
 
     /**
-     * 简单对话接口
-     * 示例：GET /ai/chat?message=你好，介绍一下你自己
+     * 简单对话接口（不接入 RAG 知识库）。
+     * <p>
+     * 本接口直接调用大模型，不带知识库检索，适合快速连通性测试。
+     * 需要基于上传文档的问答，请使用带 RAG 的流式接口：
+     * {@code POST /ai/chat/completions/stream}
+     *
+     * @param message 用户问题
+     * @return 模型纯文本回答
      */
     @GetMapping("/ai/chat")
     public String chat(@RequestParam(value = "message", defaultValue = "你好,你是什么模型") String message) {

@@ -71,4 +71,17 @@ public interface RagChunkMapper extends BaseMapper<RagChunk> {
 
     @Select("SELECT COUNT(1) FROM rag_chunk WHERE doc_id = #{docId}")
     int countByDocId(@Param("docId") Long docId);
+
+    /**
+     * 强制重放：把某文档全部切片的 index_status 重置为 pending，
+     * 供 reindex 接口重新走 embedding + 写 ES 的全流程。
+     * 用于切片元数据（如 page_no）已在 MySQL 侧修正、需要把修正同步到 ES 的场景。
+     */
+    @Update("UPDATE rag_chunk SET index_status = 'pending', error_msg = NULL, update_time = NOW(3) "
+            + "WHERE doc_id = #{docId}")
+    int resetToPending(@Param("docId") Long docId);
+
+    /** 把某文档全部切片的 page_no 置空。纯文本格式没有页概念，旧数据可能带着假的"第 1 页"。 */
+    @Update("UPDATE rag_chunk SET page_no = NULL WHERE doc_id = #{docId}")
+    int clearPageNo(@Param("docId") Long docId);
 }

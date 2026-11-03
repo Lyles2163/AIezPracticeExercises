@@ -196,6 +196,35 @@ public class RagDocumentService {
     }
 
     /**
+     * 强制重放：清空 ES 中该文档的全部切片，把 MySQL 侧 index_status 重置为 pending，
+     * 再走一遍 embedding + 写 ES。
+     * <p>
+     * 与 {@link #reindex} 的区别：reindex 只补没进 ES 的切片，本方法会覆盖已 indexed 的，
+     * 用于切片元数据（如 page_no）在 MySQL 侧修正后需要同步到 ES 的场景。
+     * 切片正文存于 rag_chunk.content，无需重新解析原文件。
+     */
+    public RagDocument forceReindex(Long docId) {
+        RagDocument doc = docMapper.selectById(docId);
+        if (doc == null) {
+            throw new RagException("文档不存在");
+        }
+        // 纯文本格式没有页概念，旧数据可能带着假的"第 1 页"，重放前先清掉
+        if (isPlainText(doc.getFileName())) {
+            chunkMapper.clearPageNo(docId);
+            log.info("[RAG] 强制重放前已清空纯文本文档的 page_no: docId={}", docId);
+        }
+        try {
+            long removed = indexWriter.deleteByDocId(docId);
+            log.info("[RAG] 强制重放前清理 ES 切片 docId={} {} 条", docId, removed);
+        } catch (Exception e) {
+            log.warn("[RAG] 强制重放前清理 ES 失败（继续，旧切片会被同 _id 覆盖）: docId={} err={}",
+                    docId, e.getMessage());
+        }
+        chunkMapper.resetToPending(docId);
+        return reindex(docId);
+    }
+
+    /**
      * 清理失败文档的残留，为重传腾出唯一键。
      * <p>
      * 失败可能发生在任一阶段：解析失败时既无切片也无 ES 数据；embedding/ES 阶段失败时
@@ -356,6 +385,14 @@ public class RagDocumentService {
         int dot = fileName.lastIndexOf('.');
         return dot < 0 || dot == fileName.length() - 1
                 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+    }
+
+    /** 纯文本格式没有页概念，与 PlainTextDocumentParser.EXTENSIONS 保持一致 */
+    private static final java.util.Set<String> PLAIN_TEXT_EXTS =
+            java.util.Set.of("txt", "md", "markdown", "text", "log", "csv");
+
+    private static boolean isPlainText(String fileName) {
+        return PLAIN_TEXT_EXTS.contains(extensionOf(fileName));
     }
 
     private static String truncate(String s, int max) {

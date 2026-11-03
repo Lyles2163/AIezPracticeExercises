@@ -11,6 +11,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,7 +36,7 @@ class PlainTextDocumentParserTest {
 
         assertEquals(1, doc.pages().size());
         assertTrue(doc.pages().get(0).text().contains("快速排序"));
-        assertEquals(1, doc.pages().get(0).pageNo(), "txt 没有页概念，恒为 1");
+        assertNull(doc.pages().get(0).pageNo(), "txt 没有页概念，恒为 null（不显示"第 1 页"）");
     }
 
     @Test

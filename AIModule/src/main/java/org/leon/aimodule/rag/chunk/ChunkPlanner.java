@@ -29,9 +29,9 @@ import java.util.regex.Pattern;
 public class ChunkPlanner {
 
     /** 单个 chunk 的 token 预算上限，超过则必须再切 */
-    public static final int BUDGET_TOKENS = 500;
+    public static final int BUDGET_TOKENS = 1500;
     /** 相邻 chunk 之间保留的重叠 token 数，用于维持跨片上下文 */
-    public static final int OVERLAP_TOKENS = 60;
+    public static final int OVERLAP_TOKENS = 80;
 
     /**
      * 标题识别正则，匹配三种常见样式：

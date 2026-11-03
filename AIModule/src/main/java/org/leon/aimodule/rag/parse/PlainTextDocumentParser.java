@@ -14,8 +14,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 纯文本与 Markdown 解析器。整份文件视为一页（pageNo 恒为 1）——
- * txt/md 没有页的概念，硬造页码只会让溯源信息变成假的。
+ * 纯文本与 Markdown 解析器。txt/md 没有页的概念，pageNo 恒为 null ——
+ * 检索结果与引用拼装会跳过 null 页码，不显示误导性的"第 1 页"。
  * <p>
  * 两件事是刻意为之，改之前先读完：
  * <ol>
@@ -64,7 +64,8 @@ public class PlainTextDocumentParser implements DocumentParser {
         if (normalized.isBlank()) {
             throw new IllegalArgumentException("文件解码后没有可读文本（可能是二进制文件）");
         }
-        return new ParsedDoc(fileName, titleOf(fileName, normalized), List.of(new ParsedPage(1, normalized)));
+        return new ParsedDoc(fileName, titleOf(fileName, normalized),
+                List.of(new ParsedPage(null, normalized)));
     }
 
     /**

@@ -59,7 +59,8 @@ public class ChatStreamController {
             throw new ChatRejectException("content 不能为空");
         }
         boolean useRag = req.useRag() == null || req.useRag();
-        int ragTopK = req.ragTopK() == null ? 0 : Math.min(Math.max(req.ragTopK(), 1), 20);
+        // ragTopK 为 null 时交给 RagContextService 用默认值兜底，这里只做边界裁剪
+        Integer ragTopK = req.ragTopK() == null ? null : Math.min(Math.max(req.ragTopK(), 1), 20);
         PreparedTurn prepared = service.prepare(new StreamCommand(req.conversationId(), req.content(),
                 req.modelKey(), req.effort(), req.clientMsgId(), req.regenerate(),
                 useRag, req.ragScope(), req.ragSubjectId(), ragTopK), userName);

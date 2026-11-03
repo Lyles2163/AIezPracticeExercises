@@ -111,6 +111,18 @@ public class RagDocumentController {
         return Result.success(DocumentVo.of(service.reindex(id)));
     }
 
+    /**
+     * 强制重放：清空 ES 旧切片并重置 MySQL 状态后重新 embedding + 写入。
+     * <p>
+     * 用于切片元数据（如 page_no）在 MySQL 侧修正后需要同步到 ES 的场景。
+     * 会重新付一遍 embedding 的钱，正常补录请用 {@link #reindex}。
+     */
+    @PostMapping("/{id}/reindex/force")
+    public Result<DocumentVo> forceReindex(@RequestHeader("X-User-Name") String userName, @PathVariable Long id) {
+        query.requireOwned(id, userName);
+        return Result.success(DocumentVo.of(service.forceReindex(id)));
+    }
+
     @DeleteMapping("/{id}")
     public Result<Void> delete(@RequestHeader("X-User-Name") String userName, @PathVariable Long id) {
         service.delete(id, userName);

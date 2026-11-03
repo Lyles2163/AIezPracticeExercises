@@ -34,7 +34,9 @@ public final class RrfFusion {
                 .thenComparingInt(FusedHit::rank)
                 .thenComparing(FusedHit::id));
 
-        List<FusedHit> limited = fused.size() > limit ? new ArrayList<>(fused.subList(0, limit)) : fused;
+        // limit <= 0 视为不限制，避免 topK=0 时 subList(0,0) 把全部结果丢掉
+        List<FusedHit> limited = limit > 0 && fused.size() > limit
+                ? new ArrayList<>(fused.subList(0, limit)) : fused;
         List<FusedHit> ranked = new ArrayList<>(limited.size());
         for (int i = 0; i < limited.size(); i++) {
             FusedHit hit = limited.get(i);

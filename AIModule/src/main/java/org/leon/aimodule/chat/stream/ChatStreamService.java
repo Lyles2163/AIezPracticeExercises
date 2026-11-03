@@ -239,8 +239,9 @@ public class ChatStreamService {
      * 若配置里没有 system prompt，就只给 RAG 指令；若有，则在原有指令前追加资料块。
      */
     private String buildRagSystemPrompt(String baseSystemPrompt, String ragContext) {
-        String instruction = "你是一个答疑助手。请基于下面给出的参考资料回答用户问题，"
-                + "引用资料时在句末标注对应的 [n] 编号。如果参考资料无法回答问题，请直接说明，不要编造。\n\n"
+        String instruction = "你是一个答疑助手。下面给出了参考资料，你必须优先基于这些资料回答用户的问题，"
+                + "不要声称自己没有收到资料。引用资料时在句末标注对应的 [n] 编号。"
+                + "如果参考资料中确实没有相关信息，再说明无法回答，不要编造。\n\n"
                 + ragContext;
         if (baseSystemPrompt == null || baseSystemPrompt.isBlank()) {
             return instruction;

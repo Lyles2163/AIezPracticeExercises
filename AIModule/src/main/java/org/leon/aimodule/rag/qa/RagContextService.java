@@ -18,6 +18,7 @@ import java.util.List;
 public class RagContextService {
 
     private static final List<String> DEFAULT_SCOPES = List.of("official", "personal");
+    private static final int DEFAULT_TOP_K = 6;
 
     private final RetrievalService retrievalService;
 
@@ -33,7 +34,9 @@ public class RagContextService {
     public RagContext retrieve(String question, String userName, RagOptions options) throws Exception {
         List<String> scopes = options.scopes() == null || options.scopes().isEmpty()
                 ? DEFAULT_SCOPES : options.scopes();
-        SearchOptions so = new SearchOptions(userName, scopes, options.subjectId(), options.topK());
+        // topK 兜底：null 或非正数都用默认值，防止 0 被 RRF 当成"取前 0 条"导致结果全丢
+        int topK = options.topK() == null || options.topK() <= 0 ? DEFAULT_TOP_K : options.topK();
+        SearchOptions so = new SearchOptions(userName, scopes, options.subjectId(), topK);
         KnowledgeSearchResponse resp = retrievalService.searchKnowledge(question, so);
         if (resp.empty()) {
             return RagContext.EMPTY;
@@ -43,11 +46,17 @@ public class RagContextService {
         List<RagCitation> citations = new ArrayList<>();
         int n = 1;
         for (KnowledgeSearchItem item : resp.items()) {
-            String header = String.format("[%d] 《%s》%s",
-                    n,
-                    item.book() == null ? "未命名文档" : item.book(),
-                    item.chapterPath() == null ? "" : " · " + item.chapterPath());
-            if (item.title() != null && !item.title().isBlank()) {
+            // book（书名/课程名）优先；没传时回退到 title（已存文件名去扩展名），
+            // 再没有才用占位符。避免上传时没填 book 就一律显示"未命名文档"。
+            String docName = firstNonBlank(item.book(), item.title());
+            String header = String.format("[%d] 《%s》", n,
+                    docName == null ? "未命名文档" : docName);
+            if (item.chapterPath() != null && !item.chapterPath().isBlank()) {
+                header += " · " + item.chapterPath();
+            }
+            // title 与 book 不同时才追加（同值时重复展示无意义）
+            if (item.title() != null && !item.title().isBlank()
+                    && !item.title().equals(item.book())) {
                 header += " · " + item.title();
             }
             if (item.pageNo() != null) {
@@ -63,7 +72,16 @@ public class RagContextService {
         return new RagContext(sb.toString(), citations);
     }
 
-    public record RagOptions(List<String> scopes, Long subjectId, int topK) {
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    public record RagOptions(List<String> scopes, Long subjectId, Integer topK) {
     }
 
     public record RagCitation(int index, long docId, long chunkId,
