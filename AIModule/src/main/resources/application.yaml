@@ -137,6 +137,14 @@ chat:
   thinking-max-step-chars: 120
   thinking-max-steps: 12
   upstream-idle-timeout-seconds: 60
+  # 桌宠（dsh-pet 独立模式）的 OpenAI 兼容链：POST /ai/v1/chat/completions。
+  # 这条链不经登录 JWT（网关按完整路径放行），所以 api-key 留空 = 路由直接 503 关闭，不是放行。
+  # 键值与 EZ_DEEPSEEK_API_KEY 同一个来源；user-name 决定桌宠轮次落在谁的会话列表里。
+  openai-compat:
+    api-key: ${EZ_PET_API_KEY:}
+    user-name: test920
+    conversation-title: 桌宠对话
+    effort: ""
 
 
 mybatis:

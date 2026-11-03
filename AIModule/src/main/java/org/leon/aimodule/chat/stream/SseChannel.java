@@ -66,6 +66,16 @@ public class SseChannel {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("事件序列化失败: " + name, e);
         }
+        sendRaw(json, name);
+    }
+
+    /**
+     * 与 send(name, payload) 同一把锁、同一次 closed 判定，只是帧已经序列化好了。
+     *
+     * name 传 null = 无名帧（只有 data:），OpenAI 那套协议要的就是这种；
+     * 子类翻帧形时走这里，别另起一条写路径——那会把「send/complete 全串在一把锁上」这条破掉。
+     */
+    protected void sendRaw(String json, String name) {
         synchronized (lock) {
             if (closed) {
                 return;

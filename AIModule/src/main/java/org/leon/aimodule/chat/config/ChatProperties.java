@@ -37,6 +37,25 @@ public class ChatProperties {
     private int thinkingMaxSteps = 12;
     private int upstreamIdleTimeoutSeconds = 60;
 
+    private OpenAiCompat openaiCompat = new OpenAiCompat();
+
+    /**
+     * 桌宠（dsh-pet 独立模式）那条 OpenAI 兼容链的参数。
+     * 这条链不经登录 JWT：网关按完整路径放行，凭据由 AIModule 自己校验，
+     * 所以 apiKey 留空的语义必须是「路由关闭」，绝不能当成「没配就放行」。
+     */
+    @Data
+    public static class OpenAiCompat {
+        /** 服务键，与请求里的 Bearer 做常量时间比对。 */
+        private String apiKey = "";
+        /** 桌宠的轮次落在哪个账号名下——网页端会话列表里看到的就是这个用户。 */
+        private String userName = "";
+        /** 固定会话的标题。显式给标题才躲得开 renameIfDefault（它只改「新对话」）。 */
+        private String conversationTitle = "桌宠对话";
+        /** 这条链的档位；留空回落 chat.default-effort。 */
+        private String effort = "";
+    }
+
     /**
      * 能力上报的唯一口径。上一期留过"报 true 却永远发不出内容"的空头旗子，
      * 所以 #1、meta、以及要不要喂 splitter 都必须问这里，不许各算各的。

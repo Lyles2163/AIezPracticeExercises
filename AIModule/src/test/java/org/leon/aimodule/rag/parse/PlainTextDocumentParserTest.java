@@ -36,7 +36,7 @@ class PlainTextDocumentParserTest {
 
         assertEquals(1, doc.pages().size());
         assertTrue(doc.pages().get(0).text().contains("快速排序"));
-        assertNull(doc.pages().get(0).pageNo(), "txt 没有页概念，恒为 null（不显示"第 1 页"）");
+        assertNull(doc.pages().get(0).pageNo(), "txt 没有页概念，恒为 null（不显示\"第 1 页\"）");
     }
 
     @Test

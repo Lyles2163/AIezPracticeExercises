@@ -127,7 +127,7 @@ public class ChatStreamService {
         }
         List<CtxMessage> messages = assembler.assemble(repo.activeHistory(cid, userMessageId), question);
         return new PreparedTurn(cid, userMessageId, assistantId, messages, params, userName, effortName,
-                cmd.useRag(), cmd.toRagOptions());
+                cmd.useRag(), cmd.toRagOptions(), cmd.systemPromptOverride());
     }
 
     /** 提交到流式线程池并返回登记好的流；channel 由 controller 创建。 */
@@ -210,7 +210,7 @@ public class ChatStreamService {
         }
 
         // ===== RAG 检索 =====
-        String systemPromptOverride = null;
+        String ragPrompt = null;
         if (prepared.useRag()) {
             try {
                 String question = prepared.messages().isEmpty() ? ""
@@ -219,13 +219,16 @@ public class ChatStreamService {
                         question, prepared.userName(), prepared.ragOptions());
                 if (!ctx.empty()) {
                     emitQuietly(stream.channel(), new ChatEvent.Sources(ctx.citations()));
-                    systemPromptOverride = buildRagSystemPrompt(props.getSystemPrompt(), ctx.context());
+                    ragPrompt = buildRagSystemPrompt(props.getSystemPrompt(), ctx.context());
                 }
             } catch (Exception e) {
                 // 检索失败不阻断对话：降级为普通对话，仅打日志。
                 log.warn("[chat] RAG 检索失败，降级为普通对话: {}", e.getMessage());
             }
         }
+        // 资料块在前、请求携带的人设在后，顺序是定死的：反过来会让角色口吻盖过
+        // 「必须基于资料回答」，模型开始用女仆语气编造出处。两段都在就拼成一段，不做二选一。
+        String systemPromptOverride = joinSystemPrompt(ragPrompt, prepared.systemPromptOverride());
 
         Disposable disposable = gateway.stream(prepared.messages(), params, systemPromptOverride).subscribe(
                 chunk -> onChunk(stream, chunk),
@@ -247,6 +250,16 @@ public class ChatStreamService {
             return instruction;
         }
         return instruction + "\n\n" + baseSystemPrompt;
+    }
+
+    /** 资料块与人设的拼接：任一为空就返回另一个，都为空返回 null（= 不覆盖，走默认 system）。 */
+    private static String joinSystemPrompt(String ragBlock, String persona) {
+        boolean hasRag = ragBlock != null && !ragBlock.isBlank();
+        boolean hasPersona = persona != null && !persona.isBlank();
+        if (hasRag && hasPersona) {
+            return ragBlock + "\n\n" + persona;
+        }
+        return hasRag ? ragBlock : (hasPersona ? persona : null);
     }
 
     /** 流式期间这里一次 DB 都不碰：只 append 内存 buffer，reasoning 连 buffer 都不进。 */

@@ -46,6 +46,10 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
             "/auth/register",
             "/auth/captcha",
             "/auth/sms/send",
+            // 桌宠（dsh-pet）只会发 Authorization: Bearer <服务键>，发不出 JWT，也没法塞自定义头。
+            // 写完整路径而不是 /ai/v1：白名单是 startsWith 匹配，写前缀等于把整段 /ai/v1/** 都放开。
+            // 放行后不再注入 X-User-Name、也不剥 Authorization，凭据由 AIModule 那侧自己校验。
+            "/ai/v1/chat/completions",
             "/actuator"
     );
 
