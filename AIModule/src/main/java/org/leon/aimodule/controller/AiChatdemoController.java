@@ -1,25 +1,47 @@
 package org.leon.aimodule.controller;
 
+import lombok.extern.slf4j.Slf4j;
 import org.leon.aimodule.demo.OrderTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+@Slf4j
 @RestController
-public class AiChatController {
+public class AiChatdemoController {
 
     private final ChatClient chatClient;
-    // ChatController.java 新增
-    private final OrderTools orderTools;
 
-    public AiChatController(ChatClient.Builder builder, OrderTools orderTools) {
-        this.orderTools = orderTools;
+    public AiChatdemoController(ChatClient.Builder builder, OrderTools orderTools) {
+        // ChatController.java 新增
         this.chatClient = builder
                 .defaultTools(orderTools)  // 👈 注册工具
                 .build();
     }
 
+    // 先定义记录类
+    public record BookInfo(String title, String author, double price, List<String> tags) {}
+
+    @GetMapping("/book")
+    public BookInfo book(@RequestParam String bookName) {
+        return chatClient.prompt()
+                .user("推荐一本关于" + bookName + "的经典书，返回书名、作者、大致价格和3个标签")
+                .call()
+                .entity(BookInfo.class);
+    }
+
+
+    public record StudentInfo(String name, String context) {}
+
+    @GetMapping("/student")
+    public StudentInfo student(@RequestParam String name){
+        return chatClient.prompt()
+                .user("请返回这个人的姓名：" + name+"和它的介绍")
+                .call()
+                .entity(StudentInfo.class);
+    }
 
 
     @GetMapping("/agent")

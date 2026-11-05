@@ -7,7 +7,7 @@ import org.springframework.context.annotation.ComponentScan;
 
 @SpringBootApplication
 @ComponentScan({"org.leon.practicemodule", "org.leon.commonjwt"})
-@MapperScan("org.leon.practicemodule.mapper")
+@MapperScan({"org.leon.practicemodule.mapper", "org.leon.practicemodule.oj.mapper"})
 public class PracticeModuleApplication {
 
     public static void main(String[] args) {

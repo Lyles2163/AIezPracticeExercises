@@ -16,7 +16,7 @@ public class OrderTools {
             "A1002", "待支付, 30 分钟后自动取消"
     );
 
-    @Tool(description = "根据订单号查询订单状态和物流信息") // 👈 核心
+    @Tool(description = "根据订单号查询订单状态和物流信息")
     public String getOrderStatus(@ToolParam(description = "订单号，格式如A1001") String orderId) {
         return ORDERS.getOrDefault(orderId, "订单号不存在");
     }

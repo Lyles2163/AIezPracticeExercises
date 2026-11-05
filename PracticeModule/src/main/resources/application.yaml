@@ -20,6 +20,26 @@ spring:
     import:
       - optional:nacos:PracticeModuleServer.yaml
       - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        # 判题是重活：一次只取一条，别囤积压垮 Docker
+        prefetch: 1
+        # 两个消费者并行判，太多会把本机 Docker 打满
+        concurrency: 2
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000
+          multiplier: 2
+          max-interval: 10000
+        # 重试耗尽后必须拒绝而不是重回队首，否则死信永远为空并无限重消费
+        default-requeue-rejected: false
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ezpracticeexercises
@@ -46,6 +66,17 @@ practice:
   exam:
     # 超时宽限秒数（spec 8）：只有 ExamDeadline 读它，start/draft/submit 三个入口共用同一次判据
     grace-seconds: 60
+
+oj:
+  sandbox:
+    # 单次提交源码上限（字节）。超过直接 40000，不落库
+    max-source-bytes: 65536
+    # 编译阶段的容器内存与超时，与题目自身的运行限制分开。
+    # 30s 是给"镜像首次冷启动"留的余量：实测首题编译曾超过 15s 被误判成 CE。
+    compile-memory-mb: 512
+    compile-timeout-ms: 30000
+    # 单个用例输出最多读回多少字节，防止用户程序无限打印把服务端内存打爆
+    max-output-bytes: 1048576
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

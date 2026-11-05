@@ -27,8 +27,8 @@
     </scm>
     <properties>
         <java.version>21</java.version>
-        <!-- 真库测试默认不进 mvn test：excludedGroups 走属性，命令行 -Dsurefire.excludedGroups= 可临时放开。 -->
-        <surefire.excludedGroups>db-it</surefire.excludedGroups>
+        <!-- 真库/真Docker测试默认不进 mvn test：excludedGroups 走属性，命令行 -Dsurefire.excludedGroups= 可临时放开。 -->
+        <surefire.excludedGroups>db-it,docker-it</surefire.excludedGroups>
     </properties>
     <dependencies>
         <dependency>
@@ -39,6 +39,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- OJ 判题队列：与 UserModule/AuthModule 同一套 RabbitMQ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
             <!-- Spring Data Redis -->
