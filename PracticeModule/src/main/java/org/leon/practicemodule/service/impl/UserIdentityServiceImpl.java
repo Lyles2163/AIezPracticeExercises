@@ -59,6 +59,14 @@ public class UserIdentityServiceImpl implements UserIdentityService {
         return userId;
     }
 
+    @Override
+    public Long resolveUserIdFromHeader(Long userId) {
+        if (userId == null) {
+            throw new PracticeException(PracticeErrorCode.IDENTITY_MISSING, "用户身份不存在，请重新登录");
+        }
+        return userId;
+    }
+
     private Long readCache(String key, String userName) {
         try {
             String v = stringRedisTemplate.opsForValue().get(key);

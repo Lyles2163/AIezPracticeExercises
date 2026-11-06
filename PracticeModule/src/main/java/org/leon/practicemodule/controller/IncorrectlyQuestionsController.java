@@ -86,13 +86,13 @@ public class IncorrectlyQuestionsController {
             size = MAX_LIMIT;
         }
 
-        List<WrongDetailRow> rows = wrongMapper.selectWrongDetails(userId, subjectId, size);
+        List<WrongDetailRow> rows = wrongMapper.selectWrongDetails(uid, subjectId, size);
         if (rows.isEmpty()) {
             return Result.success(List.of());
         }
 
         List<Long> questionIds = rows.stream().map(WrongDetailRow::questionId).toList();
-        Map<Long, LatestAnswerRow> latest = LatestAnswers.byQuestion(recordMapper, userId, questionIds);
+        Map<Long, LatestAnswerRow> latest = LatestAnswers.byQuestion(recordMapper, uid, questionIds);
         // subjectId -> name 缓存：跨科目时多题同科目，别每条都查一次
         Map<Long, String> subjectNames = new HashMap<>();
 

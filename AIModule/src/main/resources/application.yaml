@@ -14,14 +14,14 @@ spring:
 
   ai:
     openai:
-      api-key: ${EZ_DEEPSEEK_API_KEY:}  # DeepSeek API Key，通过环境变量注入
-      base-url: https://api.deepseek.com  # DeepSeek 的 OpenAI 兼容地址
+      api-key: ${EZ_NVIDIA_API_KEY:}  # 通过环境变量注入（变量名沿用旧的，值已换成 NVIDIA key）
+      base-url: https://integrate.api.nvidia.com  # NVIDIA NIM 的 OpenAI 兼容地址
       chat:
         options:
           # 遗留演示接口 GET /ai/chat（AiChatController）用 ChatClient 且不显式指定 model，
           # 这行是它唯一的模型来源 —— 删了会静默弄坏一个不相干的接口。
           # temperature / stream-usage 已删除：chat 子系统不再走 ChatClient。
-          model: deepseek-chat
+          model: nvidia/nemotron-3-ultra-550b-a55b
       embedding:
         # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek
         api-key: ${DASHSCOPE_API_KEY:}
@@ -107,17 +107,13 @@ rag:
     enabled: false
 
 chat:
-  default-model: deepseek-chat
+  default-model: nvidia/nemotron-3-ultra-550b-a55b
   default-effort: Medium
   models:
-    - key: deepseek-chat
-      name: deepseek-chat
-      tag: Fast
+    - key: nvidia/nemotron-3-ultra-550b-a55b
+      name: nvidia/nemotron-3-ultra-550b-a55b
+      tag: Ultra
       supports-thinking: false
-    - key: deepseek-reasoner
-      name: deepseek-reasoner
-      tag: Reasoning
-      supports-thinking: true
   efforts:
     - { key: Low,    temperature: 1.3, max-tokens: 4096 }
     - { key: Medium, temperature: 1.0, max-tokens: 4096 }
@@ -132,9 +128,10 @@ chat:
   heartbeat-interval-seconds: 15
   stale-stream-reap-minutes: 5
   # 值直接引用 spring.ai.openai.*：API key 的唯一真相源仍是 config/local.properties
-  # 里的 EZ_DEEPSEEK_API_KEY。不新增第二个键，免得两处能配得不一样。
+  # 里的 EZ_DEEPSEEK_API_KEY（变量名沿用旧的，值已换成 NVIDIA key）。
+  # 不新增第二个键，免得两处能配得不一样。
   api-key: ${spring.ai.openai.api-key:}
-  base-url: ${spring.ai.openai.base-url:https://api.deepseek.com}
+  base-url: ${spring.ai.openai.base-url:https://integrate.api.nvidia.com}
   thinking-enabled: true
   thinking-max-step-chars: 120
   thinking-max-steps: 12

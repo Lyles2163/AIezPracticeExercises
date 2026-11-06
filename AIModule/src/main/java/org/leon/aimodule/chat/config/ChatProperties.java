@@ -16,7 +16,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "chat")
 public class ChatProperties {
 
-    private String defaultModel = "deepseek-chat";
+    private String defaultModel = "nvidia/nemotron-3-ultra-550b-a55b";
     private String defaultEffort = "Medium";
     private List<Model> models = new ArrayList<>();
     private List<Effort> efforts = new ArrayList<>();
@@ -30,7 +30,7 @@ public class ChatProperties {
 
     /** 上游 HTTP 直连参数。值由 yaml 从 spring.ai.openai.* 引过来，key 只有一个真相源。 */
     private String apiKey = "";
-    private String baseUrl = "https://api.deepseek.com";
+    private String baseUrl = "https://integrate.api.nvidia.com";
 
     private boolean thinkingEnabled = true;
     private int thinkingMaxStepChars = 120;
