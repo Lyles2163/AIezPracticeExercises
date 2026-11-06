@@ -313,8 +313,8 @@ public String execute(String argumentsJson, String userName) {
 
 ## 六、常见问题
 
-**Q1: 直接访问接口返回 401？**
-A：走网关（8100）要带 JWT；直接打 PracticeModule（8102）要带 `X-User-Name` 头。
+**Q1: 直接访问接口返回 401 "请通过网关访问"？**
+A：这是 PracticeModule 的 `InternalTokenFilter` 在拦你——它要求请求必须带 `X-Internal-Token` 头，且值要和配置的 `practice.internal-token` 一致。这个令牌只有网关和内部 Feign 调用会带，客户端直接打 8102 是没有的。正确做法是走网关（8100）带 JWT，或者本地调试时把 `practice.internal-token` 配成空串关闭校验。
 
 **Q2: AI 不调用工具，直接瞎回答？**
 A：检查 `ToolRegistry` 里有没有注册到 `WrongQuestionsTool`（启动时看日志，或者断点看 `toolRegistry.all()`）。另外确保 DeepSeek API key 配好了，工具调用需要模型支持。
@@ -330,8 +330,54 @@ A：`/practice/wrong/page` 是给前端错题本卡片用的，只返回题干�
 
 ---
 
-## 七、安全提醒
+## 七、安全机制说明
 
-`/incorrectlyQuestions/list` 返回了题目的正确答案和解析，所以**只能给 AI 用，不要暴露给前端**。前端要看错题继续走 `/practice/wrong/page`。
+### 7.1 现在有几层防护
 
-当前这个接口只认 `X-User-Name`，调用方传谁的用户名就查谁的错题。如果以后要做成严格的多用户隔离，要确保这个头只能由网关注入，不能让客户端伪造。
+```
+前端请求
+   │  Authorization: Bearer <JWT>
+   ▼
+网关 (8100)  JwtAuthGlobalFilter
+   │  1. 校验 JWT 签名+过期
+   │  2. 删掉客户端伪造的 X-User-Name / X-User-Id / X-Internal-Token
+   │  3. 注入真实的 X-User-Name + X-User-Id
+   │  4. 注入 X-Internal-Token（内部令牌）
+   │  5. 剥掉 Authorization
+   ▼
+PracticeModule (8102)  InternalTokenFilter
+   │  校验 X-Internal-Token，不对就 401
+   ▼
+IncorrectlyQuestionsController
+   优先用 X-User-Id（可信），回退 X-User-Name 查库
+```
+
+### 7.2 内部令牌 X-Internal-Token
+
+- 网关和内部服务（AIModule 的 Feign）共享同一个令牌值
+- PracticeModule 的 `InternalTokenFilter` 校验这个头，只有带对令牌的请求才放行
+- 配置项：
+  - 网关：`gateway.internal-token`（默认 `ez-practice-internal-token-2026`）
+  - PracticeModule：`practice.internal-token`（默认值同上）
+  - AIModule：`practice.internal-token`（Feign 拦截器用，默认值同上）
+- **生产环境必须在 Nacos 改成强随机值**，三个服务要配成一样
+- 本地调试想直连 8102：把 `practice.internal-token` 设为空串，过滤器就不校验
+
+### 7.3 X-User-Id 优先
+
+- 网关从 JWT 里取出 `userId`，注入 `X-User-Id` 头
+- PracticeModule 优先用 `X-User-Id`，省掉"用 userName 查库换 userId"那一步
+- 没有 `X-User-Id` 时（比如 AIModule 只传了 userName），回退到查库
+
+### 7.4 为什么这样安全
+
+| 攻击方式 | 是否能得逞 | 原因 |
+|---------|-----------|------|
+| 客户端伪造 `X-User-Name` | ❌ | 网关先删掉再注入自己的 |
+| 绕过网关直连 8102 | ❌ | `InternalTokenFilter` 拦，没有令牌就 401 |
+| 内网服务冒充用户 | ❌ | 不知道内部令牌就过不了校验 |
+| 伪造 `X-User-Id` | ❌ | 网关先删再注，客户端传的不算数 |
+
+### 7.5 只给 AI 用的提醒
+
+`/incorrectlyQuestions/list` 返回了题目的正确答案和解析，所以**只能给 AI 用，不要暴露给前端**。前端要看错题继续走 `/practice/wrong/page`（那个接口不返回答案真值）。
