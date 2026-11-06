@@ -17,6 +17,10 @@ public interface QbSubjectMapper extends BaseMapper<QbSubject> {
             + "FROM qb_subject WHERE status = 1 ORDER BY sort_order ASC, id ASC")
     List<QbSubject> selectEnabledSubjects();
 
+    /** 按 id 取科目名，AI 错题列表里要展示科目名。科目不存在时返回 null。 */
+    @Select("SELECT name FROM qb_subject WHERE id = #{id}")
+    String selectNameById(@Param("id") Long id);
+
     /**
      * 一次查出多个科目的启用题目数。
      * mapper 只吐投影行，转 Map 是服务的职责——聚合语义留在服务里，

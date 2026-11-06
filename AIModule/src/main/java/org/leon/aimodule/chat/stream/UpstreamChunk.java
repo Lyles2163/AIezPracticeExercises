@@ -27,7 +27,24 @@ record UpstreamChunk(@JsonProperty("choices") List<Choice> choices,
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Delta(@JsonProperty("content") String content,
-                 @JsonProperty("reasoning_content") String reasoningContent) {
+                 @JsonProperty("reasoning_content") String reasoningContent,
+                 @JsonProperty("tool_calls") List<ToolCall> toolCalls) {
+    }
+
+    /**
+     * 上游流式 tool_calls 的增量。注意：流式时每个 choice 的 tool_calls 数组通常只带一个元素，
+     * index 字段标识这是第几个工具调用；arguments 是逐段拼接的 JSON 字符串片段。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ToolCall(@JsonProperty("index") Integer index,
+                    @JsonProperty("id") String id,
+                    @JsonProperty("type") String type,
+                    @JsonProperty("function") FunctionCall function) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record FunctionCall(@JsonProperty("name") String name,
+                        @JsonProperty("arguments") String arguments) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

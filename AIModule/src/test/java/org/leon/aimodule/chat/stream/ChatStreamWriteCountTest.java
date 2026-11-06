@@ -91,12 +91,13 @@ class ChatStreamWriteCountTest {
             }
         }
         frames.add(new ChatModelGateway.ChatChunk(null, null, "stop", 812, 1640, null));
-        when(gateway.stream(any(), any(), any())).thenReturn(Flux.fromIterable(frames));
+        when(gateway.stream(any(), any(), any(), any())).thenReturn(Flux.fromIterable(frames));
 
         ChatStreamRegistry registry = new ChatStreamRegistry();
         ChatStreamService service = new ChatStreamService(repo, conversations,
                 new ContextAssembler(new TokenCounter(), props), new EffortResolver(props),
-                gateway, registry, props, Runnable::run, mock(RagContextService.class));
+                gateway, registry, props, Runnable::run, mock(RagContextService.class),
+                new org.leon.aimodule.tool.ToolRegistry(java.util.List.of()));
 
         PreparedTurn prepared = service.prepare(
                 new StreamCommand(7L, "问题", modelKey, "High", "cm", false,

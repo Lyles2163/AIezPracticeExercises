@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.leon.practicemodule.pojo.QbUserWrong;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -34,18 +35,20 @@ public interface QbUserWrongMapper extends BaseMapper<QbUserWrong> {
             + "FROM qb_user_wrong WHERE user_id = #{userId} AND question_id = #{questionId}")
     QbUserWrong selectByUserAndQuestion(@Param("userId") Long userId, @Param("questionId") Long questionId);
 
-    /** 错题本计数。JOIN qb_question 只为过滤已下架题（裁定五：列表一律只含 status=1） */
+    /** 错题本计数。JOIN qb_question 只为过滤已下架题（裁定五：列表一律只含 status=1）。subjectId 为空则跨科目统计 */
     @Select("<script>SELECT COUNT(*) FROM qb_user_wrong w JOIN qb_question q ON q.id = w.question_id "
-            + "WHERE w.user_id = #{userId} AND w.subject_id = #{subjectId} AND q.status = 1 "
+            + "WHERE w.user_id = #{userId} AND q.status = 1 "
+            + "<if test='subjectId != null'>AND w.subject_id = #{subjectId} </if>"
             + "<if test='status != null'>AND w.status = #{status}</if></script>")
     long countWrong(@Param("userId") Long userId, @Param("subjectId") Long subjectId,
                     @Param("status") Integer status);
 
-    /** 错题本按"最近犯错时间"倒序（最新踩坑的排前面），并列用 id 兜底保证翻页稳定 */
+    /** 错题本按"最近犯错时间"倒序（最新踩坑的排前面），并列用 id 兜底保证翻页稳定。subjectId 为空则跨科目查询 */
     @Select("<script>SELECT w.question_id AS questionId, w.wrong_count AS wrongCount, "
             + "w.last_wrong_at AS lastWrongAt, w.status AS status, q.type AS type, q.title AS title "
             + "FROM qb_user_wrong w JOIN qb_question q ON q.id = w.question_id "
-            + "WHERE w.user_id = #{userId} AND w.subject_id = #{subjectId} AND q.status = 1 "
+            + "WHERE w.user_id = #{userId} AND q.status = 1 "
+            + "<if test='subjectId != null'>AND w.subject_id = #{subjectId} </if>"
             + "<if test='status != null'>AND w.status = #{status}</if> "
             + "ORDER BY w.last_wrong_at DESC, w.id DESC LIMIT #{offset}, #{pageSize}</script>")
     List<WrongPageRow> selectWrongPage(@Param("userId") Long userId, @Param("subjectId") Long subjectId,
@@ -61,4 +64,20 @@ public interface QbUserWrongMapper extends BaseMapper<QbUserWrong> {
             + "WHERE w.user_id = #{userId} AND w.subject_id = #{subjectId} AND w.status = 1 AND q.status = 1 "
             + "ORDER BY w.last_wrong_at, w.id LIMIT 1")
     Long selectSmartCandidateQuestionId(@Param("userId") Long userId, @Param("subjectId") Long subjectId);
+
+    /**
+     * 给 AI 用的错题详情列表：只取未掌握（status=1）的错题，按最近答错时间倒序。
+     * subjectId 为空时跨科目。与 selectWrongPage 不同，这里把题干、答案真值、解析一起带出来，
+     * 因为 AI 要基于完整题目讲解；前端错题本卡片那份只给题干摘要，是另一条查询。
+     */
+    @Select("<script>SELECT w.question_id AS questionId, w.subject_id AS subjectId, w.wrong_count AS wrongCount, "
+            + "w.last_wrong_at AS lastWrongAt, w.status AS status, q.type AS type, q.difficulty AS difficulty, "
+            + "q.title AS title, q.answer_json AS answerJson, q.analysis AS analysis, q.tags_json AS tagsJson "
+            + "FROM qb_user_wrong w JOIN qb_question q ON q.id = w.question_id "
+            + "WHERE w.user_id = #{userId} AND q.status = 1 AND w.status = 1 "
+            + "<if test='subjectId != null'>AND w.subject_id = #{subjectId} </if>"
+            + "ORDER BY w.last_wrong_at DESC, w.id DESC LIMIT #{limit}</script>")
+    List<WrongDetailRow> selectWrongDetails(@Param("userId") Long userId,
+                                            @Param("subjectId") Long subjectId,
+                                            @Param("limit") int limit);
 }

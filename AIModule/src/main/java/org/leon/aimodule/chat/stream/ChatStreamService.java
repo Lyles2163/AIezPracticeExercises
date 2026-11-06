@@ -12,12 +12,17 @@ import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.EffortResolver;
 import org.leon.aimodule.chat.service.ModelParams;
 import org.leon.aimodule.rag.qa.RagContextService;
+import org.leon.aimodule.tool.ChatTool;
+import org.leon.aimodule.tool.ToolRegistry;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.Disposable;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,12 +52,13 @@ public class ChatStreamService {
     private final ChatProperties props;
     private final Executor streamExecutor;
     private final RagContextService ragContextService;
+    private final ToolRegistry toolRegistry;
 
     public ChatStreamService(ChatTurnRepository repo, ConversationService conversations,
                              ContextAssembler assembler, EffortResolver resolver, ChatModelGateway gateway,
                              ChatStreamRegistry registry, ChatProperties props,
                              @Qualifier("chatStreamExecutor") Executor streamExecutor,
-                             RagContextService ragContextService) {
+                             RagContextService ragContextService, ToolRegistry toolRegistry) {
         this.repo = repo;
         this.conversations = conversations;
         this.assembler = assembler;
@@ -62,6 +68,7 @@ public class ChatStreamService {
         this.props = props;
         this.streamExecutor = streamExecutor;
         this.ragContextService = ragContextService;
+        this.toolRegistry = toolRegistry;
     }
 
     /**
@@ -230,11 +237,142 @@ public class ChatStreamService {
         // 「必须基于资料回答」，模型开始用女仆语气编造出处。两段都在就拼成一段，不做二选一。
         String systemPromptOverride = joinSystemPrompt(ragPrompt, prepared.systemPromptOverride());
 
-        Disposable disposable = gateway.stream(prepared.messages(), params, systemPromptOverride).subscribe(
-                chunk -> onChunk(stream, chunk),
-                error -> onError(stream, error),
-                () -> onComplete(stream));
+        List<ChatTool> tools = toolRegistry.isEmpty() ? null : toolRegistry.all();
+        streamLoop(stream, prepared, params, systemPromptOverride, tools, new ArrayList<>(prepared.messages()), 0);
+    }
+
+    /**
+     * 模型请求的主循环（响应式，保留 Disposable 供 stop 取消）。
+     *
+     * 普通情况：模型直接回文本，流式吐给前端，收尾。
+     * 工具调用：模型 finish_reason=tool_calls，把 assistant 的 tool_calls 消息和工具执行结果
+     * 追加到上下文，再请求一次模型；递归直到模型回文本或达到最大轮次。
+     *
+     * 每次请求都把 Disposable 存进 stream.upstream()，stop 时 dispose 即可中断。
+     */
+    private void streamLoop(ActiveStream stream, PreparedTurn prepared, ModelParams params,
+                            String systemPromptOverride, List<ChatTool> tools,
+                            List<CtxMessage> context, int round) {
+        final int maxToolRounds = 5;
+        boolean lastRound = round >= maxToolRounds;
+        List<ChatModelGateway.ChatChunk> chunks = new ArrayList<>();
+        Disposable disposable = gateway.stream(context, params, systemPromptOverride, lastRound ? null : tools)
+                .subscribe(
+                        chunk -> {
+                            chunks.add(chunk);
+                            // 只在"确定是文本响应"时才流式吐前端；工具调用轮先攒着
+                            if (!isToolCallRound(chunks)) {
+                                onChunk(stream, chunk);
+                            }
+                        },
+                        error -> onError(stream, error),
+                        () -> {
+                            String finish = finishOf(chunks);
+                            if ("tool_calls".equals(finish) && !lastRound) {
+                                List<CollectedToolCall> calls = collectToolCalls(chunks);
+                                if (calls.isEmpty()) {
+                                    // 模型说要调工具但没给详情：把已攒的 chunk 吐出去收尾
+                                    for (ChatModelGateway.ChatChunk c : chunks) {
+                                        onChunk(stream, c);
+                                    }
+                                    onComplete(stream);
+                                    return;
+                                }
+                                context.add(new CtxMessage(AiMessage.ROLE_ASSISTANT, textOf(chunks),
+                                        calls.stream().map(c -> new CtxMessage.ToolCallRef(c.id, c.name, c.arguments)).toList(),
+                                        null));
+                                for (CollectedToolCall call : calls) {
+                                    String result = executeTool(call.name, call.arguments, prepared.userName());
+                                    context.add(new CtxMessage("tool", result, null, call.id));
+                                }
+                                streamLoop(stream, prepared, params, systemPromptOverride, tools, context, round + 1);
+                            } else {
+                                // 文本响应：chunk 在 onNext 已逐帧吐出，直接收尾
+                                onComplete(stream);
+                            }
+                        });
         stream.upstream().set(disposable);
+    }
+
+    /**
+     * 判断当前攒到的 chunk 是否是工具调用轮。
+     * 只要出现过非空的 toolCalls delta，就认为这轮是工具调用，不再往前端吐文本
+     * （工具调用轮的 content 通常为空，吐了也是噪音）。
+     */
+    private static boolean isToolCallRound(List<ChatModelGateway.ChatChunk> chunks) {
+        for (ChatModelGateway.ChatChunk c : chunks) {
+            if (c.toolCalls() != null && !c.toolCalls().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 从收集到的 chunks 里取出 finish_reason（最后一个非空的）。 */
+    private static String finishOf(List<ChatModelGateway.ChatChunk> chunks) {
+        for (int i = chunks.size() - 1; i >= 0; i--) {
+            if (chunks.get(i).finishReason() != null) {
+                return chunks.get(i).finishReason();
+            }
+        }
+        return null;
+    }
+
+    /** 拼接所有 text chunk 的内容。 */
+    private static String textOf(List<ChatModelGateway.ChatChunk> chunks) {
+        StringBuilder sb = new StringBuilder();
+        for (ChatModelGateway.ChatChunk c : chunks) {
+            if (c.text() != null) {
+                sb.append(c.text());
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 把流式的 tool_calls 增量按 index 拼成完整调用。 */
+    private static List<CollectedToolCall> collectToolCalls(List<ChatModelGateway.ChatChunk> chunks) {
+        Map<Integer, CollectedToolCall> byIndex = new LinkedHashMap<>();
+        for (ChatModelGateway.ChatChunk c : chunks) {
+            if (c.toolCalls() == null) {
+                continue;
+            }
+            for (ChatModelGateway.ToolCallDelta d : c.toolCalls()) {
+                int idx = d.index() == null ? 0 : d.index();
+                CollectedToolCall call = byIndex.computeIfAbsent(idx, k -> new CollectedToolCall());
+                if (d.id() != null) {
+                    call.id = d.id();
+                }
+                if (d.name() != null) {
+                    call.name = d.name();
+                }
+                if (d.arguments() != null) {
+                    call.arguments = (call.arguments == null ? "" : call.arguments) + d.arguments();
+                }
+            }
+        }
+        return new ArrayList<>(byIndex.values());
+    }
+
+    /** 执行一个工具；找不到工具时返回错误说明字符串，让模型自己决定怎么圆场。 */
+    private String executeTool(String name, String arguments, String userName) {
+        ChatTool tool = toolRegistry.find(name);
+        if (tool == null) {
+            log.warn("[chat] 模型调用了未注册的工具: {}", name);
+            return "{\"ok\":false,\"message\":\"未知工具: " + name + "\"}";
+        }
+        try {
+            return tool.execute(arguments, userName);
+        } catch (Exception e) {
+            log.warn("[chat] 工具执行异常 tool={} err={}", name, e.getMessage());
+            return "{\"ok\":false,\"message\":\"工具执行失败: " + e.getMessage() + "\"}";
+        }
+    }
+
+    /** 一次工具调用的拼装结果。 */
+    private static final class CollectedToolCall {
+        String id;
+        String name;
+        String arguments;
     }
 
     /**

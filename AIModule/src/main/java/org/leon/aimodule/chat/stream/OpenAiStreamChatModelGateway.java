@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.leon.aimodule.chat.config.ChatProperties;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.ModelParams;
+import org.leon.aimodule.tool.ChatTool;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -62,7 +63,7 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
 
     @Override
     public Flux<ChatModelGateway.ChatChunk> stream(List<CtxMessage> messages, ModelParams params,
-                                                    String systemPromptOverride) {
+                                                     String systemPromptOverride, List<ChatTool> tools) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", params.modelKey());
         body.put("messages", toWireMessages(messages, systemPromptOverride));
@@ -74,6 +75,10 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
         }
         if (params.temperature() != null) {
             body.put("temperature", params.temperature());
+        }
+        if (tools != null && !tools.isEmpty()) {
+            body.put("tools", toWireTools(tools));
+            body.put("tool_choice", "auto");
         }
         String json = writeRequestJson(body);
         String base = testBaseUrl == null ? props.getBaseUrl() : testBaseUrl;
@@ -100,14 +105,54 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
     }
 
     /** system 提示放第一位，与上一期 ChatClient.system() 的线上形状一致。 */
-    private List<Map<String, String>> toWireMessages(List<CtxMessage> messages, String systemPromptOverride) {
-        List<Map<String, String>> out = new ArrayList<>();
+    private List<Map<String, Object>> toWireMessages(List<CtxMessage> messages, String systemPromptOverride) {
+        List<Map<String, Object>> out = new ArrayList<>();
         String system = systemPromptOverride != null ? systemPromptOverride : props.getSystemPrompt();
         if (system != null && !system.isBlank()) {
             out.add(Map.of("role", "system", "content", system));
         }
         for (CtxMessage m : messages) {
-            out.add(Map.of("role", m.role(), "content", m.content() == null ? "" : m.content()));
+            Map<String, Object> wire = new LinkedHashMap<>();
+            wire.put("role", m.role());
+            if ("tool".equals(m.role())) {
+                // 工具结果消息必须带 tool_call_id
+                wire.put("tool_call_id", m.toolCallId() == null ? "" : m.toolCallId());
+                wire.put("content", m.content() == null ? "" : m.content());
+            } else if (m.toolCalls() != null && !m.toolCalls().isEmpty()) {
+                // assistant 发起工具调用：content 可为空字符串，tool_calls 数组必填
+                wire.put("content", m.content() == null ? "" : m.content());
+                List<Map<String, Object>> calls = new ArrayList<>(m.toolCalls().size());
+                for (CtxMessage.ToolCallRef tc : m.toolCalls()) {
+                    calls.add(Map.of(
+                            "id", tc.id() == null ? "" : tc.id(),
+                            "type", "function",
+                            "function", Map.of(
+                                    "name", tc.name() == null ? "" : tc.name(),
+                                    "arguments", tc.arguments() == null ? "" : tc.arguments())));
+                }
+                wire.put("tool_calls", calls);
+            } else {
+                wire.put("content", m.content() == null ? "" : m.content());
+            }
+            out.add(wire);
+        }
+        return out;
+    }
+
+    /** 把内部 ChatTool 列表转成 OpenAI tools 协议的数组。 */
+    private List<Map<String, Object>> toWireTools(List<ChatTool> tools) {
+        List<Map<String, Object>> out = new ArrayList<>(tools.size());
+        for (ChatTool tool : tools) {
+            Map<String, Object> fn = new LinkedHashMap<>();
+            fn.put("name", tool.name());
+            fn.put("description", tool.description());
+            try {
+                fn.put("parameters", MAPPER.readTree(tool.parametersSchema()));
+            } catch (Exception e) {
+                // parametersSchema 是我们自己写的常量，解析失败说明写错了，抛出来让启动期就发现
+                throw new IllegalStateException("工具 " + tool.name() + " 的 parametersSchema 不是合法 JSON", e);
+            }
+            out.add(Map.of("type", "function", "function", fn));
         }
         return out;
     }
@@ -137,6 +182,7 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
         String text = null;
         String reasoning = null;
         String finish = null;
+        List<ChatModelGateway.ToolCallDelta> toolCalls = null;
         List<UpstreamChunk.Choice> choices = chunk.choices();
         if (choices != null && !choices.isEmpty()) {
             UpstreamChunk.Choice choice = choices.get(0);
@@ -144,6 +190,7 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
             if (delta != null) {
                 text = nonBlank(delta.content());
                 reasoning = nonBlank(delta.reasoningContent());
+                toolCalls = toToolCallDeltas(delta.toolCalls());
             }
             finish = lower(choice.finishReason());
         }
@@ -157,10 +204,29 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
             rt = u.completionTokenDetails() == null ? null
                     : positive(u.completionTokenDetails().reasoningTokens());
         }
-        if (text == null && reasoning == null && finish == null && pt == null && ct == null && rt == null) {
+        if (text == null && reasoning == null && finish == null && pt == null && ct == null && rt == null
+                && (toolCalls == null || toolCalls.isEmpty())) {
             return null;
         }
-        return new ChatModelGateway.ChatChunk(text, reasoning, finish, pt, ct, rt);
+        return new ChatModelGateway.ChatChunk(text, reasoning, finish, pt, ct, rt, toolCalls);
+    }
+
+    /**
+     * 把上游 delta.tool_calls 转成我们的归一化形状。
+     * 流式时 function.name 和 arguments 可能分散在多帧，这里原样带出 index，
+     * 调用方按 index 拼 arguments；name 只在有值的帧带，调用方取第一次出现的即可。
+     */
+    private static List<ChatModelGateway.ToolCallDelta> toToolCallDeltas(List<UpstreamChunk.ToolCall> calls) {
+        if (calls == null || calls.isEmpty()) {
+            return null;
+        }
+        List<ChatModelGateway.ToolCallDelta> out = new ArrayList<>(calls.size());
+        for (UpstreamChunk.ToolCall c : calls) {
+            String name = c.function() == null ? null : c.function().name();
+            String args = c.function() == null ? null : c.function().arguments();
+            out.add(new ChatModelGateway.ToolCallDelta(c.index(), c.id(), name, args));
+        }
+        return out;
     }
 
     private static String nonBlank(String v) {

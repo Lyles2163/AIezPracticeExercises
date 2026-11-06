@@ -107,6 +107,22 @@ public class JwtUtil {
         return getClaimsFromToken(token).get("username", String.class);
     }
 
+    /** 从 token 里取 userId。生成 token 时放进去的（generateToken/generateToken2）。 */
+    public Long getUserIdFromToken(String token) {
+        Object v = getClaimsFromToken(token).get("userId");
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number) {
+            return ((Number) v).longValue();
+        }
+        try {
+            return Long.valueOf(v.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     public Boolean isTokenExpired(String token) {
         try {
             return parseClaims(token).getExpiration().before(new Date());

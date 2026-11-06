@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.leon.commonjwt.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -35,6 +36,15 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    /**
+     * 网关→下游 的内部令牌。
+     * 下游（PracticeModule 等）校验这个头，只有带对令牌的请求才放行，
+     * 防止有人绕过网关直连下游、伪造 X-User-Name。
+     * 默认值仅供本地开发，生产环境必须在 Nacos 覆盖。
+     */
+    @Value("${gateway.internal-token:ez-practice-internal-token-2026}")
+    private String internalToken;
 
     /**
      * 白名单路径（无需鉴权）
@@ -79,14 +89,26 @@ public class JwtAuthGlobalFilter implements GlobalFilter, Ordered {
 
         // ========== 4. 解析用户信息并转发 ==========
         String username = jwtUtil.getUsernameFromToken(token);
+        Long userId = jwtUtil.getUserIdFromToken(token);
 
-        // 构建新请求：添加用户标识头 + 移除原始 Authorization 头
+        // 构建新请求：
+        // - 先删掉客户端可能伪造的 X-User-Name / X-User-Id / X-Internal-Token（防止绕过）
+        // - 再注入网关注入的真实用户信息
+        // - 带上内部令牌 X-Internal-Token，下游据此判断请求来自网关
+        // - 移除原始 Authorization 头，防止 Token 泄露到下游
         ServerHttpRequest modifiedRequest = request.mutate()
-                .header("X-User-Name", username)       // 下游服务通过此头获取当前用户
-                .headers(headers -> headers.remove(HttpHeaders.AUTHORIZATION)) // 防止Token泄露到下游
+                .headers(headers -> {
+                    headers.remove("X-User-Name");
+                    headers.remove("X-User-Id");
+                    headers.remove("X-Internal-Token");
+                    headers.remove(HttpHeaders.AUTHORIZATION);
+                })
+                .header("X-User-Name", username)
+                .header("X-User-Id", String.valueOf(userId))
+                .header("X-Internal-Token", internalToken)
                 .build();
 
-        log.debug("JWT Filter: 鉴权通过, user={}, path={}", username, path);
+        log.debug("JWT Filter: 鉴权通过, user={}, userId={}, path={}", username, userId, path);
         return chain.filter(exchange.mutate().request(modifiedRequest).build());
     }
 
