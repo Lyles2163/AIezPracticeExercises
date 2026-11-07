@@ -63,7 +63,7 @@ public class ChatStreamController {
         Integer ragTopK = req.ragTopK() == null ? null : Math.min(Math.max(req.ragTopK(), 1), 20);
         PreparedTurn prepared = service.prepare(new StreamCommand(req.conversationId(), req.content(),
                 req.modelKey(), req.effort(), req.clientMsgId(), req.regenerate(),
-                useRag, req.ragScope(), req.ragSubjectId(), ragTopK), userName);
+                req.thinking(), useRag, req.ragScope(), req.ragSubjectId(), ragTopK), userName);
 
         // 代理侧不聚合响应体；Nginx 还需 proxy_buffering off。
         response.setHeader("Cache-Control", "no-cache, no-transform");

@@ -11,6 +11,7 @@ import org.leon.aimodule.chat.service.ConversationService;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.EffortResolver;
 import org.leon.aimodule.chat.service.ModelParams;
+import org.leon.aimodule.chat.service.ModelResolver;
 import org.leon.aimodule.rag.qa.RagContextService;
 import org.leon.aimodule.tool.ChatTool;
 import org.leon.aimodule.tool.ToolRegistry;
@@ -46,7 +47,7 @@ public class ChatStreamService {
     private final ChatTurnRepository repo;
     private final ConversationService conversations;
     private final ContextAssembler assembler;
-    private final EffortResolver resolver;
+    private final ModelResolver modelResolver;
     private final ChatModelGateway gateway;
     private final ChatStreamRegistry registry;
     private final ChatProperties props;
@@ -55,14 +56,14 @@ public class ChatStreamService {
     private final ToolRegistry toolRegistry;
 
     public ChatStreamService(ChatTurnRepository repo, ConversationService conversations,
-                             ContextAssembler assembler, EffortResolver resolver, ChatModelGateway gateway,
+                             ContextAssembler assembler, ModelResolver modelResolver, ChatModelGateway gateway,
                              ChatStreamRegistry registry, ChatProperties props,
                              @Qualifier("chatStreamExecutor") Executor streamExecutor,
                              RagContextService ragContextService, ToolRegistry toolRegistry) {
         this.repo = repo;
         this.conversations = conversations;
         this.assembler = assembler;
-        this.resolver = resolver;
+        this.modelResolver = modelResolver;
         this.gateway = gateway;
         this.registry = registry;
         this.props = props;
@@ -89,8 +90,8 @@ public class ChatStreamService {
         // 否则会出现"按 Medium 的参数生成、按 High 落库"这种两条回落链分叉。
         String modelKey = firstNonBlank(cmd.modelKey(), conversation.getModelKey());
         String effortName = firstNonBlank(cmd.effort(), conversation.getEffort(), props.getDefaultEffort());
-        ModelParams params = resolver.resolve(modelKey, effortName);
-
+        ModelResolver.Resolved resolved = modelResolver.resolve(userName, modelKey, effortName, cmd.thinking());
+        ModelParams params = resolved.params();
         Long userMessageId;
         String question;
         boolean regenerate = cmd.regenerate();
@@ -134,7 +135,7 @@ public class ChatStreamService {
         }
         List<CtxMessage> messages = assembler.assemble(repo.activeHistory(cid, userMessageId), question);
         return new PreparedTurn(cid, userMessageId, assistantId, messages, params, userName, effortName,
-                cmd.useRag(), cmd.toRagOptions(), cmd.systemPromptOverride());
+                cmd.useRag(), cmd.toRagOptions(), cmd.systemPromptOverride(), resolved.route());
     }
 
     /** 提交到流式线程池并返回登记好的流；channel 由 controller 创建。 */
@@ -237,7 +238,10 @@ public class ChatStreamService {
         // 「必须基于资料回答」，模型开始用女仆语气编造出处。两段都在就拼成一段，不做二选一。
         String systemPromptOverride = joinSystemPrompt(ragPrompt, prepared.systemPromptOverride());
 
-        List<ChatTool> tools = toolRegistry.isEmpty() ? null : toolRegistry.all();
+        // 个人供应商的端点是否支持工具协议无法预判，route 一旦存在就整轮不带工具，
+        // 否则不兼容的端点会直接 400，用户只看到"模型服务不可用"。
+        boolean toolsAllowed = prepared.route() == null || prepared.route().supportsTools();
+        List<ChatTool> tools = toolRegistry.isEmpty() || !toolsAllowed ? null : toolRegistry.all();
         streamLoop(stream, prepared, params, systemPromptOverride, tools, new ArrayList<>(prepared.messages()), 0);
     }
 
@@ -256,7 +260,11 @@ public class ChatStreamService {
         final int maxToolRounds = 5;
         boolean lastRound = round >= maxToolRounds;
         List<ChatModelGateway.ChatChunk> chunks = new ArrayList<>();
-        Disposable disposable = gateway.stream(context, params, systemPromptOverride, lastRound ? null : tools)
+        // 只有个人模型才走 route 重载；内置模型仍走 4 参重载，避免测试替身被多一个默认方法打穿。
+        Disposable disposable = (prepared.route() == null
+                ? gateway.stream(context, params, systemPromptOverride, lastRound ? null : tools)
+                : gateway.stream(context, params, systemPromptOverride, lastRound ? null : tools,
+                        prepared.route()))
                 .subscribe(
                         chunk -> {
                             chunks.add(chunk);

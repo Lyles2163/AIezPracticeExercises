@@ -1,5 +1,6 @@
 package org.leon.aimodule.chat.stream;
 
+import org.leon.aimodule.chat.provider.ProviderRoute;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.ModelParams;
 import org.leon.aimodule.tool.ChatTool;
@@ -22,6 +23,15 @@ public interface ChatModelGateway {
 
     default Flux<ChatChunk> stream(List<CtxMessage> messages, ModelParams params) {
         return stream(messages, params, null, null);
+    }
+
+    /**
+     * 带用户自建路由的一轮。默认实现忽略 route（既有测试替身不受影响），
+     * 真正会切 baseUrl/key/model 的是 OpenAiStreamChatModelGateway。
+     */
+    default Flux<ChatChunk> stream(List<CtxMessage> messages, ModelParams params, String systemPromptOverride,
+                                   List<ChatTool> tools, ProviderRoute route) {
+        return stream(messages, params, systemPromptOverride, tools);
     }
 
     /**

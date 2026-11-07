@@ -24,6 +24,7 @@ class EffortResolverTest {
         reasoner.setName("deepseek-reasoner");
         reasoner.setSupportsThinking(true);
         p.setModels(new ArrayList<>(List.of(chat, reasoner)));
+        p.setDefaultModel("deepseek-chat");
 
         String[] keys = {"Low", "Medium", "High", "Extra", "Max"};
         double[] temps = {1.3, 1.0, 0.7, 0.4, 0.2};

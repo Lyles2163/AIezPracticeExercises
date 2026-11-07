@@ -14,7 +14,7 @@ spring:
 
   ai:
     openai:
-      api-key: ${EZ_NVIDIA_API_KEY:}  # 通过环境变量注入（变量名沿用旧的，值已换成 NVIDIA key）
+      api-key: ${EZ_NVIDIA_API_KEY:}  # 通过nacos变量注入（变量名沿用旧的，值已换成 NVIDIA key）
       base-url: https://integrate.api.nvidia.com  # NVIDIA NIM 的 OpenAI 兼容地址
       chat:
         options:
@@ -22,6 +22,7 @@ spring:
           # 这行是它唯一的模型来源 —— 删了会静默弄坏一个不相干的接口。
           # temperature / stream-usage 已删除：chat 子系统不再走 ChatClient。
           model: nvidia/nemotron-3-ultra-550b-a55b
+
       embedding:
         # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek
         api-key: ${DASHSCOPE_API_KEY:}
@@ -114,6 +115,10 @@ chat:
       name: nvidia/nemotron-3-ultra-550b-a55b
       tag: Ultra
       supports-thinking: false
+    - key: deepseek-ai/deepseek-v4.1-flash
+      name: deepseek-ai/deepseek-v4.1-flash
+      tag: Flash
+      supports-thinking: true
   efforts:
     - { key: Low,    temperature: 1.3, max-tokens: 4096 }
     - { key: Medium, temperature: 1.0, max-tokens: 4096 }
@@ -136,6 +141,14 @@ chat:
   thinking-max-step-chars: 120
   thinking-max-steps: 12
   upstream-idle-timeout-seconds: 60
+  # 用户自建供应商（设置页）。主密钥只从环境变量/Nacos 注入，留空时加解密直接失败、
+  # 该功能整体不可用，绝不退化成明文存储。allow-http 只给本机自建网关用。
+  provider:
+    allow-http: false
+    encryption-key: ${EZ_PROVIDER_ENCRYPTION_KEY:}
+    probe-timeout-seconds: 15
+    max-providers-per-user: 10
+    max-models-per-provider: 30
   # 桌宠（dsh-pet 独立模式）的 OpenAI 兼容链：POST /ai/v1/chat/completions。
   # 这条链不经登录 JWT（网关按完整路径放行），所以 api-key 留空 = 路由直接 503 关闭，不是放行。
   # 键值与 EZ_DEEPSEEK_API_KEY 同一个来源；user-name 决定桌宠轮次落在谁的会话列表里。
@@ -144,6 +157,23 @@ chat:
     user-name: test920
     conversation-title: 桌宠对话
     effort: ""
+
+
+# AI 生图：模型走用户自己的服务商（ai_user_model.model_type=IMAGE），
+# 图片本体落本地 MinIO，库里/响应里只有 objectKey，取图由后端代理回源。
+imagegen:
+  minio:
+    enabled: ${MINIO_ENABLED:true}
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:ai-images}
+  limits:
+    max-prompt-chars: 2000
+    max-images-per-request: 4
+    # 生图上游常要 10-60s，别套用探活那 15s，否则自己先把上游掐了
+    request-timeout-seconds: 120
+    max-image-bytes: 20971520
 
 
 mybatis:

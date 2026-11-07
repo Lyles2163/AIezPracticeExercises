@@ -9,6 +9,7 @@ import org.leon.aimodule.chat.entity.AiMessage;
 import org.leon.aimodule.chat.exception.ChatRejectException;
 import org.leon.aimodule.chat.mapper.AiConversationMapper;
 import org.leon.aimodule.chat.mapper.AiMessageMapper;
+import org.leon.aimodule.chat.provider.UserModelCatalogService;
 import org.leon.aimodule.chat.web.dto.MessagePageVo;
 import org.leon.aimodule.chat.web.dto.MessageVo;
 
@@ -36,7 +37,9 @@ class MessageQueryServiceTest {
         messageMapper = mock(AiMessageMapper.class);
         AiConversationMapper conversationMapper = mock(AiConversationMapper.class);
         ChatProperties props = new ChatProperties();
-        conversations = new ConversationService(props, new EffortResolver(props), conversationMapper, messageMapper);
+        conversations = new ConversationService(props,
+                new ModelResolver(props, new EffortResolver(props), mock(UserModelCatalogService.class)),
+                conversationMapper, messageMapper, mock(UserModelCatalogService.class));
         AiConversation mine = new AiConversation();
         mine.setId(7L);
         mine.setUserName("alice");

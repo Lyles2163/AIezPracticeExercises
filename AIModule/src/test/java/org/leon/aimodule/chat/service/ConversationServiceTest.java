@@ -8,6 +8,7 @@ import org.leon.aimodule.chat.entity.AiConversation;
 import org.leon.aimodule.chat.exception.ChatRejectException;
 import org.leon.aimodule.chat.mapper.AiConversationMapper;
 import org.leon.aimodule.chat.mapper.AiMessageMapper;
+import org.leon.aimodule.chat.provider.UserModelCatalogService;
 import org.leon.aimodule.chat.support.ChatTime;
 import org.leon.aimodule.chat.web.dto.ConversationPageVo;
 import org.leon.aimodule.chat.web.dto.ConversationVo;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +58,7 @@ class ConversationServiceTest {
         r.setName("deepseek-reasoner");
         r.setSupportsThinking(true);
         props.setModels(new ArrayList<>(List.of(m, r)));
+        props.setDefaultModel("deepseek-chat");
         List<ChatProperties.Effort> efforts = new ArrayList<>();
         for (String k : List.of("Low", "Medium", "High", "Extra", "Max")) {
             ChatProperties.Effort e = new ChatProperties.Effort();
@@ -65,7 +68,9 @@ class ConversationServiceTest {
             efforts.add(e);
         }
         props.setEfforts(efforts);
-        service = new ConversationService(props, new EffortResolver(props), conversationMapper, messageMapper);
+        service = new ConversationService(props,
+                new ModelResolver(props, new EffortResolver(props), mock(UserModelCatalogService.class)),
+                conversationMapper, messageMapper, mock(UserModelCatalogService.class));
         return service;
     }
 

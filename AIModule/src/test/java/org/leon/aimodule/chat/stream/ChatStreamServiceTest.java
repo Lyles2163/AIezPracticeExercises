@@ -13,6 +13,8 @@ import org.leon.aimodule.chat.service.ContextAssembler;
 import org.leon.aimodule.chat.service.ConversationService;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.EffortResolver;
+import org.leon.aimodule.chat.service.ModelResolver;
+import org.leon.aimodule.chat.provider.UserModelCatalogService;
 import org.leon.aimodule.rag.chunk.TokenCounter;
 import org.leon.aimodule.rag.qa.RagContextService;
 import org.mockito.ArgumentCaptor;
@@ -94,7 +96,8 @@ class ChatStreamServiceTest {
 
     private ChatStreamService newService(java.util.concurrent.Executor executor) {
         return new ChatStreamService(repo, conversations,
-                new ContextAssembler(new TokenCounter(), props), new EffortResolver(props),
+                new ContextAssembler(new TokenCounter(), props),
+                new ModelResolver(props, new EffortResolver(props), mock(UserModelCatalogService.class)),
                 gateway, registry, props, executor, mock(RagContextService.class),
                 new org.leon.aimodule.tool.ToolRegistry(java.util.List.of()));
     }

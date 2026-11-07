@@ -10,9 +10,11 @@ import org.leon.aimodule.chat.entity.AiConversation;
 import org.leon.aimodule.chat.entity.AiMessage;
 import org.leon.aimodule.chat.mapper.AiConversationMapper;
 import org.leon.aimodule.chat.mapper.AiMessageMapper;
+import org.leon.aimodule.chat.provider.UserModelCatalogService;
 import org.leon.aimodule.chat.service.ConversationService;
 import org.leon.aimodule.chat.service.EffortResolver;
 import org.leon.aimodule.chat.service.MessageQueryService;
+import org.leon.aimodule.chat.service.ModelResolver;
 import org.leon.aimodule.chat.web.dto.CreateConversationRequest;
 import org.mockito.ArgumentMatchers;
 import org.springframework.http.MediaType;
@@ -48,6 +50,7 @@ class ChatConversationControllerTest {
         m.setName("deepseek-chat");
         m.setTag("Fast");
         props.setModels(new ArrayList<>(List.of(m)));
+        props.setDefaultModel("deepseek-chat");
         List<ChatProperties.Effort> efforts = new ArrayList<>();
         for (String k : List.of("Low", "Medium", "High", "Extra", "Max")) {
             ChatProperties.Effort e = new ChatProperties.Effort();
@@ -59,7 +62,9 @@ class ChatConversationControllerTest {
         props.setEfforts(efforts);
         conversationMapper = mock(AiConversationMapper.class);
         messageMapper = mock(AiMessageMapper.class);
-        service = new ConversationService(props, new EffortResolver(props), conversationMapper, messageMapper);
+        service = new ConversationService(props,
+                new ModelResolver(props, new EffortResolver(props), mock(UserModelCatalogService.class)),
+                conversationMapper, messageMapper, mock(UserModelCatalogService.class));
         mvc = MockMvcBuilders.standaloneSetup(
                         new ChatConversationController(service, new MessageQueryService(messageMapper, service)))
                 .setControllerAdvice(new ChatExceptionHandler(new ObjectMapper()))

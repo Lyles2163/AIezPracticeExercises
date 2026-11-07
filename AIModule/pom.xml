@@ -68,6 +68,13 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- MinIO 对象存储：AI 生图的图片本体就落在这里，库里只存 objectKey -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
+        </dependency>
+
         <!-- 按 token 切片 -->
         <dependency>
             <groupId>com.knuddels</groupId>

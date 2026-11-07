@@ -6,6 +6,7 @@ import org.leon.aimodule.chat.entity.AiConversation;
 import org.leon.aimodule.chat.exception.ChatRejectException;
 import org.leon.aimodule.chat.mapper.AiConversationMapper;
 import org.leon.aimodule.chat.mapper.AiMessageMapper;
+import org.leon.aimodule.chat.provider.UserModelCatalogService;
 import org.leon.aimodule.chat.support.ChatTime;
 import org.leon.aimodule.chat.support.CursorCodec;
 import org.leon.aimodule.chat.web.dto.ConversationPageVo;
@@ -16,6 +17,7 @@ import org.leon.aimodule.chat.web.dto.ModelVo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -25,31 +27,45 @@ public class ConversationService {
     static final int PREVIEW_CP = 80;
 
     private final ChatProperties props;
-    private final EffortResolver resolver;
+    private final ModelResolver resolver;
     private final AiConversationMapper conversationMapper;
     private final AiMessageMapper messageMapper;
+    private final UserModelCatalogService userModels;
 
-    public ConversationService(ChatProperties props, EffortResolver resolver,
-                              AiConversationMapper conversationMapper, AiMessageMapper messageMapper) {
+    public ConversationService(ChatProperties props, ModelResolver resolver,
+                              AiConversationMapper conversationMapper, AiMessageMapper messageMapper,
+                              UserModelCatalogService userModels) {
         this.props = props;
         this.resolver = resolver;
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
+        this.userModels = userModels;
+    }
+
+    public ModelCatalogVo catalog(String userName) {
+        List<ModelVo> models = new ArrayList<>(props.getModels().stream()
+                .map(m -> new ModelVo(m.getKey(), m.getName(), m.getTag(),
+                        props.thinkingSupported(m.isSupportsThinking())))
+                .toList());
+        if (userName != null && !userName.isBlank() && userModels != null) {
+            for (UserModelCatalogService.Choice c : userModels.choices(userName)) {
+                models.add(new ModelVo(c.selectionKey(), c.displayName(), c.providerName(),
+                        props.thinkingSupported(c.supportsThinking()), c.providerName(), true));
+            }
+        }
+        return new ModelCatalogVo(props.getDefaultModel(), props.getDefaultEffort(),
+                props.getEfforts().stream().map(ChatProperties.Effort::getKey).toList(), models);
     }
 
     public ModelCatalogVo catalog() {
-        return new ModelCatalogVo(props.getDefaultModel(), props.getDefaultEffort(),
-                props.getEfforts().stream().map(ChatProperties.Effort::getKey).toList(),
-                props.getModels().stream()
-                        .map(m -> new ModelVo(m.getKey(), m.getName(), m.getTag(),
-                                props.thinkingSupported(m.isSupportsThinking())))
-                        .toList());
+        return catalog(null);
     }
 
     @Transactional
     public ConversationVo create(String userName, CreateConversationRequest req) {
-        ModelParams params = resolver.resolve(req == null ? null : req.modelKey(),
-                req == null ? null : req.effort());
+        ModelResolver.Resolved resolved = resolver.resolve(userName,
+                req == null ? null : req.modelKey(), req == null ? null : req.effort());
+        ModelParams params = resolved.params();
         AiConversation c = new AiConversation();
         c.setUserName(userName);
         c.setTitle(defaultTitle(req == null ? null : req.title()));

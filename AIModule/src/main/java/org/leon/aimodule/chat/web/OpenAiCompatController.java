@@ -94,7 +94,7 @@ public class OpenAiCompatController {
         String userName = auth.userName();
         Long conversationId = conversations.ensure(userName, req.model());
         PreparedTurn prepared = service.prepare(new StreamCommand(conversationId, turn.content(), req.model(),
-                props.getOpenaiCompat().getEffort(), null, false, true, null, null, null, turn.persona()), userName);
+                props.getOpenaiCompat().getEffort(), null, false, null, true, null, null, null, turn.persona()), userName);
 
         // 与 #7 同一组响应头：代理侧不聚合，Nginx 还要 proxy_buffering off。
         response.setHeader("Cache-Control", "no-cache, no-transform");

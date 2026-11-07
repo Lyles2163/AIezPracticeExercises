@@ -109,13 +109,13 @@ class ChatPropertiesTest {
                 p.getEfforts().stream().map(ChatProperties.Effort::getTemperature).toList());
         assertEquals(List.of(4096, 4096, 8192, 8192, 16384),
                 p.getEfforts().stream().map(ChatProperties.Effort::getMaxTokens).toList());
-        assertEquals(List.of("deepseek-chat", "deepseek-reasoner"),
+        assertEquals(List.of("nvidia/nemotron-3-ultra-550b-a55b", "deepseek-ai/deepseek-v4.1-flash"),
                 p.getModels().stream().map(ChatProperties.Model::getKey).toList());
-        assertEquals(List.of("Fast", "Reasoning"),
+        assertEquals(List.of("Ultra", "Flash"),
                 p.getModels().stream().map(ChatProperties.Model::getTag).toList());
-        assertFalse(p.model("deepseek-chat").isSupportsThinking());
-        assertTrue(p.model("deepseek-reasoner").isSupportsThinking());
-        assertEquals("deepseek-chat", p.getDefaultModel());
+        assertFalse(p.model("nvidia/nemotron-3-ultra-550b-a55b").isSupportsThinking());
+        assertTrue(p.model("deepseek-ai/deepseek-v4.1-flash").isSupportsThinking());
+        assertEquals("nvidia/nemotron-3-ultra-550b-a55b", p.getDefaultModel());
         assertEquals("Medium", p.getDefaultEffort());
     }
 }

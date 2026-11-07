@@ -36,8 +36,9 @@ public class ChatConversationController {
     }
 
     @GetMapping("/models")
-    public Result<ModelCatalogVo> models() {
-        return Result.success(service.catalog());
+    public Result<ModelCatalogVo> models(
+            @RequestHeader(value = "X-User-Name", required = false) String userName) {
+        return Result.success(service.catalog(userName));
     }
 
     @PostMapping("/conversations")

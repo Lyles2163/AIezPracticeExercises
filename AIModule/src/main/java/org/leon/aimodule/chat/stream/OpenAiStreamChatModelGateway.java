@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.leon.aimodule.chat.config.ChatProperties;
+import org.leon.aimodule.chat.provider.ProviderRoute;
 import org.leon.aimodule.chat.service.CtxMessage;
 import org.leon.aimodule.chat.service.ModelParams;
 import org.leon.aimodule.tool.ChatTool;
@@ -64,8 +65,33 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
     @Override
     public Flux<ChatModelGateway.ChatChunk> stream(List<CtxMessage> messages, ModelParams params,
                                                      String systemPromptOverride, List<ChatTool> tools) {
+        String base = testBaseUrl == null ? props.getBaseUrl() : testBaseUrl;
+        return execute(messages, params, systemPromptOverride, tools,
+                base, "/v1/chat/completions", props.getApiKey(), params.modelKey());
+    }
+
+    /**
+     * 用户自建供应商的一轮：baseUrl 已归一化到 /v1 结尾（见 BaseUrlGuard），
+     * key 与上游模型名都来自本轮解析出的 route，绝不回落到服务端配置。
+     */
+    @Override
+    public Flux<ChatModelGateway.ChatChunk> stream(List<CtxMessage> messages, ModelParams params,
+                                                     String systemPromptOverride, List<ChatTool> tools,
+                                                     ProviderRoute route) {
+        if (route == null) {
+            return stream(messages, params, systemPromptOverride, tools);
+        }
+        String base = testBaseUrl == null ? route.baseUrl() : testBaseUrl;
+        return execute(messages, params, systemPromptOverride, route.supportsTools() ? tools : null,
+                base, "/chat/completions", route.apiKey(), route.upstreamModel());
+    }
+
+    private Flux<ChatModelGateway.ChatChunk> execute(List<CtxMessage> messages, ModelParams params,
+                                                     String systemPromptOverride, List<ChatTool> tools,
+                                                     String baseUrl, String path, String apiKey,
+                                                     String wireModel) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", params.modelKey());
+        body.put("model", wireModel);
         body.put("messages", toWireMessages(messages, systemPromptOverride));
         body.put("stream", true);
         // 不发这一行就没有 usage 帧 —— 上一期是靠 spring.ai.openai...stream-usage 让库代发。
@@ -81,10 +107,9 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
             body.put("tool_choice", "auto");
         }
         String json = writeRequestJson(body);
-        String base = testBaseUrl == null ? props.getBaseUrl() : testBaseUrl;
-        return webClient.mutate().baseUrl(base).build()
-                .post().uri("/v1/chat/completions")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey())
+        return webClient.mutate().baseUrl(baseUrl).build()
+                .post().uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(json)
@@ -96,7 +121,7 @@ public class OpenAiStreamChatModelGateway implements ChatModelGateway {
                     return resp.bodyToMono(String.class).defaultIfEmpty("")
                             .flatMapMany(text -> Flux.error(new UpstreamStatusException(
                                     resp.statusCode().value(),
-                                    resp.statusCode().value() + " from POST /v1/chat/completions: "
+                                    resp.statusCode().value() + " from POST " + path + ": "
                                             + truncate(text))));
                 })
                 // 心跳只保活"我们→前端"，保不了"上游→我们"这一跳，所以这里必须有空闲判定。

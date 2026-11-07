@@ -10,6 +10,8 @@ public record StreamRequest(@NotNull(message = "conversationId 不能为空") Lo
                             String modelKey, String effort,
                             @Size(max = 40, message = "clientMsgId 最长 40 字符") String clientMsgId,
                             boolean regenerate,
+                            /** 本轮是否开启思考。null=跟随模型能力（能力模型默认开）；true/false=用户显式开关。 */
+                            Boolean thinking,
                             /* ===== RAG 相关字段 ===== */
                             /** 是否启用知识库增强。缺省 true。 */
                             Boolean useRag,
