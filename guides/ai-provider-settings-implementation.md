@@ -37,9 +37,13 @@
 ### 1.2 视图字段
 
 ```
-Provider { id, providerName, protocol, baseUrl, configured, maskedKey, status, models[] }
-Model    { id, modelKey, displayName, supportsThinking, status }
+Provider { id, providerName, protocol, baseUrl, serviceTypes[], configured, maskedKey, status, models[] }
+Model    { id, modelKey, displayName, modelType, supportsThinking, status }
 ```
+
+- `serviceTypes`：供应商声明的服务能力集合，取值 `CHAT` / `IMAGE` / `RAG`，缺省（老数据、老请求）为 `["CHAT"]`。
+- `modelType`：模型类型，取值 `CHAT` / `IMAGE` / `EMBEDDING` / `RERANK`，缺省为 `CHAT`；必须被所属供应商的 `serviceTypes` 覆盖，否则后端拒绝。`EMBEDDING` / `RERANK` 目前只登记、不参与运行链路。
+- 2026-11-06 起新增 `AI 生图` 链路（`/ai/imagegen/*`，图片落 MinIO），详见 `docs/superpowers/plans/2026-11-06-ai-imagegen-provider-capability.md`。
 
 - `protocol`：后端常量 `OPENAI_COMPAT`，前端展示成「OpenAI 兼容」。
 - `baseUrl`：已归一化（去尾斜杠；路径不以 `/v1` 结尾则补 `/v1`），前端**不要**再拼 `/v1`。

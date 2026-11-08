@@ -74,6 +74,17 @@
             <artifactId>minio</artifactId>
             <version>8.5.17</version>
         </dependency>
+        <!--
+            minio 的 okhttp 是传递依赖，命令行 Maven 能解析，但 IDEA 的 Maven 模型里
+            有时拿不到它，编译期就报「无法访问 okhttp3.HttpUrl / 找不到类文件」——
+            MinioClient.Builder 的方法签名里有 HttpUrl，缺它连 builder() 都编译不过。
+            显式声明一次，让 IDEA 把它当直接依赖挂进模块 classpath。
+        -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
 
         <!-- 按 token 切片 -->
         <dependency>
