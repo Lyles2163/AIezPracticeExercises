@@ -1,0 +1,7 @@
+spring:
+  ai:
+    mcp:
+      server:
+        name: user-mcp-server
+        version: 1.0.0
+        protocol: STREAMABLE

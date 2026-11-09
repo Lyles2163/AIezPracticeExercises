@@ -1,4 +1,4 @@
-package org.leon.aimodule.controller;
+package org.leon.aimodule.chat.web.dto.controller;
 
 
 import lombok.extern.slf4j.Slf4j;

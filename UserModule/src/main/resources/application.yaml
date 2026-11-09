@@ -24,6 +24,7 @@ spring:
         file-extension: yaml
   config:
     import:
+      - classpath:config/user_mcp.yaml           # 语言模型：MCP
       - optional:nacos:UserModuleServer.yaml
       - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
   datasource:

@@ -41,6 +41,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
         <!-- 🔥 Spring AI OpenAI 兼容 Starter -->
         <!-- 适用于 OpenAI、DeepSeek、通义千问等任何兼容 OpenAI API 的服务 -->
         <dependency>
