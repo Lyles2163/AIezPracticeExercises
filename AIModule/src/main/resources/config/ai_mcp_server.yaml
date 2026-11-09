@@ -1,0 +1,23 @@
+# MCP 客户端：连接 UserModule 暴露的 MCP Server（8101 端口的 /sse）
+#
+# 本项目用的是 Spring AI 1.0.0-M7，客户端只支持 sse / stdio 两种传输，
+# 根本不存在 spring.ai.mcp.client.streamable-http —— 写这个 key 不会报错，
+# 只会静默失效（没有 MCP 客户端 → 没有 ToolCallbackProvider Bean →
+# AiChatdemoController 构造注入失败，应用启动即退出）。
+#
+# 另外 M7 起 MCP 工具回调默认是关闭的（@ConditionalOnProperty matchIfMissing=false），
+# 必须显式打开 toolcallback.enabled，否则即使连上了也拿不到 ToolCallbackProvider。
+spring:
+  ai:
+    mcp:
+      client:
+        enabled: true
+        name: aimodule-mcp-client
+        toolcallback:
+          enabled: true
+        sse:
+          connections:
+            order-server:
+              # 只填 base url，SDK 自己会拼上服务端的 sse-endpoint（默认 /sse）
+              # 启动 AIModule 前必须先把 UserModule 拉起来，否则客户端 initialize() 连不上会直接启动失败
+              url: http://localhost:8101

@@ -1,6 +1,5 @@
 package org.leon.aimodule.demo;
 
-import org.leon.aimodule.rag.search.PermissionFilters;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;

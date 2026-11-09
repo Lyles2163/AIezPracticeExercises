@@ -45,17 +45,13 @@
 
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+            <artifactId>spring-ai-starter-mcp-client</artifactId>
         </dependency>
         <!-- 🔥 Spring AI OpenAI 兼容 Starter -->
         <!-- 适用于 OpenAI、DeepSeek、通义千问等任何兼容 OpenAI API 的服务 -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-bom</artifactId>
-            <version>2.0.0</version>
-            <type>pom</type>
-            <scope>import</scope>
-        </dependency>
+        <!-- 版本由根 pom 的 spring-ai-bom(1.0.0-M7) 统一管理，这里不要写 version；
+             以前这里塞过一个 2.0.0 的 spring-ai-bom，但 scope=import 只在
+             dependencyManagement 里有效，放在 dependencies 里等于一条无效依赖（还会诱导人以为版本是 2.0.0） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>

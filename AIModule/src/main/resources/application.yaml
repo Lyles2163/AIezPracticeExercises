@@ -35,7 +35,7 @@ spring:
       - classpath:config/rag.yaml           # 知识库：ES、索引、检索、入库
       - classpath:config/chat.yaml          # 对话：模型档位、SSE、供应商、桌宠
       - classpath:config/imagegen.yaml      # AI 生图：MinIO 与限额
-      - classpath:config/mcp_server.yaml           # 语言模型：MCP
+      - classpath:config/ai_mcp_server.yaml           # 语言模型：MCP
       - classpath:config/persistence.yaml   # MySQL / MyBatis / Seata
       # ---- 远程与本地密钥 ----
       - optional:nacos:AIServer.yaml

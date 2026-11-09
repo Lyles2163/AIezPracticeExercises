@@ -3,6 +3,8 @@ package org.leon.aimodule.chat.web.dto.controller;
 import lombok.extern.slf4j.Slf4j;
 import org.leon.aimodule.demo.OrderTools;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -14,12 +16,21 @@ public class AiChatdemoController {
 
     private final ChatClient chatClient;
 
-    public AiChatdemoController(ChatClient.Builder builder, OrderTools orderTools) {
-        // ChatController.java 新增
-        this.chatClient = builder
-                .defaultTools(orderTools)  // 👈 注册工具
-                .build();
+    // 工具来源：有 MCP 客户端就用 MCP 的，没有就退化成进程内的本地 OrderTools。
+    // ToolCallbackProvider 强注入会让 MCP 一失效整个应用都起不来，所以走 ObjectProvider 可选注入。
+    public AiChatdemoController(ChatClient.Builder builder, OrderTools orderTools,
+                                ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider) {
+        ToolCallbackProvider mcpTools = mcpToolCallbackProvider.getIfAvailable();
+        if (mcpTools != null) {
+            builder.defaultTools(mcpTools);
+        } else {
+            log.warn("没有可用的 MCP 客户端，/agent 退化为只使用本地 OrderTools");
+            builder.defaultTools(orderTools);
+        }
+        this.chatClient = builder.build();
     }
+
+
 
     // 先定义记录类
     public record BookInfo(String title, String author, double price, List<String> tags) {}

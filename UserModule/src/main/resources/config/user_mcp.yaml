@@ -4,4 +4,8 @@ spring:
       server:
         name: user-mcp-server
         version: 1.0.0
-        protocol: STREAMABLE
+        # Spring AI 1.0.0-M7 的 MCP Server 只有 SSE（WEBMVC/WEBFLUX）和 stdio 两种传输，
+        # 没有 streamable-http，原先的 `protocol: STREAMABLE` 是个不存在的 key（被静默忽略）。
+        # stdio 默认 false，所以现在就是以 SSE 暴露在 http://localhost:8101/sse
+        type: SYNC
+        sse-endpoint: /sse
