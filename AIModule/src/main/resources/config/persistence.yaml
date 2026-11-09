@@ -1,0 +1,32 @@
+# 数据访问与分布式事务：MySQL 数据源、MyBatis(-Plus)、Seata
+# 由 application.yaml 的 spring.config.import 引入，不要改文件名。
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ezpracticeexercises
+    username: root
+    password:
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.a.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.a.entity
+
+seata:
+  enabled: true
+  tx-service-group: a_group
+  service:
+    vgroup-mapping:
+      a_group: default
+    grouplist:
+      default: 127.0.0.1:8091
+  registry:
+    type: file
+  config:
+    type: file

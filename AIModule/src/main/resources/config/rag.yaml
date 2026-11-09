@@ -1,0 +1,48 @@
+# 知识库（RAG）：ES 连接、索引命名、向量维度、检索参数、入库限制
+# 由 application.yaml 的 spring.config.import 引入，不要改文件名。
+spring:
+  servlet:
+    multipart:
+      # 知识库文档上传上限。Spring Boot 默认单文件仅 1MB，不改的话正常教材在进
+      # Controller 之前就被 MaxUploadSizeExceededException 拒掉。
+      # 这两个值必须 >= rag.ingest.max-file-bytes，否则业务层的校验永远轮不到执行。
+      max-file-size: 20MB
+      max-request-size: 25MB
+
+rag:
+  analyzer: ik                     # IK 中文分词（已验证正常）；IK 不可用时改 cjk
+  admin-names: ${RAG_ADMIN_NAMES:}
+  elasticsearch:
+    uris: ${ES_URIS:https://127.0.0.1:9200}
+    username: ${ES_USERNAME:elastic}
+    password: ${ELASTIC_PASSWORD:EZ_elastic_2026}
+    ca-cert-path: ${ES_CA_CERT:F:/ES/elasticsearch-9.5.4/config/certs/http_ca.crt}
+  index:
+    auto-create: true
+    kb-alias: ai_kb_chunk
+    kb-physical: ai_kb_chunk_v1
+    question-alias: ai_question
+    question-physical: ai_question_v1
+  embedding:
+    dimensions: 1024
+    batch-size: 10
+    concurrency: 4
+  search:
+    top-k-default: 6
+    top-k-max: 20
+    rrf-rank-constant: 60
+    rank-window-size: 50
+    knn-k: 20
+    num-candidates: 100
+    knn-similarity: 0.55
+  ingest:
+    # 必须 <= spring.servlet.multipart.max-file-size，否则 multipart 会先拒，
+    # 这里的业务校验永远轮不到执行，用户看到的是框架错误而不是中文提示。
+    max-file-bytes: 20971520       # 20MB
+    max-chunks-per-doc: 2000
+    mysql-batch-size: 200
+    storage-dir:                   # 留空=只存元数据不存原件，重建索引靠 rag_chunk.content 重放
+    allowed-extensions: txt,md,markdown,text
+  async: poll
+  dev-seed:
+    enabled: false

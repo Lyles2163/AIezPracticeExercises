@@ -1,42 +1,21 @@
 server:
   port: 8105
 
-#????nacos
+# 历史遗留，已被 CommonJwt + Nacos common-jwt.yaml 取代
 #leon:
 #  jwt:
 #    secret: "LeonSecretKeyForJWTInEzPracticeExercises2026IsVeryLongAndComplexNow"
-#    expiration: 7200000 # 2???????
+#    expiration: 7200000 # 2 小时
 
 
 spring:
   application:
     name: AIModuleServer
 
-  ai:
-    openai:
-      api-key: ${EZ_NVIDIA_API_KEY:}  # 通过nacos变量注入（变量名沿用旧的，值已换成 NVIDIA key）
-      base-url: https://integrate.api.nvidia.com  # NVIDIA NIM 的 OpenAI 兼容地址
-      chat:
-        options:
-          # 遗留演示接口 GET /ai/chat（AiChatController）用 ChatClient 且不显式指定 model，
-          # 这行是它唯一的模型来源 —— 删了会静默弄坏一个不相干的接口。
-          # temperature / stream-usage 已删除：chat 子系统不再走 ChatClient。
-          model: nvidia/nemotron-3-ultra-550b-a55b
-
-      embedding:
-        # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek
-        api-key: ${DASHSCOPE_API_KEY:}
-        base-url: https://dashscope.aliyuncs.com/compatible-mode
-        options:
-          # 必须是 OpenAI 兼容模式支持的模型：qwen3-vl-embedding 是多模态模型，
-          # 走兼容端点会 404 model_not_supported（2026-11-01 实测踩过）。
-          # dimensions=1024 与 ES 索引 mapping 的 dims 必须一致，改这里等于重建索引。
-          model: text-embedding-v3
-          dimensions: 1024
   cloud:
     sentinel:
       transport:
-        # ??sentinel??????
+        # sentinel 控制台地址
         dashboard: 127.0.0.1:8077
     nacos:
       discovery:
@@ -46,7 +25,18 @@ spring:
         file-extension: yaml
 
   config:
+    # 顺序即优先级：越靠后越优先，可以覆盖前面所有文件里的同名 key。
+    # 所以本地拆分文件放在 Nacos 之前 —— 保持和拆分前一样的语义，
+    # Nacos 上的 AIServer.yaml 仍然能覆盖 classpath 里的默认值。
     import:
+      # ---- 按领域拆分的本地配置（classpath:config/ 下，随 jar 一起打包）----
+      # 故意不加 optional:：文件丢了/改名了要立刻启动失败，而不是静默少配一项。
+      - classpath:config/ai.yaml            # Spring AI 模型客户端
+      - classpath:config/rag.yaml           # 知识库：ES、索引、检索、入库
+      - classpath:config/chat.yaml          # 对话：模型档位、SSE、供应商、桌宠
+      - classpath:config/imagegen.yaml      # AI 生图：MinIO 与限额
+      - classpath:config/persistence.yaml   # MySQL / MyBatis / Seata
+      # ---- 远程与本地密钥 ----
       - optional:nacos:AIServer.yaml
       - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
       - nacos:AiLocal.properties?group=DEFAULT_GROUP&refreshEnabled=true
@@ -55,148 +45,3 @@ spring:
       # EZ_PET_API_KEY 只在本文件里，Nacos 没有：缺它则 chat.openai-compat.api-key 解析成空，
       # /ai/v1 会按设计自我关闭成 503，桌宠对话直接不可用。
       - optional:file:F:/AAAJAVA/code/ezPracticeExercises/config/local.properties
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/ezpracticeexercises
-    username: root
-    password:
-  servlet:
-    multipart:
-      # 知识库文档上传上限。Spring Boot 默认单文件仅 1MB，不改的话正常教材在进
-      # Controller 之前就被 MaxUploadSizeExceededException 拒掉。
-      # 这两个值必须 >= rag.ingest.max-file-bytes，否则业务层的校验永远轮不到执行。
-      max-file-size: 20MB
-      max-request-size: 25MB
-
-
-rag:
-  analyzer: ik                     # IK 中文分词（已验证正常）；IK 不可用时改 cjk
-  admin-names: ${RAG_ADMIN_NAMES:}
-  elasticsearch:
-    uris: ${ES_URIS:https://127.0.0.1:9200}
-    username: ${ES_USERNAME:elastic}
-    password: ${ELASTIC_PASSWORD:EZ_elastic_2026}
-    ca-cert-path: ${ES_CA_CERT:F:/ES/elasticsearch-9.5.4/config/certs/http_ca.crt}
-  index:
-    auto-create: true
-    kb-alias: ai_kb_chunk
-    kb-physical: ai_kb_chunk_v1
-    question-alias: ai_question
-    question-physical: ai_question_v1
-  embedding:
-    dimensions: 1024
-    batch-size: 10
-    concurrency: 4
-  search:
-    top-k-default: 6
-    top-k-max: 20
-    rrf-rank-constant: 60
-    rank-window-size: 50
-    knn-k: 20
-    num-candidates: 100
-    knn-similarity: 0.55
-  ingest:
-    # 必须 <= spring.servlet.multipart.max-file-size，否则 multipart 会先拒，
-    # 这里的业务校验永远轮不到执行，用户看到的是框架错误而不是中文提示。
-    max-file-bytes: 20971520       # 20MB
-    max-chunks-per-doc: 2000
-    mysql-batch-size: 200
-    storage-dir:                   # 留空=只存元数据不存原件，重建索引靠 rag_chunk.content 重放
-    allowed-extensions: txt,md,markdown,text
-  async: poll
-  dev-seed:
-    enabled: false
-
-chat:
-  default-model: nvidia/nemotron-3-ultra-550b-a55b
-  default-effort: Medium
-  models:
-    - key: nvidia/nemotron-3-ultra-550b-a55b
-      name: nvidia/nemotron-3-ultra-550b-a55b
-      tag: Ultra
-      supports-thinking: false
-    - key: deepseek-ai/deepseek-v4.1-flash
-      name: deepseek-ai/deepseek-v4.1-flash
-      tag: Flash
-      supports-thinking: true
-  efforts:
-    - { key: Low,    temperature: 1.3, max-tokens: 4096 }
-    - { key: Medium, temperature: 1.0, max-tokens: 4096 }
-    - { key: High,   temperature: 0.7, max-tokens: 8192 }
-    - { key: Extra,  temperature: 0.4, max-tokens: 8192 }
-    - { key: Max,    temperature: 0.2, max-tokens: 16384 }
-  system-prompt: ""
-  context-max-tokens: 8000
-  stream-timeout-ms: 300000
-  stream-core-threads: 4
-  stream-max-threads: 16
-  heartbeat-interval-seconds: 15
-  stale-stream-reap-minutes: 5
-  # 值直接引用 spring.ai.openai.*：API key 的唯一真相源仍是 config/local.properties
-  # 里的 EZ_DEEPSEEK_API_KEY（变量名沿用旧的，值已换成 NVIDIA key）。
-  # 不新增第二个键，免得两处能配得不一样。
-  api-key: ${spring.ai.openai.api-key:}
-  base-url: ${spring.ai.openai.base-url:https://integrate.api.nvidia.com}
-  thinking-enabled: true
-  thinking-max-step-chars: 120
-  thinking-max-steps: 12
-  upstream-idle-timeout-seconds: 60
-  # 用户自建供应商（设置页）。主密钥只从环境变量/Nacos 注入，留空时加解密直接失败、
-  # 该功能整体不可用，绝不退化成明文存储。allow-http 只给本机自建网关用。
-  provider:
-    allow-http: false
-    encryption-key: ${EZ_PROVIDER_ENCRYPTION_KEY:}
-    probe-timeout-seconds: 15
-    max-providers-per-user: 10
-    max-models-per-provider: 30
-  # 桌宠（dsh-pet 独立模式）的 OpenAI 兼容链：POST /ai/v1/chat/completions。
-  # 这条链不经登录 JWT（网关按完整路径放行），所以 api-key 留空 = 路由直接 503 关闭，不是放行。
-  # 键值与 EZ_DEEPSEEK_API_KEY 同一个来源；user-name 决定桌宠轮次落在谁的会话列表里。
-  openai-compat:
-    api-key: ${EZ_PET_API_KEY:}
-    user-name: test920
-    conversation-title: 桌宠对话
-    effort: ""
-
-
-# AI 生图：模型走用户自己的服务商（ai_user_model.model_type=IMAGE），
-# 图片本体落本地 MinIO，库里/响应里只有 objectKey，取图由后端代理回源。
-imagegen:
-  minio:
-    enabled: ${MINIO_ENABLED:true}
-    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
-    access-key: ${MINIO_ACCESS_KEY:minioadmin}
-    secret-key: ${MINIO_SECRET_KEY:minioadmin}
-    bucket: ${MINIO_BUCKET:ai-images}
-  limits:
-    max-prompt-chars: 2000
-    max-images-per-request: 4
-    # 生图上游常要 10-60s，别套用探活那 15s，否则自己先把上游掐了
-    request-timeout-seconds: 120
-    max-image-bytes: 20971520
-
-
-mybatis:
-  mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.example.a.entity
-  configuration:
-    map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-
-mybatis-plus:
-  mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.example.a.entity
-
-seata:
-  enabled: true
-  tx-service-group: a_group
-  service:
-    vgroup-mapping:
-      a_group: default
-    grouplist:
-      default: 127.0.0.1:8091
-  registry:
-    type: file
-  config:
-    type: file
-

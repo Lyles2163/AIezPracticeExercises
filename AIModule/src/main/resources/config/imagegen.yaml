@@ -1,0 +1,16 @@
+# AI 生图：模型走用户自己的服务商（ai_user_model.model_type=IMAGE），
+# 图片本体落本地 MinIO，库里/响应里只有 objectKey，取图由后端代理回源。
+# 由 application.yaml 的 spring.config.import 引入，不要改文件名。
+imagegen:
+  minio:
+    enabled: ${MINIO_ENABLED:true}
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:ai-images}
+  limits:
+    max-prompt-chars: 2000
+    max-images-per-request: 4
+    # 生图上游常要 10-60s，别套用探活那 15s，否则自己先把上游掐了
+    request-timeout-seconds: 120
+    max-image-bytes: 20971520
