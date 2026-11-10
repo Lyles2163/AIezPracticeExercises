@@ -15,4 +15,6 @@ public interface UsersService extends IService<Users> {
     List<Users> selectAll();
 
     void deleteById(Integer id);
+
+    List<Users> getUserInfo(Integer userId);
 }

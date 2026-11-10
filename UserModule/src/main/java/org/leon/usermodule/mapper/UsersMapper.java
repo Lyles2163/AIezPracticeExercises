@@ -4,6 +4,8 @@ import org.apache.ibatis.annotations.Mapper;
 import org.leon.usermodule.pojo.Users;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
+import java.util.List;
+
 /**
 * @author Administrator
 * @description 针对表【users_dev(用户核心账号表)】的数据库操作Mapper
@@ -13,6 +15,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 @Mapper
 public interface UsersMapper extends BaseMapper<Users> {
 
+    List<Users> getUserInfo(Integer userId);
 }
 
 

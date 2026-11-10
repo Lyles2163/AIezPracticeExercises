@@ -19,4 +19,10 @@
         id,username,password_hash,status,created_at,updated_at,
         last_login_at,last_login_ip
     </sql>
+    <select id="getUserInfo" resultMap="BaseResultMap">
+        SELECT
+            id,username,status,last_login_at
+        FROM users_dev
+        WHERE id = #{userId}
+    </select>
 </mapper>

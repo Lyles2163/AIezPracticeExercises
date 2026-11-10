@@ -15,9 +15,9 @@ import org.springframework.context.annotation.Configuration;
 public class McpServerToolConfig {
 
     @Bean
-    public ToolCallbackProvider orderToolCallbackProvider(OrderTools orderTools) {
+    public ToolCallbackProvider orderToolCallbackProvider(OrderTools orderTools, UserTool userTool) {
         return MethodToolCallbackProvider.builder()
-                .toolObjects(orderTools)
+                .toolObjects(orderTools, userTool)
                 .build();
     }
 }

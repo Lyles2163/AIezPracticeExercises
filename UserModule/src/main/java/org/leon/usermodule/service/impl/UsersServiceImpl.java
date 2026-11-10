@@ -30,6 +30,13 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
     public void deleteById(Integer id) {
         usersMapper.deleteById(id);
     }
+
+    @Override
+    public List<Users> getUserInfo(Integer userId) {
+        return usersMapper.getUserInfo(userId);
+    }
+
+
 }
 
 
