@@ -24,5 +24,6 @@
             id,username,status,last_login_at
         FROM users_dev
         WHERE id = #{userId}
+
     </select>
 </mapper>
