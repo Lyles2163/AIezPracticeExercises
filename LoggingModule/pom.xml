@@ -9,7 +9,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>AuthorizationModule</artifactId>
+    <artifactId>LoggingModule</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>AuthorizationModule</name>
     <description>AuthorizationModule</description>
