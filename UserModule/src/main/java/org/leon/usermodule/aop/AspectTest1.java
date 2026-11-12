@@ -18,22 +18,22 @@ public class AspectTest1 {
 //   @Before("execution(* org.leon.usermodule.service.impl.UsersServiceImpl.deleteById(..))||"+
 //           "execution(* org.leon.usermodule.service.impl.UsersServiceImpl.selectAll(..))")
 
-    @Before("@annotation(org.leon.usermodule.annotation.LogOperation)")
-    public void before(){
-        log.info("MyAspect---->before ...");
-    }
-
-//    @Around("execution(* org.leon.usermodule.service.impl.*.*(..))")
-//    public Object recordTime(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
-//        //1.记录开始时间
-//        long begin = System.currentTimeMillis();
-//        //2.执行原始方法
-//        Object result = proceedingJoinPoint.proceed();
-//        //3.记录结束时间
-//        long end = System.currentTimeMillis();
-//        log.info("方法执行用时{}ms", end - begin);
-//        return result;
+//    @Before("@annotation(org.leon.usermodule.annotation.LogOperation)")
+//    public void before(){
+//        log.info("MyAspect---->before ...");
 //    }
+
+    @Around("execution(* org.leon.usermodule.service.impl.*.*(..))")
+    public Object recordTime(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
+        //1.记录开始时间
+        long begin = System.currentTimeMillis();
+        //2.执行原始方法
+        Object result = proceedingJoinPoint.proceed();
+        //3.记录结束时间
+        long end = System.currentTimeMillis();
+        log.info("方法执行用时{}ms", end - begin);
+        return result;
+    }
 
 
 }

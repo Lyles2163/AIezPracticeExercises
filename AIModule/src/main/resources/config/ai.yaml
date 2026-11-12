@@ -10,7 +10,7 @@ spring:
           # 遗留演示接口 GET /ai/chat（AiChatController）用 ChatClient 且不显式指定 model，
           # 这行是它唯一的模型来源 —— 删了会静默弄坏一个不相干的接口。
           # temperature / stream-usage 已删除：chat 子系统不再走 ChatClient。
-          model: nvidia/nemotron-3-ultra-550b-a55b
+          model: z-ai/glm-5.3-flash
 
       embedding:
         # 百炼的 OpenAI 兼容端点，必须单独覆盖 base-url/api-key，否则请求会发到 DeepSeek

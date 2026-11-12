@@ -1,13 +1,13 @@
-package org.leon.authorizationmodule;
+package org.leon.loggingmodule;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class AuthorizationModuleApplication {
+public class LoggingModuleApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(AuthorizationModuleApplication.class, args);
+        SpringApplication.run(LoggingModuleApplication.class, args);
     }
 
 }

@@ -1,10 +1,9 @@
-package org.leon.authorizationmodule;
+package org.leon.loggingmodule;
 
-import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class AuthorizationModuleApplicationTests {
+class LoggingModuleApplicationTests {
 
 //    @Test
 //    void contextLoads() {

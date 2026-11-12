@@ -11,8 +11,8 @@
 
     <artifactId>LoggingModule</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>AuthorizationModule</name>
-    <description>AuthorizationModule</description>
+    <name>LoggingModule</name>
+    <description>LoggingModule</description>
     <url/>
     <licenses>
         <license/>
