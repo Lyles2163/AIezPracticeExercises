@@ -5,7 +5,10 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.io.Serializable;
+import java.time.LocalDateTime;
 import java.util.Date;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 
 /**
@@ -39,23 +42,14 @@ public class Users implements Serializable {
     @TableField(value = "status")
     private Integer status;
 
-    /**
-     * 注册时间
-     */
-    @TableField(value = "created_at")
-    private Date created_at;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private LocalDateTime created_at;
 
-    /**
-     * 最后更新时间
-     */
-    @TableField(value = "updated_at")
-    private Date updated_at;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private LocalDateTime updated_at;
 
-    /**
-     * 上次成功登录时间
-     */
-    @TableField(value = "last_login_at")
-    private Date last_login_at;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private LocalDateTime last_login_at;
 
     /**
      * 最近登录IP，兼容IPv4和IPv6
