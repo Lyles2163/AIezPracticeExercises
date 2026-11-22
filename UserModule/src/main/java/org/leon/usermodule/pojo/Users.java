@@ -51,7 +51,6 @@ public class Users implements Serializable {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime last_login_at;
 
-
     /**
      * 最近登录IP，兼容IPv4和IPv6
      */
