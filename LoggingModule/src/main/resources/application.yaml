@@ -3,11 +3,10 @@ server:
 
 spring:
   application:
-    name: AuthorizationModuleServer
+    name: logging-server
   cloud:
     sentinel:
       transport:
-        # ??sentinel??????
         dashboard: 127.0.0.1:8077
     nacos:
       discovery:
@@ -17,5 +16,33 @@ spring:
         file-extension: yaml
   config:
     import:
-      - optional:nacos:AuthorizationModuleServer.yaml
-      - nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+      - optional:nacos:logging-server.yaml
+      - optional:nacos:common-jwt.yaml?group=DEFAULT_GROUP&refreshEnabled=true
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ezpracticeexercises
+    username: root
+    password:
+
+logging:
+  audit:
+    enabled: true
+    exclude-paths:
+      - /actuator/**
+      - /error
+      - /swagger-ui/**
+      - /v3/api-docs/**
+    sample-rate: 1.0
+    sensitive-fields:
+      - password
+      - token
+      - authorization
+      - smsCode
+      - idCard
+      - phone
+    queue-capacity: 10000
+    batch-size: 100
+    flush-interval-seconds: 5
+    retention-days: 90
+    ai-retention-days: 180
+    enable-usage-rollup: true

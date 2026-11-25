@@ -10,6 +10,9 @@ import org.leon.aimodule.imagegen.minio.ImageObjectStore;
 import org.leon.aimodule.imagegen.web.dto.ImageGenRequest;
 import org.leon.aimodule.imagegen.web.dto.ImageGenVo;
 import org.leon.aimodule.imagegen.web.dto.ImageModelCatalogVo;
+import org.leon.loggingmodule.model.AiCallEvent;
+import org.leon.loggingmodule.recorder.AuditRecorder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,13 +32,22 @@ public class ImageGenService {
     private final ImageGateway gateway;
     private final ImageObjectStore store;
     private final ImageGenProperties properties;
+    private final AuditRecorder auditRecorder;
 
     public ImageGenService(UserModelCatalogService userModels, ImageGateway gateway,
                            ImageObjectStore store, ImageGenProperties properties) {
+        this(userModels, gateway, store, properties, AuditRecorder.noop());
+    }
+
+    @Autowired
+    public ImageGenService(UserModelCatalogService userModels, ImageGateway gateway,
+                           ImageObjectStore store, ImageGenProperties properties,
+                           @Autowired(required = false) AuditRecorder auditRecorder) {
         this.userModels = userModels;
         this.gateway = gateway;
         this.store = store;
         this.properties = properties;
+        this.auditRecorder = auditRecorder != null ? auditRecorder : AuditRecorder.noop();
     }
 
     public ImageModelCatalogVo models(String userName) {
@@ -57,26 +69,53 @@ public class ImageGenService {
         String size = normalizeSize(request.size());
 
         ProviderRoute route = userModels.resolveImage(userName, request.modelKey());
-        ImageGateway.Response response = gateway.generate(new ImageGateway.Command(
-                route.baseUrl(), route.apiKey(), route.upstreamModel(), prompt, size, n,
-                properties.getLimits().getRequestTimeoutSeconds()));
+        long startNanos = System.nanoTime();
+        try {
+            ImageGateway.Response response = gateway.generate(new ImageGateway.Command(
+                    route.baseUrl(), route.apiKey(), route.upstreamModel(), prompt, size, n,
+                    properties.getLimits().getRequestTimeoutSeconds()));
 
-        List<ImageGenVo.Image> images = new ArrayList<>(response.images().size());
-        for (ImageGateway.GeneratedImage image : response.images()) {
-            byte[] data = image.data();
-            if (data == null || data.length == 0) {
-                continue;
+            List<ImageGenVo.Image> images = new ArrayList<>(response.images().size());
+            for (ImageGateway.GeneratedImage image : response.images()) {
+                byte[] data = image.data();
+                if (data == null || data.length == 0) {
+                    continue;
+                }
+                if (data.length > properties.getLimits().getMaxImageBytes()) {
+                    throw new ImageGenException("上游返回的图片过大");
+                }
+                String objectKey = store.put(userName, image.contentType(), data);
+                images.add(new ImageGenVo.Image(objectKey, FILE_PATH + objectKey, data.length, image.contentType()));
             }
-            if (data.length > properties.getLimits().getMaxImageBytes()) {
-                throw new ImageGenException("上游返回的图片过大");
+            if (images.isEmpty()) {
+                throw new ImageGenException("上游没有返回图片");
             }
-            String objectKey = store.put(userName, image.contentType(), data);
-            images.add(new ImageGenVo.Image(objectKey, FILE_PATH + objectKey, data.length, image.contentType()));
+            long costMs = response.latencyMs() > 0 ? response.latencyMs()
+                    : (System.nanoTime() - startNanos) / 1_000_000L;
+            auditRecorder.recordAiCall(AiCallEvent.builder()
+                    .userName(userName)
+                    .serviceType(AiCallEvent.SERVICE_IMAGE)
+                    .provider(route.providerName())
+                    .modelKey(request.modelKey())
+                    .upstreamModel(route.upstreamModel())
+                    .costMs(Math.max(0L, costMs))
+                    .status(AiCallEvent.STATUS_DONE)
+                    .build());
+            return new ImageGenVo(request.modelKey(), response.latencyMs(), images);
+        } catch (RuntimeException ex) {
+            long costMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            auditRecorder.recordAiCall(AiCallEvent.builder()
+                    .userName(userName)
+                    .serviceType(AiCallEvent.SERVICE_IMAGE)
+                    .provider(route.providerName())
+                    .modelKey(request.modelKey())
+                    .upstreamModel(route.upstreamModel())
+                    .costMs(Math.max(0L, costMs))
+                    .status(AiCallEvent.STATUS_FAILED)
+                    .errorMsg(ex.getMessage())
+                    .build());
+            throw ex;
         }
-        if (images.isEmpty()) {
-            throw new ImageGenException("上游没有返回图片");
-        }
-        return new ImageGenVo(request.modelKey(), response.latencyMs(), images);
     }
 
     /** 越权一律按"不存在"处理：告诉越权者这个 key 存在本身就是信息泄露。 */

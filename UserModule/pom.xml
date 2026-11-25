@@ -112,6 +112,13 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
+        <!-- 审计日志模块（轨道 A：Controller 层 AOP 自动记录） -->
+        <dependency>
+            <groupId>org.leon</groupId>
+            <artifactId>LoggingModule</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
 
         <!-- MyBatis-Plus -->
         <dependency>

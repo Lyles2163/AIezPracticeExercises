@@ -7,6 +7,9 @@ import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import org.leon.aimodule.rag.config.RagProperties;
 import org.leon.aimodule.rag.embedding.EmbeddingGateway;
+import org.leon.loggingmodule.model.AiCallEvent;
+import org.leon.loggingmodule.recorder.AuditRecorder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -27,49 +30,80 @@ public class RetrievalService {
     private final EmbeddingGateway embeddingGateway;
     private final HybridQueryBuilder queryBuilder;
     private final RagProperties props;
+    private final AuditRecorder auditRecorder;
 
     public RetrievalService(ElasticsearchClient client, EmbeddingGateway embeddingGateway,
                             HybridQueryBuilder queryBuilder, RagProperties props) {
+        this(client, embeddingGateway, queryBuilder, props, AuditRecorder.noop());
+    }
+
+    @Autowired
+    public RetrievalService(ElasticsearchClient client, EmbeddingGateway embeddingGateway,
+                            HybridQueryBuilder queryBuilder, RagProperties props,
+                            @Autowired(required = false) AuditRecorder auditRecorder) {
         this.client = client;
         this.embeddingGateway = embeddingGateway;
         this.queryBuilder = queryBuilder;
         this.props = props;
+        this.auditRecorder = auditRecorder != null ? auditRecorder : AuditRecorder.noop();
     }
 
     public KnowledgeSearchResponse searchKnowledge(String query, SearchOptions options) throws IOException {
-        float[] queryVector = embedQuery(query);
-        List<Query> filters = PermissionFilters.build(
-                options.scopes(), options.ownerName(), options.subjectId());
-        String alias = props.getIndex().getKbAlias();
-        int window = props.getSearch().getRankWindowSize();
+        long startNanos = System.nanoTime();
+        try {
+            float[] queryVector = embedQuery(query);
+            List<Query> filters = PermissionFilters.build(
+                    options.scopes(), options.ownerName(), options.subjectId());
+            String alias = props.getIndex().getKbAlias();
+            int window = props.getSearch().getRankWindowSize();
 
-        SearchResponse<KbChunkDoc> bm25Response = client.search(
-                queryBuilder.bm25Request(alias, query, filters, window), KbChunkDoc.class);
-        SearchResponse<KbChunkDoc> knnResponse = client.search(
-                queryBuilder.knnRequest(alias, queryVector, filters, props.getSearch(), window),
-                KbChunkDoc.class);
+            SearchResponse<KbChunkDoc> bm25Response = client.search(
+                    queryBuilder.bm25Request(alias, query, filters, window), KbChunkDoc.class);
+            SearchResponse<KbChunkDoc> knnResponse = client.search(
+                    queryBuilder.knnRequest(alias, queryVector, filters, props.getSearch(), window),
+                    KbChunkDoc.class);
 
-        Map<String, KbChunkDoc> docsById = new LinkedHashMap<>();
-        List<String> bm25Order = collectOrder(bm25Response, docsById);
-        List<String> knnOrder = collectOrder(knnResponse, docsById);
-        Map<String, Double> cosineById = knnCosines(knnResponse);
-        List<RrfFusion.FusedHit> fused = RrfFusion.fuse(bm25Order, knnOrder,
-                props.getSearch().getRrfRankConstant(), options.topK());
+            Map<String, KbChunkDoc> docsById = new LinkedHashMap<>();
+            List<String> bm25Order = collectOrder(bm25Response, docsById);
+            List<String> knnOrder = collectOrder(knnResponse, docsById);
+            Map<String, Double> cosineById = knnCosines(knnResponse);
+            List<RrfFusion.FusedHit> fused = RrfFusion.fuse(bm25Order, knnOrder,
+                    props.getSearch().getRrfRankConstant(), options.topK());
 
-        List<KnowledgeSearchItem> items = new ArrayList<>(fused.size());
-        for (RrfFusion.FusedHit hit : fused) {
-            KbChunkDoc doc = docsById.get(hit.id());
-            if (doc == null) {
-                continue;
+            List<KnowledgeSearchItem> items = new ArrayList<>(fused.size());
+            for (RrfFusion.FusedHit hit : fused) {
+                KbChunkDoc doc = docsById.get(hit.id());
+                if (doc == null) {
+                    continue;
+                }
+                items.add(new KnowledgeSearchItem(
+                        doc.getChunkId(), doc.getDocId(), hit.rank(), cosineById.get(hit.id()),
+                        doc.getTitle(), doc.getBook(), doc.getChapterPath(),
+                        doc.getPageNo(), doc.getContent()));
             }
-            items.add(new KnowledgeSearchItem(
-                    doc.getChunkId(), doc.getDocId(), hit.rank(), cosineById.get(hit.id()),
-                    doc.getTitle(), doc.getBook(), doc.getChapterPath(),
-                    doc.getPageNo(), doc.getContent()));
+            // 两条腿串行执行，took 取两次 ES 耗时之和
+            KnowledgeSearchResponse response = new KnowledgeSearchResponse(
+                    (int) (bm25Response.took() + knnResponse.took()),
+                    items.isEmpty(), items);
+            long costMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            auditRecorder.recordAiCall(AiCallEvent.builder()
+                    .userName(options.ownerName())
+                    .serviceType(AiCallEvent.SERVICE_RAG)
+                    .costMs(Math.max(0L, costMs))
+                    .status(AiCallEvent.STATUS_DONE)
+                    .build());
+            return response;
+        } catch (IOException | RuntimeException ex) {
+            long costMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            auditRecorder.recordAiCall(AiCallEvent.builder()
+                    .userName(options != null ? options.ownerName() : null)
+                    .serviceType(AiCallEvent.SERVICE_RAG)
+                    .costMs(Math.max(0L, costMs))
+                    .status(AiCallEvent.STATUS_FAILED)
+                    .errorMsg(ex.getMessage())
+                    .build());
+            throw ex;
         }
-        // 两条腿串行执行，took 取两次 ES 耗时之和
-        return new KnowledgeSearchResponse((int) (bm25Response.took() + knnResponse.took()),
-                items.isEmpty(), items);
     }
 
     /**

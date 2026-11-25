@@ -15,15 +15,21 @@ import org.leon.aimodule.chat.service.ModelResolver;
 import org.leon.aimodule.rag.qa.RagContextService;
 import org.leon.aimodule.tool.ChatTool;
 import org.leon.aimodule.tool.ToolRegistry;
+import org.leon.loggingmodule.collector.AuditEventCollector;
+import org.leon.loggingmodule.model.AiCallEvent;
+import org.leon.loggingmodule.recorder.AuditRecorder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.Disposable;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,12 +60,25 @@ public class ChatStreamService {
     private final Executor streamExecutor;
     private final RagContextService ragContextService;
     private final ToolRegistry toolRegistry;
+    private final AuditRecorder auditRecorder;
+    private final ConcurrentHashMap<Long, StreamAuditMeta> auditMetas = new ConcurrentHashMap<>();
 
     public ChatStreamService(ChatTurnRepository repo, ConversationService conversations,
                              ContextAssembler assembler, ModelResolver modelResolver, ChatModelGateway gateway,
                              ChatStreamRegistry registry, ChatProperties props,
                              @Qualifier("chatStreamExecutor") Executor streamExecutor,
                              RagContextService ragContextService, ToolRegistry toolRegistry) {
+        this(repo, conversations, assembler, modelResolver, gateway, registry, props,
+                streamExecutor, ragContextService, toolRegistry, AuditRecorder.noop());
+    }
+
+    @Autowired
+    public ChatStreamService(ChatTurnRepository repo, ConversationService conversations,
+                             ContextAssembler assembler, ModelResolver modelResolver, ChatModelGateway gateway,
+                             ChatStreamRegistry registry, ChatProperties props,
+                             @Qualifier("chatStreamExecutor") Executor streamExecutor,
+                             RagContextService ragContextService, ToolRegistry toolRegistry,
+                             @Autowired(required = false) AuditRecorder auditRecorder) {
         this.repo = repo;
         this.conversations = conversations;
         this.assembler = assembler;
@@ -70,6 +89,7 @@ public class ChatStreamService {
         this.streamExecutor = streamExecutor;
         this.ragContextService = ragContextService;
         this.toolRegistry = toolRegistry;
+        this.auditRecorder = auditRecorder != null ? auditRecorder : AuditRecorder.noop();
     }
 
     /**
@@ -150,11 +170,13 @@ public class ChatStreamService {
         // 必须先登记再提交任务：秒回的流会在任务跑完时自己摘掉自己，
         // 登记若放在订阅之后，那条已完成的流会被重新塞回注册表成为停不下来的僵尸。
         registry.register(stream.messageId(), stream);
+        auditMetas.put(stream.messageId(), captureAuditMeta(prepared));
         try {
             streamExecutor.execute(() -> run(stream, prepared));
         } catch (RejectedExecutionException e) {
             if (registry.remove(stream.messageId())) {
                 repo.markFailed(prepared.assistantMessageId(), "服务繁忙，未开始生成");
+                recordAiCall(stream, AiCallEvent.STATUS_FAILED, null, null, null, "服务繁忙，未开始生成");
             }
             channel.close();
             throw new ChatRejectException(BUSY_START);
@@ -483,6 +505,7 @@ public class ChatStreamService {
         String reason = mapFinishReason(stream.finishReason().get());
         repo.finalizeAssistant(stream.messageId(), stream.accumulated(), AiMessage.ST_DONE, reason,
                 promptTokens, completionTokens);
+        recordAiCall(stream, AiCallEvent.STATUS_DONE, promptTokens, completionTokens, reasoningTokens, null);
         emitQuietly(stream.channel(), new ChatEvent.Done(reason));
         stream.channel().close();
     }
@@ -496,6 +519,7 @@ public class ChatStreamService {
         }
         drainThinking(stream);
         repo.finalizeFailed(stream.messageId(), stream.accumulated(), msg);
+        recordAiCall(stream, AiCallEvent.STATUS_FAILED, null, null, null, msg);
         emitQuietly(stream.channel(), new ChatEvent.ErrorEvt("UPSTREAM_MODEL_ERROR",
                 "模型服务暂时不可用", retryable(error)));
         emitQuietly(stream.channel(), new ChatEvent.Done(AiMessage.STOP_UPSTREAM));
@@ -509,7 +533,60 @@ public class ChatStreamService {
         // stop / 断连 / 超时都不补发 thought_end：流已断，补发只是多一次无意义往返（spec §4.6 第四行）。
         repo.finalizeAssistant(stream.messageId(), stream.accumulated(), AiMessage.ST_TRUNCATED,
                 stopReason, null, null);
+        recordAiCall(stream, AiCallEvent.STATUS_TRUNCATED, null, null, null, stopReason);
         stream.channel().close();
+    }
+
+    private StreamAuditMeta captureAuditMeta(PreparedTurn prepared) {
+        HttpServletRequest req = AuditEventCollector.currentRequest();
+        String traceId = req != null ? req.getHeader(AuditEventCollector.HEADER_TRACE_ID) : null;
+        Long userId = parseLongHeader(req, AuditEventCollector.HEADER_USER_ID);
+        String provider = prepared.route() != null ? prepared.route().providerName() : "builtin";
+        String modelKey = prepared.params() != null ? prepared.params().modelKey() : null;
+        String upstreamModel = prepared.route() != null ? prepared.route().upstreamModel() : modelKey;
+        return new StreamAuditMeta(traceId, userId, provider, modelKey, upstreamModel, System.nanoTime());
+    }
+
+    private void recordAiCall(ActiveStream stream, String status, Integer promptTokens,
+                              Integer completionTokens, Integer reasoningTokens, String errorMsg) {
+        StreamAuditMeta meta = auditMetas.remove(stream.messageId());
+        long costMs = meta != null ? (System.nanoTime() - meta.startNanos()) / 1_000_000L : 0L;
+        auditRecorder.recordAiCall(AiCallEvent.builder()
+                .traceId(meta != null ? meta.traceId() : null)
+                .userId(meta != null ? meta.userId() : null)
+                .userName(stream.userName())
+                .conversationId(stream.conversationId())
+                .messageId(stream.messageId())
+                .serviceType(AiCallEvent.SERVICE_CHAT)
+                .provider(meta != null ? meta.provider() : null)
+                .modelKey(meta != null ? meta.modelKey() : null)
+                .upstreamModel(meta != null ? meta.upstreamModel() : null)
+                .promptTokens(promptTokens)
+                .completionTokens(completionTokens)
+                .reasoningTokens(reasoningTokens)
+                .costMs(Math.max(0L, costMs))
+                .status(status)
+                .errorMsg(errorMsg)
+                .build());
+    }
+
+    private static Long parseLongHeader(HttpServletRequest req, String name) {
+        if (req == null) {
+            return null;
+        }
+        String raw = req.getHeader(name);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private record StreamAuditMeta(String traceId, Long userId, String provider,
+                                   String modelKey, String upstreamModel, long startNanos) {
     }
 
     /**

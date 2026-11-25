@@ -147,6 +147,13 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
+        <!-- 审计日志模块（轨道 A Controller AOP + 轨道 B AI 用量埋点） -->
+        <dependency>
+            <groupId>org.leon</groupId>
+            <artifactId>LoggingModule</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
 
         <!-- MyBatis-Plus -->
         <dependency>
