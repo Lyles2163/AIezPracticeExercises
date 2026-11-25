@@ -50,6 +50,16 @@
 
     <build>
         <plugins>
+            <!-- 防止 LoggingModule 的 application.yaml 泄露到依赖它的微服务 classpath 中 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>application.yaml</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
             <!-- 使用 classifier=exec：既保留普通 library jar 供其他微服务依赖，又生成可执行 jar 支持独立部署 -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
