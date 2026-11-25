@@ -101,6 +101,23 @@
             <artifactId>CommonJwt</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
+        <!-- 审计日志模块（轨道 A Controller AOP + 轨道 C @LogBiz） -->
+        <dependency>
+            <groupId>org.leon</groupId>
+            <artifactId>LoggingModule</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <!-- 文档解析与模板导出：支持 Word (.docx / .doc) -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-scratchpad</artifactId>
+            <version>5.2.5</version>
+        </dependency>
     </dependencies>
 
     <build>

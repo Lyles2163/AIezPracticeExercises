@@ -38,10 +38,11 @@ class SubjectServiceTest {
         service = new SubjectServiceImpl(subjectMapper, statMapper);
     }
 
-    private QbSubject subject(long id, String name, String key) {
+    private QbSubject subject(long id, String name, String key, long ownerId) {
         QbSubject s = new QbSubject();
         s.setId(id);
         s.setName(name);
+        s.setOwnerId(ownerId);
         s.setSubjectKey(key);
         s.setSortOrder((int) id);
         s.setStatus(1);
@@ -49,15 +50,20 @@ class SubjectServiceTest {
     }
 
     @Test
-    @DisplayName("有科目但没有统计时，我的进度全为 0 而不是 null")
+    @DisplayName("有科目但没有统计时，我的进度全为 0 而不是 null，并正确标记公共/个人")
     void worksWithoutStat() {
-        when(subjectMapper.selectEnabledSubjects()).thenReturn(List.of(subject(1, "语文", "chinese")));
-        when(statMapper.selectByUserAndSubjects(eq(1L), anyCollection())).thenReturn(List.of());
+        when(subjectMapper.selectVisibleEnabledSubjects(10L)).thenReturn(
+                List.of(subject(1, "语文", "chinese", 1L), subject(2, "我的Java", "u10_java", 10L)));
+        when(statMapper.selectByUserAndSubjects(eq(10L), anyCollection())).thenReturn(List.of());
         when(subjectMapper.countEnabledQuestionRows(anyCollection())).thenReturn(List.of());
 
-        List<SubjectItemVO> list = service.listSubjects(1L);
+        List<SubjectItemVO> list = service.listSubjects(10L);
 
-        assertEquals(1, list.size());
+        assertEquals(2, list.size());
+        assertFalse(list.get(0).isPersonal());
+        assertEquals(1L, list.get(0).getOwnerId());
+        assertTrue(list.get(1).isPersonal());
+        assertEquals(10L, list.get(1).getOwnerId());
         assertEquals(0, list.get(0).getQuestionCount());
         assertEquals(0, list.get(0).getMyTotal());
         assertEquals(0.0, list.get(0).getMyAccuracy());
@@ -67,7 +73,7 @@ class SubjectServiceTest {
     @Test
     @DisplayName("正确率按 2 位小数返回；时间转成 epoch 毫秒")
     void accuracyRoundedAndTimeIsMillis() {
-        when(subjectMapper.selectEnabledSubjects()).thenReturn(List.of(subject(1, "语文", "chinese")));
+        when(subjectMapper.selectVisibleEnabledSubjects(1L)).thenReturn(List.of(subject(1, "语文", "chinese", 1L)));
         QbUserSubjectStat stat = new QbUserSubjectStat();
         stat.setSubjectId(1L);
         stat.setTotalCount(3);
@@ -90,14 +96,14 @@ class SubjectServiceTest {
     @Test
     @DisplayName("固定三次查询，不在科目循环里查库（N+1 守卫）")
     void noPerSubjectQuery() {
-        when(subjectMapper.selectEnabledSubjects()).thenReturn(
-                List.of(subject(1, "语文", "chinese"), subject(2, "数学", "math")));
+        when(subjectMapper.selectVisibleEnabledSubjects(1L)).thenReturn(
+                List.of(subject(1, "语文", "chinese", 1L), subject(2, "数学", "math", 1L)));
         when(statMapper.selectByUserAndSubjects(anyLong(), anyCollection())).thenReturn(List.of());
         when(subjectMapper.countEnabledQuestionRows(anyCollection())).thenReturn(List.of());
 
         service.listSubjects(1L);
 
-        verify(subjectMapper, times(1)).selectEnabledSubjects();
+        verify(subjectMapper, times(1)).selectVisibleEnabledSubjects(1L);
         verify(statMapper, times(1)).selectByUserAndSubjects(anyLong(), anyCollection());
         verify(subjectMapper, times(1)).countEnabledQuestionRows(anyCollection());
         verifyNoMoreInteractions(subjectMapper, statMapper);
@@ -106,7 +112,7 @@ class SubjectServiceTest {
     @Test
     @DisplayName("没有启用科目时不查统计也不查题数")
     void noSubjectsShortCircuits() {
-        when(subjectMapper.selectEnabledSubjects()).thenReturn(List.of());
+        when(subjectMapper.selectVisibleEnabledSubjects(1L)).thenReturn(List.of());
 
         assertTrue(service.listSubjects(1L).isEmpty());
         verifyNoInteractions(statMapper);

@@ -6,6 +6,7 @@ import org.leon.practicemodule.mapper.StatCountRow;
 import org.leon.practicemodule.pojo.QbSubject;
 import org.leon.practicemodule.pojo.QbUserSubjectStat;
 import org.leon.practicemodule.pojo.vo.SubjectItemVO;
+import org.leon.practicemodule.service.PaperLoad;
 import org.leon.practicemodule.service.SubjectService;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +33,7 @@ public class SubjectServiceImpl implements SubjectService {
 
     @Override
     public List<SubjectItemVO> listSubjects(Long userId) {
-        List<QbSubject> subjects = subjectMapper.selectEnabledSubjects();
+        List<QbSubject> subjects = subjectMapper.selectVisibleEnabledSubjects(userId);
         if (subjects.isEmpty()) {
             return List.of();
         }
@@ -61,6 +62,9 @@ public class SubjectServiceImpl implements SubjectService {
         vo.setSubjectKey(subject.getSubjectKey());
         vo.setIcon(subject.getIcon());
         vo.setDescription(subject.getDescription());
+        Long ownerId = subject.getOwnerId() == null ? PaperLoad.PUBLIC_OWNER : subject.getOwnerId();
+        vo.setOwnerId(ownerId);
+        vo.setPersonal(ownerId != PaperLoad.PUBLIC_OWNER);
         vo.setQuestionCount(questionCount);
         if (stat == null) {
             vo.setMyTotal(0);

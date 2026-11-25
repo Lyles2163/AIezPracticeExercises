@@ -63,7 +63,7 @@ public class QuestionReadServiceImpl implements QuestionReadService {
     @Override
     public PageVO<QuestionItemVO> page(Long userId, Long subjectId, Long pageNum, Long pageSize) {
         PracticePages.PageParam param = PracticePages.of(pageNum, pageSize);
-        requireEnabledSubject(subjectId);
+        requireVisibleSubject(userId, subjectId);
 
         long total = questionMapper.countEnabledBySubject(subjectId);
         if (total == 0 || param.offset() >= total) {
@@ -99,8 +99,8 @@ public class QuestionReadServiceImpl implements QuestionReadService {
         return items;
     }
 
-    private void requireEnabledSubject(Long subjectId) {
-        SubjectGuards.requireEnabled(subjectMapper, subjectId);
+    private void requireVisibleSubject(Long userId, Long subjectId) {
+        SubjectGuards.requireVisible(subjectMapper, userId, subjectId);
     }
 
     @Override
@@ -112,10 +112,10 @@ public class QuestionReadServiceImpl implements QuestionReadService {
             throw badRequest("subjectId 与 questionId 只能给一个");
         }
         if (questionId != null) {
-            return buildCurrent(userId, loadVisibleQuestion(questionId));
+            return buildCurrent(userId, loadVisibleQuestion(userId, questionId));
         }
 
-        requireEnabledSubject(subjectId);
+        requireVisibleSubject(userId, subjectId);
         if (mode == null || (mode != 1 && mode != 3)) {
             throw badRequest("答题模式只能是 1顺序 或 3智能练习");
         }
@@ -130,7 +130,7 @@ public class QuestionReadServiceImpl implements QuestionReadService {
             return done;
         }
         // 断点 SQL 已过滤 status=1，这里再核对一次：题目在上一次查询与本次之间被下架也不能漏
-        return buildCurrent(userId, loadVisibleQuestion(nextId));
+        return buildCurrent(userId, loadVisibleQuestion(userId, nextId));
     }
 
     /** 唯一的取题出口：题目字段一律经 PracticeMasker 复制，服务不自己拼任何题干字段 */
@@ -151,7 +151,7 @@ public class QuestionReadServiceImpl implements QuestionReadService {
         return out;
     }
 
-    private QbQuestion loadVisibleQuestion(Long questionId) {
+    private QbQuestion loadVisibleQuestion(Long userId, Long questionId) {
         QbQuestion question = questionMapper.selectById(questionId);
         if (question == null) {
             throw new PracticeException(PracticeErrorCode.NOT_FOUND, "题目不存在");
@@ -159,6 +159,7 @@ public class QuestionReadServiceImpl implements QuestionReadService {
         if (question.getStatus() == null || question.getStatus() != 1) {
             throw new PracticeException(PracticeErrorCode.CONFLICT, "题目已下架");
         }
+        requireVisibleSubject(userId, question.getSubjectId());
         return question;
     }
 

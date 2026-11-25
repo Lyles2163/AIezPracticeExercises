@@ -1,6 +1,7 @@
 package org.leon.usermodule.controller;
 
 import lombok.extern.slf4j.Slf4j;
+import org.leon.loggingmodule.annotation.LogBiz;
 import org.leon.usermodule.annotation.LogOperation;
 import org.leon.usermodule.pojo.Users;
 
@@ -24,6 +25,7 @@ public class UserController {
         return "test success";
     }
 
+    @LogBiz(value = "删除用户", type = "USER_DELETE")
     @DeleteMapping
     public void delete(Integer id){
         usersService.deleteById(id);

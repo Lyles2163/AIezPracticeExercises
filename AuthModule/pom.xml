@@ -45,6 +45,12 @@
             <artifactId>CommonJwt</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
+        <!-- 审计日志模块（轨道 A Controller AOP + 轨道 C @LogBiz） -->
+        <dependency>
+            <groupId>org.leon</groupId>
+            <artifactId>LoggingModule</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
 
         <!-- Redis -->
         <dependency>

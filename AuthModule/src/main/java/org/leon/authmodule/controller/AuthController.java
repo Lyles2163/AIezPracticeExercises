@@ -12,6 +12,7 @@ import org.leon.authmodule.service.CaptchaService;
 import org.leon.authmodule.util.IpUtil;
 import org.leon.commonjwt.config.JwtConfig;
 import org.leon.commonjwt.utils.JwtUtil;
+import org.leon.loggingmodule.annotation.LogBiz;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -99,6 +100,7 @@ public class AuthController {
         return  result;
     }
 
+    @LogBiz(value = "用户登录", type = "AUTH_LOGIN")
     @PostMapping("/login")
     public Result login(@RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         return AuthService.login(request, IpUtil.getClientIp(servletRequest));
@@ -109,6 +111,7 @@ public class AuthController {
         return header.substring((7));
     }
 
+    @LogBiz(value = "用户登出", type = "AUTH_LOGOUT")
     @PostMapping("/logout")
     public  Result logout(@RequestHeader(value = "Authorization",required = false) String authorization){
 
@@ -117,6 +120,7 @@ public class AuthController {
     }
 
 
+    @LogBiz(value = "用户注册", type = "AUTH_REGISTER")
     @PostMapping("/register")
     public Result register(@RequestBody RegisterRequest request) {
 //         ========== 1. 验证码校验（TODO: 对接 Redis 中的验证码） ==========

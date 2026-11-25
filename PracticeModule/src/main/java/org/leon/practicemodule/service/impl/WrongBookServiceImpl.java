@@ -52,7 +52,7 @@ public class WrongBookServiceImpl implements WrongBookService {
         if (status != null && status != 1 && status != 2) {
             throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "掌握状态只能是 1未掌握 或 2已掌握");
         }
-        SubjectGuards.requireEnabled(subjectMapper, subjectId);
+        SubjectGuards.requireVisible(subjectMapper, userId, subjectId);
 
         long total = wrongMapper.countWrong(userId, subjectId, status);
         if (total == 0 || param.offset() >= total) {

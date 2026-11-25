@@ -10,6 +10,8 @@ import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
  * 按包作用域收口，不扩 AIModule 的 AiExceptionHandler.basePackages（它的映射有测试依赖）。
@@ -51,6 +53,18 @@ public class PracticeExceptionHandler {
      * （Stage 3 起大量的 ?subjectId= 这类必填查询参数）与 MissingRequestHeaderException
      * 的其余情形；另两个是方法与媒体类型不支持，同属客户端错误。
      */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Result<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("上传文件超过大小限制: {}", e.getMessage());
+        return Result.error(PracticeErrorCode.BAD_REQUEST.code(), "上传文件超过 10MB 上限");
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public Result<Void> handleMissingPart(MissingServletRequestPartException e) {
+        log.warn("缺少上传字段: {}", e.getRequestPartName());
+        return Result.error(PracticeErrorCode.BAD_REQUEST.code(), "请选择要上传的文件");
+    }
+
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
             ServletRequestBindingException.class, HttpRequestMethodNotSupportedException.class,
             HttpMediaTypeNotSupportedException.class})

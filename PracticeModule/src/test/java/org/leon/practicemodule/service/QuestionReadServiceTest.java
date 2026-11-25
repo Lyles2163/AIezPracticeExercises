@@ -238,6 +238,7 @@ class QuestionReadServiceTest {
     @Test
     @DisplayName("current：指定题走脱敏出口，index 由位置子查询给，answerStatus 与上次作答同步带回")
     void currentByQuestionId() {
+        subjectExists();
         when(questionMapper.selectById(1L)).thenReturn(question(1, 1));
         when(optionMapper.selectDisplayOptions(1L)).thenReturn(List.of(option("A", 1), option("B", 0)));
         when(questionMapper.selectPositions(any())).thenReturn(List.of(new QuestionPositionRow(1L, 2L)));
@@ -261,6 +262,7 @@ class QuestionReadServiceTest {
     @Test
     @DisplayName("current：待自评 + 练习记录才回 pendingRecordId；考试的 -1 不回")
     void pendingRecordIdGate() {
+        subjectExists();
         when(questionMapper.selectById(5L)).thenReturn(question(5, 1));
         when(questionMapper.selectPositions(any())).thenReturn(List.of(new QuestionPositionRow(5L, 4L)));
         when(recordMapper.selectLatestByQuestions(eq(USER), any()))

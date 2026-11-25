@@ -4,6 +4,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.InfoResponse;
 import co.elastic.clients.elasticsearch.indices.GetAliasResponse;
 import org.leon.commonjwt.pojo.Result;
+import org.leon.loggingmodule.annotation.LogIgnore;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +25,7 @@ public class KbPingController {
         this.client = client;
     }
 
+    @LogIgnore
     @GetMapping("/ping")
     public Result<Map<String, Object>> ping() throws IOException {
         InfoResponse info = client.info();

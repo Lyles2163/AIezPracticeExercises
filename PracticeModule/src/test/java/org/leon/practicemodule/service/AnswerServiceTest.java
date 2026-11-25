@@ -8,11 +8,13 @@ import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
 import org.leon.practicemodule.mapper.QbQuestionMapper;
 import org.leon.practicemodule.mapper.QbQuestionOptionMapper;
+import org.leon.practicemodule.mapper.QbSubjectMapper;
 import org.leon.practicemodule.mapper.QbUserAnswerRecordMapper;
 import org.leon.practicemodule.mapper.QbUserSubjectStatMapper;
 import org.leon.practicemodule.mapper.QbUserWrongMapper;
 import org.leon.practicemodule.pojo.AnswerSubmitReq;
 import org.leon.practicemodule.pojo.QbQuestion;
+import org.leon.practicemodule.pojo.QbSubject;
 import org.leon.practicemodule.pojo.QbUserAnswerRecord;
 import org.leon.practicemodule.pojo.QbUserSubjectStat;
 import org.leon.practicemodule.pojo.QbUserWrong;
@@ -41,11 +43,17 @@ class AnswerServiceTest {
     private final QbUserAnswerRecordMapper recordMapper = mock(QbUserAnswerRecordMapper.class);
     private final QbUserWrongMapper wrongMapper = mock(QbUserWrongMapper.class);
     private final QbUserSubjectStatMapper statMapper = mock(QbUserSubjectStatMapper.class);
+    private final QbSubjectMapper subjectMapper = mock(QbSubjectMapper.class);
     private final AnswerServiceImpl service = new AnswerServiceImpl(
-            questionMapper, optionMapper, recordMapper, wrongMapper, statMapper, new AnswerGrader());
+            questionMapper, optionMapper, recordMapper, wrongMapper, statMapper, subjectMapper, new AnswerGrader());
 
     @BeforeEach
     void stubInsertBackfillsId() {
+        QbSubject publicSubject = new QbSubject();
+        publicSubject.setId(1L);
+        publicSubject.setOwnerId(1L);
+        publicSubject.setStatus(1);
+        when(subjectMapper.selectById(1L)).thenReturn(publicSubject);
         when(recordMapper.insert(any(QbUserAnswerRecord.class))).thenAnswer(inv -> {
             ((QbUserAnswerRecord) inv.getArgument(0)).setId(123L);
             return 1;

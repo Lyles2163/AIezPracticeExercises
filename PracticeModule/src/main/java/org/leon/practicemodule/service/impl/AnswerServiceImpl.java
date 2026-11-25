@@ -4,6 +4,7 @@ import org.leon.practicemodule.exception.PracticeErrorCode;
 import org.leon.practicemodule.exception.PracticeException;
 import org.leon.practicemodule.mapper.QbQuestionMapper;
 import org.leon.practicemodule.mapper.QbQuestionOptionMapper;
+import org.leon.practicemodule.mapper.QbSubjectMapper;
 import org.leon.practicemodule.mapper.QbUserAnswerRecordMapper;
 import org.leon.practicemodule.mapper.QbUserSubjectStatMapper;
 import org.leon.practicemodule.mapper.QbUserWrongMapper;
@@ -18,6 +19,7 @@ import org.leon.practicemodule.pojo.vo.SelfJudgeVO;
 import org.leon.practicemodule.pojo.vo.StatDeltaVO;
 import org.leon.practicemodule.service.AnswerGrader;
 import org.leon.practicemodule.service.AnswerService;
+import org.leon.practicemodule.service.SubjectGuards;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -41,6 +43,7 @@ public class AnswerServiceImpl implements AnswerService {
     private final QbUserAnswerRecordMapper recordMapper;
     private final QbUserWrongMapper wrongMapper;
     private final QbUserSubjectStatMapper statMapper;
+    private final QbSubjectMapper subjectMapper;
     private final AnswerGrader grader;
 
     public AnswerServiceImpl(QbQuestionMapper questionMapper,
@@ -48,12 +51,14 @@ public class AnswerServiceImpl implements AnswerService {
                              QbUserAnswerRecordMapper recordMapper,
                              QbUserWrongMapper wrongMapper,
                              QbUserSubjectStatMapper statMapper,
+                             QbSubjectMapper subjectMapper,
                              AnswerGrader grader) {
         this.questionMapper = questionMapper;
         this.optionMapper = optionMapper;
         this.recordMapper = recordMapper;
         this.wrongMapper = wrongMapper;
         this.statMapper = statMapper;
+        this.subjectMapper = subjectMapper;
         this.grader = grader;
     }
 
@@ -61,7 +66,7 @@ public class AnswerServiceImpl implements AnswerService {
     @Transactional
     public AnswerSubmitVO submit(Long userId, AnswerSubmitReq req) {
         validateSubmit(req);
-        QbQuestion question = loadEnabledQuestion(req.getQuestionId(), req.getSubjectId());
+        QbQuestion question = loadEnabledQuestion(userId, req.getQuestionId(), req.getSubjectId());
 
         List<String> optionKeys = question.getType() == 1
                 ? optionMapper.selectOptionKeys(question.getId())
@@ -184,7 +189,7 @@ public class AnswerServiceImpl implements AnswerService {
         }
     }
 
-    private QbQuestion loadEnabledQuestion(Long questionId, Long subjectId) {
+    private QbQuestion loadEnabledQuestion(Long userId, Long questionId, Long subjectId) {
         QbQuestion question = questionMapper.selectById(questionId);
         if (question == null) {
             throw notFound("题目不存在");
@@ -195,6 +200,7 @@ public class AnswerServiceImpl implements AnswerService {
         if (!question.getSubjectId().equals(subjectId)) {
             throw badRequest("题目不属于该科目");
         }
+        SubjectGuards.requireVisible(subjectMapper, userId, question.getSubjectId());
         return question;
     }
 

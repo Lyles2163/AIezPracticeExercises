@@ -1,6 +1,7 @@
 package org.leon.practicemodule.oj.controller;
 
 import org.leon.commonjwt.pojo.Result;
+import org.leon.loggingmodule.annotation.LogBiz;
 import org.leon.practicemodule.oj.pojo.OjSubmitReq;
 import org.leon.practicemodule.oj.pojo.vo.OjProblemItemVO;
 import org.leon.practicemodule.oj.pojo.vo.OjProblemVO;
@@ -35,6 +36,7 @@ public class OjController {
         this.userIdentityService = userIdentityService;
     }
 
+    @LogBiz(value = "提交OJ判题", type = "OJ_SUBMIT")
     @PostMapping("/submit")
     public Result<OjSubmitVO> submit(@RequestHeader("X-User-Name") String userName,
                                      @RequestBody OjSubmitReq req) {

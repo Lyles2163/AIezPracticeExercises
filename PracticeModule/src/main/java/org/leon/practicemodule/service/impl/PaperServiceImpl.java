@@ -49,7 +49,7 @@ public class PaperServiceImpl implements PaperService {
     @Override
     public PageVO<PaperCardVO> page(Long userId, Long subjectId, Integer examYear, Integer examMonth,
                                     Integer setNo, Long pageNum, Long pageSize) {
-        SubjectGuards.requireEnabled(subjectMapper, subjectId);
+        SubjectGuards.requireVisible(subjectMapper, userId, subjectId);
         PracticePages.PageParam page = PracticePages.of(pageNum, pageSize);
 
         long total = paperMapper.countForList(subjectId, examYear, examMonth, setNo, userId);

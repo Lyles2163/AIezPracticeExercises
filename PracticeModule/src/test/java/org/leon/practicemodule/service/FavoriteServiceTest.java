@@ -136,6 +136,7 @@ class FavoriteServiceTest {
     @Test
     @DisplayName("toggle：插入用题目自己的 subjectId，回读存在才报 true")
     void addThenReadBack() {
+        subjectExists();
         when(favoriteMapper.deleteByUserAndQuestion(USER, 1L)).thenReturn(0);
         when(questionMapper.selectById(1L)).thenReturn(question(1));
         when(favoriteMapper.countByUserAndQuestion(USER, 1L)).thenReturn(1L);
@@ -147,6 +148,7 @@ class FavoriteServiceTest {
     @Test
     @DisplayName("toggle：并发下刚插完就被别人删掉，回 false 而不是硬编 true")
     void addRacedToZero() {
+        subjectExists();
         when(favoriteMapper.deleteByUserAndQuestion(USER, 1L)).thenReturn(0);
         when(questionMapper.selectById(1L)).thenReturn(question(1));
         when(favoriteMapper.countByUserAndQuestion(USER, 1L)).thenReturn(0L);

@@ -1,6 +1,7 @@
 package org.leon.practicemodule.controller;
 
 import org.leon.commonjwt.pojo.Result;
+import org.leon.loggingmodule.annotation.LogBiz;
 import org.leon.practicemodule.pojo.AnswerSubmitReq;
 import org.leon.practicemodule.pojo.SelfJudgeReq;
 import org.leon.practicemodule.pojo.vo.AnswerSubmitVO;
@@ -29,6 +30,7 @@ public class PracticeAnswerController {
         this.userIdentityService = userIdentityService;
     }
 
+    @LogBiz(value = "提交作答", type = "PRACTICE_SUBMIT")
     @PostMapping("/submit")
     public Result<AnswerSubmitVO> submit(@RequestHeader("X-User-Name") String userName,
                                          @RequestBody AnswerSubmitReq req) {

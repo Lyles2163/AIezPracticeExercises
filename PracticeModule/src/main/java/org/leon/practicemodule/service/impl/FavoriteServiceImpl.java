@@ -44,7 +44,7 @@ public class FavoriteServiceImpl implements FavoriteService {
     @Override
     public PageVO<FavoriteItemVO> page(Long userId, Long subjectId, Long pageNum, Long pageSize) {
         PracticePages.PageParam param = PracticePages.of(pageNum, pageSize);
-        SubjectGuards.requireEnabled(subjectMapper, subjectId);
+        SubjectGuards.requireVisible(subjectMapper, userId, subjectId);
 
         long total = favoriteMapper.countFavorites(userId, subjectId);
         if (total == 0 || param.offset() >= total) {
@@ -89,6 +89,7 @@ public class FavoriteServiceImpl implements FavoriteService {
         if (!subjectId.equals(question.getSubjectId())) {
             throw new PracticeException(PracticeErrorCode.BAD_REQUEST, "题目不属于该科目");
         }
+        SubjectGuards.requireVisible(subjectMapper, userId, question.getSubjectId());
         // 插入返回值一律不看：实测 Connector/J 默认 useAffectedRows=false，
         // ON DUPLICATE KEY UPDATE id=id 这种空更新照样回 1（Task 3.1 的 db-it 记了这条）。
         // 唯一可信的判据是回读存在性——并发下这一下也可能没落下任何行。
